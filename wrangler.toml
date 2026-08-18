@@ -1,0 +1,17 @@
+name = "japanese-daily-reminder"
+main = "worker.js"
+compatibility_date = "2026-08-07"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+APP_URL = "https://lihe-source.github.io/PWA-Japanese-GD/"
+ALLOWED_ORIGINS = "https://lihe-source.github.io"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "vocabulary-reminders"
+database_id = "8886068d-480d-45ca-af8b-2c679d0fc150"

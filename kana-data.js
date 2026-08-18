@@ -1,0 +1,66 @@
+import { KANA_STROKES } from './kana-strokes.js?v=V1_0_0';
+
+export const KANA_SCRIPTS = Object.freeze({
+  HIRAGANA: 'hiragana',
+  KATAKANA: 'katakana'
+});
+
+const ROWS = [
+  { id: 'a',  label: 'あ行', romaji: ['a', 'i', 'u', 'e', 'o'], hiragana: 'あいうえお', katakana: 'アイウエオ' },
+  { id: 'ka', label: 'か行', romaji: ['ka', 'ki', 'ku', 'ke', 'ko'], hiragana: 'かきくけこ', katakana: 'カキクケコ' },
+  { id: 'sa', label: 'さ行', romaji: ['sa', 'shi', 'su', 'se', 'so'], hiragana: 'さしすせそ', katakana: 'サシスセソ' },
+  { id: 'ta', label: 'た行', romaji: ['ta', 'chi', 'tsu', 'te', 'to'], hiragana: 'たちつてと', katakana: 'タチツテト' },
+  { id: 'na', label: 'な行', romaji: ['na', 'ni', 'nu', 'ne', 'no'], hiragana: 'なにぬねの', katakana: 'ナニヌネノ' },
+  { id: 'ha', label: 'は行', romaji: ['ha', 'hi', 'fu', 'he', 'ho'], hiragana: 'はひふへほ', katakana: 'ハヒフヘホ' },
+  { id: 'ma', label: 'ま行', romaji: ['ma', 'mi', 'mu', 'me', 'mo'], hiragana: 'まみむめも', katakana: 'マミムメモ' },
+  { id: 'ya', label: 'や行', romaji: ['ya', 'yu', 'yo'], hiragana: 'やゆよ', katakana: 'ヤユヨ' },
+  { id: 'ra', label: 'ら行', romaji: ['ra', 'ri', 'ru', 're', 'ro'], hiragana: 'らりるれろ', katakana: 'ラリルレロ' },
+  { id: 'wa', label: 'わ行・ん', romaji: ['wa', 'wo', 'n'], hiragana: 'わをん', katakana: 'ワヲン' }
+];
+
+function buildKana(script) {
+  return ROWS.flatMap(row => {
+    const characters = [...row[script]];
+    return characters.map((character, index) => Object.freeze({
+      id: `${script}:${character}`,
+      character,
+      script,
+      scriptLabel: script === KANA_SCRIPTS.HIRAGANA ? '平假名' : '片假名',
+      row: row.id,
+      rowLabel: row.label,
+      romaji: row.romaji[index],
+      strokes: KANA_STROKES[character]?.paths || [],
+      starts: KANA_STROKES[character]?.starts || []
+    }));
+  });
+}
+
+export const HIRAGANA = Object.freeze(buildKana(KANA_SCRIPTS.HIRAGANA));
+export const KATAKANA = Object.freeze(buildKana(KANA_SCRIPTS.KATAKANA));
+export const BASIC_KANA = Object.freeze([...HIRAGANA, ...KATAKANA]);
+export const KANA_ROWS = Object.freeze(ROWS.map(({ id, label }) => Object.freeze({ id, label })));
+
+const BY_ID = new Map(BASIC_KANA.map(item => [item.id, item]));
+const BY_CHARACTER = new Map(BASIC_KANA.map(item => [item.character, item]));
+
+export function getKana(value) {
+  const key = String(value || '');
+  return BY_ID.get(key) || BY_CHARACTER.get(key) || null;
+}
+
+export function getKanaSet({ script = 'hiragana', row = 'all' } = {}) {
+  const source = script === 'both'
+    ? BASIC_KANA
+    : script === KANA_SCRIPTS.KATAKANA ? KATAKANA : HIRAGANA;
+  return source.filter(item => row === 'all' || item.row === row);
+}
+
+export function shuffleKana(items, random = Math.random) {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+}
+

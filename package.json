@@ -1,0 +1,24 @@
+{
+  "name": "pwa-japanese-gd",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "日文語彙、閱讀、寫作、AI 與五十音手寫練習 PWA",
+  "scripts": {
+    "check": "node --check app.js && node --check storage.js && node --check backup-schema.js && node --check study-streak.js && node --check japanese-learning.js && node --check kana-data.js && node --check kana-strokes.js && node --check handwriting-engine.js && node --check reminder-manager.js && node --check push-config.js && node --check sw.js && node --check worker.js",
+    "test": "node --test test-*.mjs",
+    "worker:dev": "wrangler dev --test-scheduled",
+    "worker:deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute vocabulary-reminders --remote --file=schema.sql",
+    "vapid:generate": "web-push generate-vapid-keys --json"
+  },
+  "dependencies": {
+    "web-push": "3.6.7"
+  },
+  "devDependencies": {
+    "wrangler": "4.120.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

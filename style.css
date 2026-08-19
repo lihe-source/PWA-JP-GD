@@ -3214,9 +3214,16 @@ html.kana-view-active #global-go-bottom {
   max-height: none;
 }
 
-/* iPhone: keep the score card and the next button in normal document flow.
-   The generic sticky action is reserved for the wider iPad layout. */
-.kana-session[data-layout="phone"] .kana-session-actions {
+/* iPhone dual-state action:
+   - before scoring: dock above the bottom navigation when it reaches the viewport;
+   - after scoring: return to document flow below the complete score card. */
+.kana-session[data-layout="phone"] .kana-session-actions:not(.is-scored) {
+  position: sticky;
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + 8px);
+  z-index: 60;
+}
+
+.kana-session[data-layout="phone"] .kana-session-actions.is-scored {
   position: static;
   bottom: auto;
   z-index: auto;
@@ -3225,7 +3232,6 @@ html.kana-view-active #global-go-bottom {
   background: none;
 }
 
-.kana-session[data-layout="phone"] .kana-session-actions .btn-primary,
 .kana-session[data-layout="phone"] .kana-session-actions.is-scored .btn-primary {
   box-shadow: var(--shadow-sm);
 }

@@ -4,17 +4,17 @@ import { readFile } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-test('all public app surfaces use Japanese V1.1.0', async () => {
+test('all public app surfaces use Japanese V1.1.1', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_1_0'/);
-  assert.match(html, /app\.js\?v=V1_1_0/);
-  assert.match(sw, /Japanese-PWA-V1_1_0/);
+  assert.match(app, /APP_VERSION = 'V1_1_1'/);
+  assert.match(html, /app\.js\?v=V1_1_1/);
+  assert.match(sw, /Japanese-PWA-V1_1_1/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.1\.0/);
-  assert.equal(JSON.parse(pkg).version, '1.1.0');
+  assert.match(JSON.parse(manifest).name, /V1\.1\.1/);
+  assert.equal(JSON.parse(pkg).version, '1.1.1');
 });
 
 test('V1.1 remembers practice choices and provides multi-row layout controls', async () => {
@@ -31,6 +31,14 @@ test('V1.1 remembers practice choices and provides multi-row layout controls', a
   assert.match(style, /html\.kana-view-active #global-back-top/);
   assert.match(style, /\.kana-session\[data-layout="phone"\]/);
   assert.match(style, /\.kana-session\[data-layout="tablet"\]/);
+});
+
+test('iPhone score action stays in document flow and cannot cover score details', async () => {
+  const [app, style] = await Promise.all([text('app.js'), text('style.css')]);
+  assert.match(style, /\.kana-session\[data-layout="phone"\] \.kana-session-actions\s*\{[\s\S]*?position:\s*static/);
+  assert.match(style, /\.kana-session\[data-layout="phone"\] \.kana-score-panel/);
+  assert.match(app, /session\?\.dataset\.layout === 'phone'/);
+  assert.match(app, /panel\?\.scrollIntoView\?\.\(\{ behavior: 'smooth', block: 'center' \}\)/);
 });
 
 test('blue Japanese theme and iPad handwriting layout are present', async () => {

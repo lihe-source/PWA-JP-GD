@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "日本語練習 V1.1.0",
+  "name": "日本語練習 V1.1.1",
   "short_name": "日文練習",
-  "description": "支援跨裝置連續練習天數、每日推播提醒、Gemini AI、IndexedDB 與 Google Drive 備份的日本語練習 PWA V1.1.0",
+  "description": "支援跨裝置連續練習天數、每日推播提醒、Gemini AI、IndexedDB 與 Google Drive 備份的日本語練習 PWA V1.1.1",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

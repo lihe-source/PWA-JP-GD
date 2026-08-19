@@ -1,22 +1,22 @@
-import { AppStorage } from './storage.js?v=V1_1_0';
-import { BackupSchema } from './backup-schema.js?v=V1_1_0';
-import { VersionManager } from './version-manager.js?v=V1_1_0';
-import { TrendChart } from './chart-renderer.js?v=V1_1_0';
-import { PUSH_CONFIG } from './push-config.js?v=V1_1_0';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_1_0';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_1_0';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_1_0';
-import { BASIC_KANA, KANA_ROWS, getKanaSet, shuffleKana } from './kana-data.js?v=V1_1_0';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_1_0';
+import { AppStorage } from './storage.js?v=V1_1_1';
+import { BackupSchema } from './backup-schema.js?v=V1_1_1';
+import { VersionManager } from './version-manager.js?v=V1_1_1';
+import { TrendChart } from './chart-renderer.js?v=V1_1_1';
+import { PUSH_CONFIG } from './push-config.js?v=V1_1_1';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_1_1';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_1_1';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_1_1';
+import { BASIC_KANA, KANA_ROWS, getKanaSet, shuffleKana } from './kana-data.js?v=V1_1_1';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_1_1';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_1_0
-// V1.1.0：記憶練習選項、五十音行複選與 iPhone／iPad 安全書寫版面
+// 日本語練習 PWA - app.js V1_1_1
+// V1.1.1：修正 iPhone 評分後主要按鈕遮住評分資訊
 // ===========================
 
-const APP_VERSION = 'V1_1_0';
-const APP_DISPLAY_VERSION = 'V1.1.0';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_1_0';
+const APP_VERSION = 'V1_1_1';
+const APP_DISPLAY_VERSION = 'V1.1.1';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_1_1';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -3609,8 +3609,13 @@ Views.kanaPractice = {
     };
     requestAnimationFrame(() => {
       const actions = container.querySelector('.kana-session-actions');
+      const session = container.querySelector('.kana-session');
       actions?.classList.add('is-scored');
-      actions?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+      if (session?.dataset.layout === 'phone') {
+        panel?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      } else {
+        actions?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+      }
     });
   },
 

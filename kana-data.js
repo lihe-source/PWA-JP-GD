@@ -1,4 +1,4 @@
-import { KANA_STROKES } from './kana-strokes.js?v=V1_0_0';
+import { KANA_STROKES } from './kana-strokes.js?v=V1_1_0';
 
 export const KANA_SCRIPTS = Object.freeze({
   HIRAGANA: 'hiragana',
@@ -48,11 +48,15 @@ export function getKana(value) {
   return BY_ID.get(key) || BY_CHARACTER.get(key) || null;
 }
 
-export function getKanaSet({ script = 'hiragana', row = 'all' } = {}) {
+export function getKanaSet({ script = 'hiragana', row = 'all', rows = null } = {}) {
   const source = script === 'both'
     ? BASIC_KANA
     : script === KANA_SCRIPTS.KATAKANA ? KATAKANA : HIRAGANA;
-  return source.filter(item => row === 'all' || item.row === row);
+  const selectedRows = Array.isArray(rows)
+    ? new Set(rows.filter(Boolean))
+    : new Set([row]);
+  if (!selectedRows.size || selectedRows.has('all')) return [...source];
+  return source.filter(item => selectedRows.has(item.row));
 }
 
 export function shuffleKana(items, random = Math.random) {
@@ -63,4 +67,3 @@ export function shuffleKana(items, random = Math.random) {
   }
   return result;
 }
-

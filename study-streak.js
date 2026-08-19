@@ -1,4 +1,4 @@
-// Study streak domain logic for PWA Japanese GD V1.0.0.
+// Study streak domain logic for PWA Japanese GD V1.1.0.
 // The module is deliberately UI-independent so date math, migration and
 // cross-device union merges can be verified with Node tests.
 

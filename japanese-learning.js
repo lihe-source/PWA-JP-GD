@@ -4,6 +4,20 @@ export const JAPANESE_DEFAULTS = Object.freeze({
   jlptLevel: 'N5'
 });
 
+export function resolveWritingLayout({
+  preference = 'auto',
+  viewportWidth = 0,
+  screenWidth = 0,
+  screenHeight = 0,
+  touch = false
+} = {}) {
+  if (preference === 'phone' || preference === 'tablet') return preference;
+  const width = Math.max(0, Number(viewportWidth) || 0);
+  const knownScreenSides = [Number(screenWidth), Number(screenHeight)].filter(value => Number.isFinite(value) && value > 0);
+  const shortSide = knownScreenSides.length ? Math.min(...knownScreenSides) : width;
+  return (touch ? shortSide >= 700 : width >= 700) ? 'tablet' : 'phone';
+}
+
 export function toHiragana(value) {
   return String(value || '').replace(/[ァ-ヶ]/g, character =>
     String.fromCodePoint(character.codePointAt(0) - 0x60));

@@ -1,22 +1,22 @@
-import { AppStorage } from './storage.js?v=V1_0_0';
-import { BackupSchema } from './backup-schema.js?v=V1_0_0';
-import { VersionManager } from './version-manager.js?v=V1_0_0';
-import { TrendChart } from './chart-renderer.js?v=V1_0_0';
-import { PUSH_CONFIG } from './push-config.js?v=V1_0_0';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_0_0';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_0_0';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord } from './japanese-learning.js?v=V1_0_0';
-import { BASIC_KANA, KANA_ROWS, getKanaSet, shuffleKana } from './kana-data.js?v=V1_0_0';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_0_0';
+import { AppStorage } from './storage.js?v=V1_1_0';
+import { BackupSchema } from './backup-schema.js?v=V1_1_0';
+import { VersionManager } from './version-manager.js?v=V1_1_0';
+import { TrendChart } from './chart-renderer.js?v=V1_1_0';
+import { PUSH_CONFIG } from './push-config.js?v=V1_1_0';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_1_0';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_1_0';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_1_0';
+import { BASIC_KANA, KANA_ROWS, getKanaSet, shuffleKana } from './kana-data.js?v=V1_1_0';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_1_0';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_0_0
-// V1.0.0：日文單字、閱讀、寫作、AI 與五十音手寫整合版
+// 日本語練習 PWA - app.js V1_1_0
+// V1.1.0：記憶練習選項、五十音行複選與 iPhone／iPad 安全書寫版面
 // ===========================
 
-const APP_VERSION = 'V1_0_0';
-const APP_DISPLAY_VERSION = 'V1.0.0';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_0_0';
+const APP_VERSION = 'V1_1_0';
+const APP_DISPLAY_VERSION = 'V1.1.0';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_1_0';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -770,6 +770,77 @@ const DB = {
   saveTtsDelay(ms) { AppStorage.setItem('ttsDelay', String(ms)); },
   getJlptLevel() { return AppStorage.getItem('japaneseJlptLevel') || JAPANESE_DEFAULTS.jlptLevel; },
   saveJlptLevel(level) { AppStorage.setItem('japaneseJlptLevel', String(level || 'N5').toUpperCase()); },
+  getLastPracticeMode() {
+    const saved = AppStorage.getItem('lastPracticeMode') || 'quiz';
+    return ['quiz', 'kana', 'essay', 'reading', 'aiask'].includes(saved) ? saved : 'quiz';
+  },
+  saveLastPracticeMode(mode) {
+    const value = ['quiz', 'kana', 'essay', 'reading', 'aiask'].includes(mode) ? mode : 'quiz';
+    AppStorage.setItem('lastPracticeMode', value);
+    return value;
+  },
+  getWordPracticePreferences() {
+    let saved = {};
+    try { saved = JSON.parse(AppStorage.getItem('wordPracticePreferencesV1') || '{}') || {}; } catch {}
+    const count = [5, 10, 15, 20, 25, 30].includes(Number(saved.count)) ? Number(saved.count) : 10;
+    const order = ['newest', 'all'].includes(saved.order) ? saved.order : 'all';
+    return { count, order };
+  },
+  saveWordPracticePreferences(patch = {}) {
+    const current = this.getWordPracticePreferences();
+    const next = { ...current, ...patch };
+    const normalized = {
+      count: [5, 10, 15, 20, 25, 30].includes(Number(next.count)) ? Number(next.count) : current.count,
+      order: ['newest', 'all'].includes(next.order) ? next.order : current.order
+    };
+    AppStorage.setItem('wordPracticePreferencesV1', JSON.stringify(normalized));
+    return normalized;
+  },
+  getKanaPracticePreferences() {
+    let saved = {};
+    try { saved = JSON.parse(AppStorage.getItem('kanaPracticePreferencesV1') || '{}') || {}; } catch {}
+    const validRows = new Set(KANA_ROWS.map(row => row.id));
+    let rows = Array.isArray(saved.rows) ? [...new Set(saved.rows.filter(row => validRows.has(row)))] : [];
+    if (saved.row && validRows.has(saved.row) && !rows.length) rows = [saved.row];
+    if (saved.row === 'all' || saved.rows?.includes?.('all') || !rows.length) rows = ['all'];
+    return {
+      script: ['hiragana', 'katakana', 'both'].includes(saved.script) ? saved.script : 'hiragana',
+      rows,
+      mode: ['trace', 'copy', 'recall'].includes(saved.mode) ? saved.mode : 'trace',
+      count: [0, 5, 10, 20].includes(Number(saved.count)) ? Number(saved.count) : 10,
+      weakOnly: saved.weakOnly === true,
+      layout: ['auto', 'phone', 'tablet'].includes(saved.layout) ? saved.layout : 'auto'
+    };
+  },
+  saveKanaPracticePreferences(patch = {}) {
+    const current = this.getKanaPracticePreferences();
+    const next = { ...current, ...patch };
+    const validRows = new Set(KANA_ROWS.map(row => row.id));
+    let rows = Array.isArray(next.rows) ? [...new Set(next.rows.filter(row => validRows.has(row)))] : current.rows;
+    if (next.rows?.includes?.('all') || !rows.length) rows = ['all'];
+    const normalized = {
+      script: ['hiragana', 'katakana', 'both'].includes(next.script) ? next.script : current.script,
+      rows,
+      mode: ['trace', 'copy', 'recall'].includes(next.mode) ? next.mode : current.mode,
+      count: [0, 5, 10, 20].includes(Number(next.count)) ? Number(next.count) : current.count,
+      weakOnly: next.weakOnly === true,
+      layout: ['auto', 'phone', 'tablet'].includes(next.layout) ? next.layout : current.layout
+    };
+    AppStorage.setItem('kanaPracticePreferencesV1', JSON.stringify(normalized));
+    return normalized;
+  },
+  getPracticePreferenceBundle() {
+    return {
+      lastPracticeMode: this.getLastPracticeMode(),
+      wordPractice: this.getWordPracticePreferences(),
+      kanaPractice: this.getKanaPracticePreferences()
+    };
+  },
+  applyPracticePreferenceBundle(bundle = {}) {
+    if (bundle.lastPracticeMode) this.saveLastPracticeMode(bundle.lastPracticeMode);
+    if (bundle.wordPractice) this.saveWordPracticePreferences(bundle.wordPractice);
+    if (bundle.kanaPractice) this.saveKanaPracticePreferences(bundle.kanaPractice);
+  },
   toggleBoost(id) {
     const b = this.getBoostedWords(); const idx = b.indexOf(id);
     if (idx === -1) b.push(id); else b.splice(idx, 1);
@@ -1835,7 +1906,12 @@ const GDrive = {
       studyDays: StudyStreak.getDays(),
       handwritingHistory: KanaProgress.getHistory(),
       kanaProgress: KanaProgress.getProgress(),
-      preferences: [{ jlptLevel: DB.getJlptLevel(), ttsDelay: DB.getTtsDelay(), geminiModel: DB.getModel() }]
+      preferences: [{
+        jlptLevel: DB.getJlptLevel(),
+        ttsDelay: DB.getTtsDelay(),
+        geminiModel: DB.getModel(),
+        practice: DB.getPracticePreferenceBundle()
+      }]
     };
   },
 
@@ -2143,6 +2219,7 @@ const GDrive = {
         DB.saveJlptLevel(data.preferences[0].jlptLevel || 'N5');
         DB.saveTtsDelay(Number(data.preferences[0].ttsDelay) || 300);
         if (data.preferences[0].geminiModel) DB.saveModel(data.preferences[0].geminiModel);
+        if (data.preferences[0].practice) DB.applyPracticePreferenceBundle(data.preferences[0].practice);
       }
       StudyStreak.replace(data.studyDays || [], { markPending: true });
     } else {
@@ -2182,6 +2259,12 @@ const GDrive = {
       }
       if (Array.isArray(data.handwritingHistory)) KanaProgress.mergeRemote(data.handwritingHistory);
       if (data.preferences?.[0] && !AppStorage.getItem('japaneseJlptLevel')) DB.saveJlptLevel(data.preferences[0].jlptLevel || 'N5');
+      if (data.preferences?.[0]?.practice) {
+        const remotePractice = data.preferences[0].practice;
+        if (!AppStorage.getItem('lastPracticeMode') && remotePractice.lastPracticeMode) DB.saveLastPracticeMode(remotePractice.lastPracticeMode);
+        if (!AppStorage.getItem('wordPracticePreferencesV1') && remotePractice.wordPractice) DB.saveWordPracticePreferences(remotePractice.wordPractice);
+        if (!AppStorage.getItem('kanaPracticePreferencesV1') && remotePractice.kanaPractice) DB.saveKanaPracticePreferences(remotePractice.kanaPractice);
+      }
       StudyStreak.merge(data.studyDays || [], { markPending: true });
     }
     const now = new Date().toLocaleString('zh-TW');
@@ -2327,8 +2410,9 @@ const Router = {
   },
   _doNavigate(view, params) {
     if (this.currentView === 'practice') Views.practice?.cleanupQuiz?.();
-    if (this.currentView === 'kanaPractice' || this.handwritingActive) Views.kanaPractice?.cleanup?.();
-    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+    if (this.currentView === 'kanaPractice' || this.handwritingActive || document.documentElement.classList.contains('kana-view-active')) Views.kanaPractice?.cleanup?.();
+    const activeNavView = ['practice', 'kanaPractice', 'essay', 'readingQuiz', 'aiAsk'].includes(view) ? 'practice' : view;
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === activeNavView));
     this.currentView = view;
     const container = document.getElementById('view-container');
     container.innerHTML = '';
@@ -2421,7 +2505,10 @@ Views.home = {
         <div style="height:8px"></div>
       </div>
     `;
-    container.querySelectorAll('[data-nav]').forEach(el => el.addEventListener('click', () => Router.navigate(el.dataset.nav)));
+    container.querySelectorAll('[data-nav]').forEach(el => el.addEventListener('click', () => {
+      const target = el.dataset.nav;
+      Router.navigate(target, target === 'practice' ? { restoreLast: true } : {});
+    }));
     document.getElementById('hero-refresh').addEventListener('click', () => this.loadSentence(true));
     // On page load: show cached sentence if available, otherwise show idle state (no auto API call)
     const cached = DB.getTodaySentenceAny();
@@ -2516,6 +2603,7 @@ Views.home = {
 // PRACTICE MODE SELECTOR — shared by quiz / essay / AI ask
 // ===========================
 function renderPracticeModeSelector(currentMode = 'quiz') {
+  DB.saveLastPracticeMode(currentMode);
   const isQuiz = currentMode === 'quiz';
   const isKana = currentMode === 'kana';
   const isEssay = currentMode === 'essay';
@@ -2533,21 +2621,26 @@ function renderPracticeModeSelector(currentMode = 'quiz') {
     </div>`;
 }
 
+function renderPracticeModeInContainer(container, mode) {
+  if (mode === 'kana') Views.kanaPractice.render(container);
+  else if (mode === 'essay') Views.essay.render(container);
+  else if (mode === 'reading') Views.readingQuiz.render(container);
+  else if (mode === 'aiask') Views.aiAsk.render(container);
+  else Views.practice.render(container);
+}
+
 function bindPracticeModeSelector(container, currentMode = 'quiz') {
   const selector = container.querySelector('#practice-mode-select');
   if (!selector) return;
   selector.addEventListener('change', (e) => {
     const mode = e.target.value;
     if (mode === currentMode) return;
+    DB.saveLastPracticeMode(mode);
     Router.essayActive = false;
     Router.quizActive = false;
     Router.handwritingActive = false;
     Views.kanaPractice?.cleanup?.();
-    if (mode === 'kana') Views.kanaPractice.render(container);
-    else if (mode === 'essay') Views.essay.render(container);
-    else if (mode === 'reading') Views.readingQuiz.render(container);
-    else if (mode === 'aiask') Views.aiAsk.render(container);
-    else Views.practice.render(container);
+    renderPracticeModeInContainer(container, mode);
   });
 }
 
@@ -2647,14 +2740,24 @@ Views.practice = {
     resumeAppUpdateWhenSafe();
   },
 
-  render(container) {
+  render(container, options = {}) {
     this.cleanupQuiz();
+    if (options?.restoreLast) {
+      const lastMode = DB.getLastPracticeMode();
+      if (lastMode !== 'quiz') {
+        renderPracticeModeInContainer(container, lastMode);
+        return;
+      }
+    }
     this.state.phase = 'setup';
     this.renderSetup(container);
     setTimeout(resumeAppUpdateWhenSafe, 0);
   },
   renderSetup(container) {
     Router.quizActive = false;
+    const savedPreferences = DB.getWordPracticePreferences();
+    this.state.selectedCount = savedPreferences.count;
+    this.state.selectedMode = savedPreferences.order;
     const totalWords = DB.getWords().length;
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習</h1></div>
@@ -2663,14 +2766,14 @@ Views.practice = {
         ${totalWords === 0 ? `<div class="no-api-warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>資料庫尚無單字，請先新增單字</div>` : ''}
         <div class="option-group">
           <div class="option-label">練習題數</div>
-          <div class="option-chips">${[5,10,15,20,25,30].map(n=>`<button class="chip ${n===10?'selected':''}" data-count="${n}">${n}</button>`).join('')}</div>
+          <div class="option-chips">${[5,10,15,20,25,30].map(n=>`<button class="chip ${n===this.state.selectedCount?'selected':''}" data-count="${n}">${n}</button>`).join('')}</div>
           <div class="num-words-info">資料庫共 ${totalWords} 個單字</div>
         </div>
         <div class="option-group">
           <div class="option-label">出題順序</div>
           <div class="option-radio-group">
-            <div class="radio-option" data-mode="newest"><div class="radio-circle"></div><div><div class="radio-text">從最新加入開始</div><div class="radio-sub">依最近加入的單字優先出題</div></div></div>
-            <div class="radio-option selected" data-mode="all"><div class="radio-circle"></div><div><div class="radio-text">全部隨機</div><div class="radio-sub">從題庫所有單字中隨機出題</div></div></div>
+            <div class="radio-option ${this.state.selectedMode==='newest'?'selected':''}" data-mode="newest"><div class="radio-circle"></div><div><div class="radio-text">從最新加入開始</div><div class="radio-sub">依最近加入的單字優先出題</div></div></div>
+            <div class="radio-option ${this.state.selectedMode==='all'?'selected':''}" data-mode="all"><div class="radio-circle"></div><div><div class="radio-text">全部隨機</div><div class="radio-sub">從題庫所有單字中隨機出題</div></div></div>
           </div>
         </div>
         <div class="option-group">
@@ -2690,9 +2793,11 @@ Views.practice = {
     const state = this.state;
     container.querySelectorAll('[data-count]').forEach(btn => btn.addEventListener('click', () => {
       container.querySelectorAll('[data-count]').forEach(b=>b.classList.remove('selected')); btn.classList.add('selected'); state.selectedCount = parseInt(btn.dataset.count);
+      DB.saveWordPracticePreferences({ count: state.selectedCount });
     }));
     container.querySelectorAll('[data-mode]').forEach(opt => opt.addEventListener('click', () => {
       container.querySelectorAll('[data-mode]').forEach(o=>o.classList.remove('selected')); opt.classList.add('selected'); state.selectedMode = opt.dataset.mode;
+      DB.saveWordPracticePreferences({ order: state.selectedMode });
     }));
     bindPracticeModeSelector(container, 'quiz');
     container.querySelectorAll('[data-tts-delay]').forEach(btn => {
@@ -3193,16 +3298,59 @@ Views.practice = {
 // ===========================
 Views.kanaPractice = {
   engine: null,
+  _viewportHandler: null,
   state: {
-    script: 'hiragana', row: 'all', mode: 'trace', count: 10,
+    script: 'hiragana', rows: ['all'], mode: 'trace', count: 10, weakOnly: false, layout: 'auto',
     selection: 'random', items: [], index: 0, results: [], scored: false
   },
 
   cleanup() {
     this.engine?.destroy?.();
     this.engine = null;
+    if (this._viewportHandler) {
+      window.removeEventListener('resize', this._viewportHandler);
+      window.removeEventListener('orientationchange', this._viewportHandler);
+      window.visualViewport?.removeEventListener?.('resize', this._viewportHandler);
+      this._viewportHandler = null;
+    }
+    document.documentElement.classList.remove('kana-view-active');
     Router.handwritingActive = false;
     resumeAppUpdateWhenSafe();
+  },
+
+  _resolveLayout() {
+    const viewportWidth = window.visualViewport?.width || window.innerWidth || 0;
+    const isTouchDevice = navigator.maxTouchPoints > 0 || window.matchMedia?.('(pointer: coarse)').matches;
+    return resolveWritingLayout({
+      preference: this.state.layout,
+      viewportWidth,
+      screenWidth: window.screen?.width || viewportWidth,
+      screenHeight: window.screen?.height || window.innerHeight || viewportWidth,
+      touch: isTouchDevice
+    });
+  },
+
+  _layoutLabel() {
+    return this._resolveLayout() === 'tablet' ? '目前自動套用：iPad 寬版' : '目前自動套用：iPhone 精簡版';
+  },
+
+  _applySessionLayout() {
+    const session = document.querySelector('.kana-session');
+    if (session) session.dataset.layout = this._resolveLayout();
+    const detected = document.getElementById('kana-layout-detected');
+    if (detected && this.state.layout === 'auto') detected.textContent = this._layoutLabel();
+  },
+
+  _bindViewportLayout() {
+    if (this._viewportHandler) {
+      window.removeEventListener('resize', this._viewportHandler);
+      window.removeEventListener('orientationchange', this._viewportHandler);
+      window.visualViewport?.removeEventListener?.('resize', this._viewportHandler);
+    }
+    this._viewportHandler = () => this._applySessionLayout();
+    window.addEventListener('resize', this._viewportHandler, { passive: true });
+    window.addEventListener('orientationchange', this._viewportHandler, { passive: true });
+    window.visualViewport?.addEventListener?.('resize', this._viewportHandler, { passive: true });
   },
 
   render(container) {
@@ -3212,6 +3360,14 @@ Views.kanaPractice = {
 
   renderSetup(container) {
     Router.handwritingActive = false;
+    document.documentElement.classList.add('kana-view-active');
+    const savedPreferences = DB.getKanaPracticePreferences();
+    this.state.script = savedPreferences.script;
+    this.state.rows = savedPreferences.rows;
+    this.state.mode = savedPreferences.mode;
+    this.state.count = savedPreferences.count;
+    this.state.weakOnly = savedPreferences.weakOnly;
+    this.state.layout = savedPreferences.layout;
     const summary = KanaProgress.getSummary();
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習</h1></div>
@@ -3230,54 +3386,110 @@ Views.kanaPractice = {
         <div class="option-group">
           <div class="option-label">假名類型</div>
           <div class="option-chips kana-option-chips">
-            <button class="chip selected" data-kana-script="hiragana">平假名</button>
-            <button class="chip" data-kana-script="katakana">片假名</button>
-            <button class="chip" data-kana-script="both">兩者混合</button>
+            <button class="chip ${this.state.script==='hiragana'?'selected':''}" data-kana-script="hiragana">平假名</button>
+            <button class="chip ${this.state.script==='katakana'?'selected':''}" data-kana-script="katakana">片假名</button>
+            <button class="chip ${this.state.script==='both'?'selected':''}" data-kana-script="both">兩者混合</button>
           </div>
         </div>
         <div class="option-group">
-          <label class="option-label" for="kana-row-select">五十音行</label>
-          <select class="practice-mode-select kana-row-select" id="kana-row-select">
-            <option value="all">全部行</option>
-            ${KANA_ROWS.map(row => `<option value="${row.id}">${row.label}</option>`).join('')}
-          </select>
+          <div class="option-label">五十音行（可複選）</div>
+          <div class="kana-row-grid" id="kana-row-grid" role="group" aria-label="選擇要練習的五十音行">
+            <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-kana-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
+            ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-kana-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${row.label}</button>`).join('')}
+          </div>
+          <div class="kana-row-summary" id="kana-row-summary"></div>
         </div>
         <div class="option-group">
           <div class="option-label">練習方式</div>
           <div class="kana-mode-grid">
-            <button class="kana-mode-option selected" data-kana-mode="trace"><b>描紅</b><span>顯示筆畫作為底稿</span></button>
-            <button class="kana-mode-option" data-kana-mode="copy"><b>臨摹</b><span>看範例在空格書寫</span></button>
-            <button class="kana-mode-option" data-kana-mode="recall"><b>默寫</b><span>看羅馬拼音回想字形</span></button>
+            <button class="kana-mode-option ${this.state.mode==='trace'?'selected':''}" data-kana-mode="trace"><b>描紅</b><span>顯示筆畫作為底稿</span></button>
+            <button class="kana-mode-option ${this.state.mode==='copy'?'selected':''}" data-kana-mode="copy"><b>臨摹</b><span>看範例在空格書寫</span></button>
+            <button class="kana-mode-option ${this.state.mode==='recall'?'selected':''}" data-kana-mode="recall"><b>默寫</b><span>看羅馬拼音回想字形</span></button>
           </div>
         </div>
         <div class="option-group">
           <div class="option-label">練習字數</div>
           <div class="option-chips kana-option-chips">
-            ${[5,10,20,0].map(value => `<button class="chip ${value===10?'selected':''}" data-kana-count="${value}">${value || '全部'}</button>`).join('')}
+            ${[5,10,20,0].map(value => `<button class="chip ${value===this.state.count?'selected':''}" data-kana-count="${value}">${value || '全部'}</button>`).join('')}
           </div>
         </div>
-        <label class="kana-weak-toggle"><input type="checkbox" id="kana-weak-only"><span>優先練習尚未熟練的假名（最高分未達 80）</span></label>
+        <div class="option-group kana-layout-option-group">
+          <div class="option-label">書寫版面</div>
+          <div class="kana-layout-grid" role="group" aria-label="選擇書寫版面">
+            <button type="button" class="kana-layout-option ${this.state.layout==='auto'?'selected':''}" data-kana-layout="auto"><b>自動</b><span>依裝置與方向調整</span></button>
+            <button type="button" class="kana-layout-option ${this.state.layout==='phone'?'selected':''}" data-kana-layout="phone"><b>iPhone</b><span>單欄精簡版</span></button>
+            <button type="button" class="kana-layout-option ${this.state.layout==='tablet'?'selected':''}" data-kana-layout="tablet"><b>iPad</b><span>大畫布寬版</span></button>
+          </div>
+          <div class="kana-layout-detected" id="kana-layout-detected">${this.state.layout === 'auto' ? this._layoutLabel() : '使用手動指定版面'}</div>
+        </div>
+        <label class="kana-weak-toggle"><input type="checkbox" id="kana-weak-only" ${this.state.weakOnly?'checked':''}><span>優先練習尚未熟練的假名（最高分未達 80）</span></label>
         <button class="btn-primary" id="kana-start-btn">開始手寫練習</button>
         <p class="kana-device-tip">iPad 建議橫向使用並以 Apple Pencil 書寫；手掌碰觸會在偵測到 Pencil 後暫時忽略。</p>
       </section>`;
 
     bindPracticeModeSelector(container, 'kana');
+    const persistPreferences = patch => DB.saveKanaPracticePreferences(patch);
+    const updateRowUI = () => {
+      container.querySelectorAll('[data-kana-row]').forEach(button => {
+        const selected = this.state.rows.includes(button.dataset.kanaRow);
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
+      const rowSummary = document.getElementById('kana-row-summary');
+      if (rowSummary) {
+        const characterCount = getKanaSet({ script: this.state.script, rows: this.state.rows }).length;
+        const rowText = this.state.rows.includes('all') ? '全部 10 行' : `已選 ${this.state.rows.length} 行`;
+        rowSummary.textContent = `${rowText}・目前包含 ${characterCount} 個假名`;
+      }
+    };
     container.querySelectorAll('[data-kana-script]').forEach(button => button.addEventListener('click', () => {
       container.querySelectorAll('[data-kana-script]').forEach(item => item.classList.remove('selected'));
       button.classList.add('selected'); this.state.script = button.dataset.kanaScript;
+      persistPreferences({ script: this.state.script });
+      updateRowUI();
+    }));
+    container.querySelectorAll('[data-kana-row]').forEach(button => button.addEventListener('click', () => {
+      const row = button.dataset.kanaRow;
+      if (row === 'all') {
+        this.state.rows = ['all'];
+      } else {
+        const selected = new Set(this.state.rows.filter(value => value !== 'all'));
+        if (selected.has(row)) selected.delete(row); else selected.add(row);
+        this.state.rows = selected.size ? [...selected] : ['all'];
+      }
+      persistPreferences({ rows: this.state.rows });
+      updateRowUI();
     }));
     container.querySelectorAll('[data-kana-mode]').forEach(button => button.addEventListener('click', () => {
       container.querySelectorAll('[data-kana-mode]').forEach(item => item.classList.remove('selected'));
       button.classList.add('selected'); this.state.mode = button.dataset.kanaMode;
+      persistPreferences({ mode: this.state.mode });
     }));
     container.querySelectorAll('[data-kana-count]').forEach(button => button.addEventListener('click', () => {
       container.querySelectorAll('[data-kana-count]').forEach(item => item.classList.remove('selected'));
       button.classList.add('selected'); this.state.count = Number(button.dataset.kanaCount);
+      persistPreferences({ count: this.state.count });
     }));
-    document.getElementById('kana-row-select')?.addEventListener('change', event => { this.state.row = event.target.value; });
+    container.querySelectorAll('[data-kana-layout]').forEach(button => button.addEventListener('click', () => {
+      container.querySelectorAll('[data-kana-layout]').forEach(item => item.classList.remove('selected'));
+      button.classList.add('selected'); this.state.layout = button.dataset.kanaLayout;
+      persistPreferences({ layout: this.state.layout });
+      const detected = document.getElementById('kana-layout-detected');
+      if (detected) detected.textContent = this.state.layout === 'auto' ? this._layoutLabel() : '使用手動指定版面';
+    }));
+    document.getElementById('kana-weak-only')?.addEventListener('change', event => {
+      this.state.weakOnly = event.target.checked;
+      persistPreferences({ weakOnly: this.state.weakOnly });
+    });
+    updateRowUI();
+    this._bindViewportLayout();
     document.getElementById('kana-start-btn')?.addEventListener('click', () => {
-      let pool = getKanaSet({ script: this.state.script, row: this.state.row });
-      if (document.getElementById('kana-weak-only')?.checked) {
+      persistPreferences({
+        script: this.state.script, rows: this.state.rows, mode: this.state.mode,
+        count: this.state.count, weakOnly: this.state.weakOnly, layout: this.state.layout
+      });
+      let pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
+      if (this.state.weakOnly) {
         const weakKeys = KanaProgress.getWeakKeys();
         const attemptedKeys = new Set(KanaProgress.getProgress().map(item => item.key));
         const weakPool = pool.filter(item => weakKeys.has(item.id) || !attemptedKeys.has(item.id));
@@ -3300,7 +3512,7 @@ Views.kanaPractice = {
     const hideCharacter = this.state.mode === 'recall';
     this.state.scored = false;
     container.innerHTML = `
-      <div class="kana-session" data-mode="${this.state.mode}">
+      <div class="kana-session" data-mode="${this.state.mode}" data-layout="${this._resolveLayout()}">
         <header class="kana-session-header">
           <button class="kana-back-btn" id="kana-exit-btn" type="button" aria-label="返回設定">‹</button>
           <div class="kana-session-progress"><span>五十音手寫 ${this.state.index + 1} / ${total}</span><div><i style="width:${progress}%"></i></div></div>
@@ -3333,6 +3545,10 @@ Views.kanaPractice = {
         </section>
         <div class="kana-session-actions"><button class="btn-primary" id="kana-score-btn">評分</button></div>
       </div>`;
+
+    this._bindViewportLayout();
+    const scrollContainer = document.getElementById('view-container');
+    if (scrollContainer) scrollContainer.scrollTop = 0;
 
     const canvas = document.getElementById('kana-writing-canvas');
     this.engine = new HandwritingEngine(canvas, {
@@ -3391,6 +3607,11 @@ Views.kanaPractice = {
       if (isLast) this.renderResult(container);
       else { this.state.index += 1; this.renderWriter(container); }
     };
+    requestAnimationFrame(() => {
+      const actions = container.querySelector('.kana-session-actions');
+      actions?.classList.add('is-scored');
+      actions?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+    });
   },
 
   renderResult(container) {
@@ -6718,7 +6939,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateNetworkState();
 
   document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => Router.navigate(btn.dataset.view));
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.view;
+      Router.navigate(target, target === 'practice' ? { restoreLast: true } : {});
+    });
   });
 
   // ── Google Drive: restore token + auto-sync on startup ──

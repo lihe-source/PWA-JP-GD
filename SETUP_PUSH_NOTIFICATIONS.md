@@ -1,4 +1,4 @@
-# GitHub Pages＋每日推播設定（V1.0.0）
+# GitHub Pages＋每日推播設定（V1.1.0）
 
 PWA 關閉後，網頁本身無法持續計時。本專案使用 Cloudflare Worker＋D1＋Cron 在指定時間傳送 Web Push；每一台 iPhone／iPad／電腦都要各自啟用一次。
 
@@ -66,7 +66,7 @@ npm run worker:deploy
 {
   "ok": true,
   "service": "Japanese Daily Reminder",
-  "version": "V1.0.0",
+  "version": "V1.1.0",
   "configured": true,
   "checks": {
     "database": true,

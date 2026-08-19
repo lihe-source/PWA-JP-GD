@@ -1,4 +1,4 @@
-# V1.0.0 已內建設定
+# V1.1.0 已內建設定
 
 ## Google
 
@@ -16,7 +16,7 @@
 | `wrangler.toml` | Worker `japanese-daily-reminder`、每分鐘 Cron、日文 Pages URL、允許來源與既有 D1 Database ID |
 | `push-config.js` | Worker URL `https://japanese-daily-reminder.rexchre.workers.dev`、預設提醒 22:00 與日文通知文字 |
 | `schema.sql` | 獨立的 `japanese_reminders` 資料表；不會改動英文版 `reminders` |
-| `worker.js` | V1.0.0 日文提醒、測試通知與詳細健康檢查 |
+| `worker.js` | V1.1.0 日文提醒、測試通知與詳細健康檢查 |
 
 如果 Cloudflare 帳號的 workers.dev 子網域不是 `rexchre`，請在第一次部署後把 `push-config.js` 的 `apiBaseUrl` 改成終端機顯示的實際網址，再上傳該檔案到 GitHub。
 
@@ -34,3 +34,4 @@ VAPID 公開／私密金鑰可以與英文 Worker 共用，但三個 Secrets 仍
 - 重新部署同名 Worker 不會清除 D1。
 - `schema.sql` 只會 `CREATE TABLE IF NOT EXISTS`，不會刪除既有提醒。
 - OAuth Client ID 與 Drive Folder ID 已有預設值；使用者仍可在設定頁修改。
+- V1.1.0 會記住上次練習模式、單字練習條件、五十音複選行別與 iPhone／iPad 版面；完整備份亦包含這些偏好。

@@ -3046,3 +3046,208 @@ html.is-offline #app { padding-top: calc(env(safe-area-inset-top, 0px) + 30px); 
   .kana-writing-canvas { min-height: 520px; }
   .kana-canvas-tools button, .kana-small-btn { min-height: 48px; font-size: 13px; }
 }
+
+/* ===== Japanese V1.1.0: remembered choices, multi-row selection and safe writing layout ===== */
+#view-container {
+  scroll-padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 32px);
+}
+
+html.kana-view-active #global-back-top,
+html.kana-view-active #global-go-bottom {
+  display: none !important;
+}
+
+.kana-setup-card {
+  width: min(100%, 1040px);
+  margin-inline: auto;
+}
+
+.kana-row-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.kana-row-chip {
+  min-width: 0;
+  min-height: 46px;
+  padding: 8px 6px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  transition: border-color .18s ease, background-color .18s ease, color .18s ease, transform .12s ease;
+  touch-action: manipulation;
+}
+
+.kana-row-chip:active,
+.kana-layout-option:active {
+  transform: scale(.98);
+}
+
+.kana-row-chip.selected {
+  border-color: var(--primary);
+  background: var(--primary-faint);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.kana-row-summary,
+.kana-layout-detected {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.kana-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.kana-layout-option {
+  min-width: 0;
+  min-height: 66px;
+  padding: 10px 8px;
+  border: 1.5px solid var(--border);
+  border-radius: 13px;
+  background: var(--card-bg);
+  color: var(--text);
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.kana-layout-option b,
+.kana-layout-option span {
+  display: block;
+}
+
+.kana-layout-option b {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.kana-layout-option span {
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.kana-layout-option.selected {
+  border-color: var(--primary);
+  background: var(--primary-faint);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.kana-session {
+  padding: 10px 10px calc(var(--nav-height) + var(--safe-bottom) + 36px);
+}
+
+.kana-score-panel {
+  scroll-margin-bottom: calc(var(--nav-height) + var(--safe-bottom) + 92px);
+}
+
+.kana-session-actions {
+  position: sticky;
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + 8px);
+  z-index: 60;
+  margin-top: 12px;
+  padding: 14px 0 4px;
+  background: linear-gradient(to bottom, transparent, var(--bg) 34%);
+  scroll-margin-bottom: calc(var(--nav-height) + var(--safe-bottom) + 12px);
+}
+
+.kana-session-actions .btn-primary {
+  min-height: 54px;
+  margin: 0;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--primary) 28%, transparent);
+}
+
+.kana-session-actions.is-scored .btn-primary {
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--primary) 36%, transparent);
+}
+
+.kana-session[data-layout="phone"] .kana-workspace {
+  grid-template-columns: 1fr;
+}
+
+.kana-session[data-layout="phone"] .kana-reference-card {
+  min-height: auto;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 12px;
+  text-align: left;
+}
+
+.kana-session[data-layout="phone"] .kana-script-label,
+.kana-session[data-layout="phone"] .kana-stroke-count {
+  grid-column: 2;
+}
+
+.kana-session[data-layout="phone"] .kana-reference-character {
+  grid-row: 1 / 4;
+  margin: 0;
+  font-size: 64px;
+}
+
+.kana-session[data-layout="phone"] .kana-romaji {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 18px;
+}
+
+.kana-session[data-layout="phone"] .kana-reference-actions {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.kana-session[data-layout="phone"] .kana-writing-canvas {
+  max-height: none;
+}
+
+.kana-session[data-layout="tablet"] .kana-workspace {
+  grid-template-columns: minmax(220px, .4fr) minmax(480px, 1fr);
+}
+
+.kana-session[data-layout="tablet"] .kana-writing-canvas {
+  width: min(100%, 60dvh, 620px);
+  min-height: 0;
+  max-height: none;
+}
+
+@media (max-width: 700px) {
+  .kana-setup-card { padding: 16px; }
+  .kana-row-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .kana-row-chip { min-height: 48px; font-size: 13px; }
+  .kana-layout-grid { gap: 6px; }
+  .kana-layout-option { min-height: 70px; padding: 9px 7px; text-align: center; }
+  .kana-layout-option b { font-size: 12px; }
+  .kana-layout-option span { font-size: 8px; }
+  .kana-session { padding-inline: 0; }
+  .kana-session-header { padding-inline: 10px; }
+  .kana-session-actions { padding-inline: 0; }
+}
+
+@media (max-height: 600px) and (orientation: landscape) {
+  .kana-session[data-layout="phone"] .kana-writing-canvas {
+    width: min(100%, 58dvh);
+  }
+}
+
+@media (min-width: 701px) {
+  .kana-row-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .kana-session[data-layout="tablet"] .kana-canvas-tools button,
+  .kana-session[data-layout="tablet"] .kana-small-btn {
+    min-height: 48px;
+    font-size: 13px;
+  }
+}

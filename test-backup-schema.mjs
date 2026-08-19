@@ -9,7 +9,14 @@ const collections = {
   studyDays: [{ date: '2026-08-18', activities: ['kana_handwriting'], eventIds: ['e1'], sessionCount: 1 }],
   handwritingHistory: [{ id: 'h1', character: 'あ', score: 88 }],
   kanaProgress: [{ key: 'hiragana:あ', bestScore: 88 }],
-  preferences: [{ jlptLevel: 'N5' }]
+  preferences: [{
+    jlptLevel: 'N5',
+    practice: {
+      lastPracticeMode: 'kana',
+      wordPractice: { count: 15, order: 'newest' },
+      kanaPractice: { script: 'both', rows: ['a', 'ka'], mode: 'copy', count: 20, weakOnly: true, layout: 'auto' }
+    }
+  }]
 };
 
 test('Japanese V1 backup includes streak, handwriting and preferences', () => {
@@ -19,6 +26,7 @@ test('Japanese V1 backup includes streak, handwriting and preferences', () => {
   assert.equal(payload.collectionCounts.studyDays, 1);
   assert.equal(payload.collectionCounts.handwriting, 1);
   assert.equal(payload.collectionCounts.preferences, 1);
+  assert.deepEqual(payload.preferences[0].practice.kanaPractice.rows, ['a', 'ka']);
   assert.equal(BackupSchema.validate(payload).valid, true);
 });
 

@@ -1,4 +1,4 @@
-import { KANA_STROKES } from './kana-strokes.js?v=V1_1_2';
+import { KANA_STROKES } from './kana-strokes.js?v=V1_2_0';
 
 export const KANA_SCRIPTS = Object.freeze({
   HIRAGANA: 'hiragana',
@@ -66,4 +66,14 @@ export function shuffleKana(items, random = Math.random) {
     [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
   }
   return result;
+}
+
+export const KANA_REPEAT_OPTIONS = Object.freeze([1, 2, 3, 5, 10]);
+
+export function buildRepeatedKanaPractice(items, repeat = 1, random = Math.random) {
+  const repetitions = KANA_REPEAT_OPTIONS.includes(Number(repeat)) ? Number(repeat) : 1;
+  const source = Array.isArray(items) ? items.filter(Boolean) : [];
+  const repeated = [];
+  for (let round = 0; round < repetitions; round++) repeated.push(...source);
+  return shuffleKana(repeated, random);
 }

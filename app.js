@@ -1,22 +1,22 @@
-import { AppStorage } from './storage.js?v=V1_1_2';
-import { BackupSchema } from './backup-schema.js?v=V1_1_2';
-import { VersionManager } from './version-manager.js?v=V1_1_2';
-import { TrendChart } from './chart-renderer.js?v=V1_1_2';
-import { PUSH_CONFIG } from './push-config.js?v=V1_1_2';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_1_2';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_1_2';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_1_2';
-import { BASIC_KANA, KANA_ROWS, getKanaSet, shuffleKana } from './kana-data.js?v=V1_1_2';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_1_2';
+import { AppStorage } from './storage.js?v=V1_2_0';
+import { BackupSchema } from './backup-schema.js?v=V1_2_0';
+import { VersionManager } from './version-manager.js?v=V1_2_0';
+import { TrendChart } from './chart-renderer.js?v=V1_2_0';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_0';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_0';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_0';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_0';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_0';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_0';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_1_2
-// V1.1.2：iPhone 評分按鈕採書寫時黏附、評分後正常排列的雙狀態設計
+// 日本語練習 PWA - app.js V1_2_0
+// V1.2.0：五十音可設定重複次數並隨機出題，設定頁改為精簡單頁設計
 // ===========================
 
-const APP_VERSION = 'V1_1_2';
-const APP_DISPLAY_VERSION = 'V1.1.2';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_1_2';
+const APP_VERSION = 'V1_2_0';
+const APP_DISPLAY_VERSION = 'V1.2.0';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_0';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -808,6 +808,7 @@ const DB = {
       rows,
       mode: ['trace', 'copy', 'recall'].includes(saved.mode) ? saved.mode : 'trace',
       count: [0, 5, 10, 20].includes(Number(saved.count)) ? Number(saved.count) : 10,
+      repeat: KANA_REPEAT_OPTIONS.includes(Number(saved.repeat)) ? Number(saved.repeat) : 1,
       weakOnly: saved.weakOnly === true,
       layout: ['auto', 'phone', 'tablet'].includes(saved.layout) ? saved.layout : 'auto'
     };
@@ -823,6 +824,7 @@ const DB = {
       rows,
       mode: ['trace', 'copy', 'recall'].includes(next.mode) ? next.mode : current.mode,
       count: [0, 5, 10, 20].includes(Number(next.count)) ? Number(next.count) : current.count,
+      repeat: KANA_REPEAT_OPTIONS.includes(Number(next.repeat)) ? Number(next.repeat) : current.repeat,
       weakOnly: next.weakOnly === true,
       layout: ['auto', 'phone', 'tablet'].includes(next.layout) ? next.layout : current.layout
     };
@@ -3300,7 +3302,7 @@ Views.kanaPractice = {
   engine: null,
   _viewportHandler: null,
   state: {
-    script: 'hiragana', rows: ['all'], mode: 'trace', count: 10, weakOnly: false, layout: 'auto',
+    script: 'hiragana', rows: ['all'], mode: 'trace', repeat: 1, weakOnly: false, layout: 'auto',
     selection: 'random', items: [], index: 0, results: [], scored: false
   },
 
@@ -3365,88 +3367,122 @@ Views.kanaPractice = {
     this.state.script = savedPreferences.script;
     this.state.rows = savedPreferences.rows;
     this.state.mode = savedPreferences.mode;
-    this.state.count = savedPreferences.count;
+    this.state.repeat = savedPreferences.repeat;
     this.state.weakOnly = savedPreferences.weakOnly;
     this.state.layout = savedPreferences.layout;
     const summary = KanaProgress.getSummary();
     container.innerHTML = `
-      <div class="section-header"><h1 class="section-title">練習</h1></div>
-      ${renderPracticeModeSelector('kana')}
-      <section class="kana-setup-card">
-        <div class="kana-setup-heading">
-          <div class="kana-setup-mark" aria-hidden="true">あ</div>
-          <div><h2>五十音手寫練習</h2><p>支援手指與 Apple Pencil，依筆形、筆順、方向及版面評分。</p></div>
-        </div>
-        <div class="kana-summary-grid" aria-label="五十音練習摘要">
-          <div><strong>${summary.practiced}</strong><span>已練假名</span></div>
-          <div><strong>${summary.mastered}</strong><span>已熟練</span></div>
-          <div><strong>${summary.averageScore}</strong><span>平均分數</span></div>
-          <div><strong>${summary.attempts}</strong><span>練習次數</span></div>
-        </div>
-        <div class="option-group">
-          <div class="option-label">假名類型</div>
-          <div class="option-chips kana-option-chips">
-            <button class="chip ${this.state.script==='hiragana'?'selected':''}" data-kana-script="hiragana">平假名</button>
-            <button class="chip ${this.state.script==='katakana'?'selected':''}" data-kana-script="katakana">片假名</button>
-            <button class="chip ${this.state.script==='both'?'selected':''}" data-kana-script="both">兩者混合</button>
+      <div class="kana-setup-page">
+        <div class="section-header kana-page-header"><h1 class="section-title">練習</h1></div>
+        ${renderPracticeModeSelector('kana')}
+        <section class="kana-setup-card kana-setup-compact">
+          <div class="kana-setup-heading">
+            <div class="kana-setup-mark" aria-hidden="true">あ</div>
+            <div><h2>五十音手寫練習</h2><p>選擇假名後可設定每個字的重複次數，題目會隨機排列。</p></div>
           </div>
-        </div>
-        <div class="option-group">
-          <div class="option-label">五十音行（可複選）</div>
-          <div class="kana-row-grid" id="kana-row-grid" role="group" aria-label="選擇要練習的五十音行">
-            <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-kana-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
-            ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-kana-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${row.label}</button>`).join('')}
+          <div class="kana-summary-grid kana-summary-strip" aria-label="五十音練習摘要">
+            <div><strong>${summary.practiced}</strong><span>已練</span></div>
+            <div><strong>${summary.mastered}</strong><span>熟練</span></div>
+            <div><strong>${summary.averageScore}</strong><span>均分</span></div>
+            <div><strong>${summary.attempts}</strong><span>次數</span></div>
           </div>
-          <div class="kana-row-summary" id="kana-row-summary"></div>
-        </div>
-        <div class="option-group">
-          <div class="option-label">練習方式</div>
-          <div class="kana-mode-grid">
-            <button class="kana-mode-option ${this.state.mode==='trace'?'selected':''}" data-kana-mode="trace"><b>描紅</b><span>顯示筆畫作為底稿</span></button>
-            <button class="kana-mode-option ${this.state.mode==='copy'?'selected':''}" data-kana-mode="copy"><b>臨摹</b><span>看範例在空格書寫</span></button>
-            <button class="kana-mode-option ${this.state.mode==='recall'?'selected':''}" data-kana-mode="recall"><b>默寫</b><span>看羅馬拼音回想字形</span></button>
+          <div class="kana-setup-grid">
+            <div class="option-group kana-compact-group kana-script-group">
+              <div class="option-label">假名類型</div>
+              <div class="option-chips kana-option-chips kana-script-options">
+                <button class="chip ${this.state.script==='hiragana'?'selected':''}" data-kana-script="hiragana">平假名</button>
+                <button class="chip ${this.state.script==='katakana'?'selected':''}" data-kana-script="katakana">片假名</button>
+                <button class="chip ${this.state.script==='both'?'selected':''}" data-kana-script="both">兩者混合</button>
+              </div>
+            </div>
+            <div class="option-group kana-compact-group kana-row-group">
+              <div class="option-label">五十音行（可複選）</div>
+              <div class="kana-row-grid" id="kana-row-grid" role="group" aria-label="選擇要練習的五十音行">
+                <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-kana-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
+                ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-kana-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${row.label}</button>`).join('')}
+              </div>
+              <div class="kana-row-summary" id="kana-row-summary"></div>
+            </div>
+            <div class="option-group kana-compact-group kana-mode-group">
+              <div class="option-label">練習方式</div>
+              <div class="kana-mode-grid">
+                <button class="kana-mode-option ${this.state.mode==='trace'?'selected':''}" data-kana-mode="trace"><b>描紅</b><span>顯示底稿</span></button>
+                <button class="kana-mode-option ${this.state.mode==='copy'?'selected':''}" data-kana-mode="copy"><b>臨摹</b><span>看字書寫</span></button>
+                <button class="kana-mode-option ${this.state.mode==='recall'?'selected':''}" data-kana-mode="recall"><b>默寫</b><span>看拼音回想</span></button>
+              </div>
+            </div>
+            <div class="option-group kana-compact-group kana-repeat-group">
+              <div class="option-label">每個假名重複次數</div>
+              <div class="kana-repeat-grid" role="group" aria-label="選擇每個假名的重複次數">
+                ${KANA_REPEAT_OPTIONS.map(value => `<button type="button" class="kana-repeat-chip ${value===this.state.repeat?'selected':''}" data-kana-repeat="${value}" aria-pressed="${value===this.state.repeat}">${value} 次</button>`).join('')}
+              </div>
+              <div class="kana-repeat-summary" id="kana-repeat-summary"></div>
+            </div>
           </div>
-        </div>
-        <div class="option-group">
-          <div class="option-label">練習字數</div>
-          <div class="option-chips kana-option-chips">
-            ${[5,10,20,0].map(value => `<button class="chip ${value===this.state.count?'selected':''}" data-kana-count="${value}">${value || '全部'}</button>`).join('')}
-          </div>
-        </div>
-        <div class="option-group kana-layout-option-group">
-          <div class="option-label">書寫版面</div>
-          <div class="kana-layout-grid" role="group" aria-label="選擇書寫版面">
-            <button type="button" class="kana-layout-option ${this.state.layout==='auto'?'selected':''}" data-kana-layout="auto"><b>自動</b><span>依裝置與方向調整</span></button>
-            <button type="button" class="kana-layout-option ${this.state.layout==='phone'?'selected':''}" data-kana-layout="phone"><b>iPhone</b><span>單欄精簡版</span></button>
-            <button type="button" class="kana-layout-option ${this.state.layout==='tablet'?'selected':''}" data-kana-layout="tablet"><b>iPad</b><span>大畫布寬版</span></button>
-          </div>
-          <div class="kana-layout-detected" id="kana-layout-detected">${this.state.layout === 'auto' ? this._layoutLabel() : '使用手動指定版面'}</div>
-        </div>
-        <label class="kana-weak-toggle"><input type="checkbox" id="kana-weak-only" ${this.state.weakOnly?'checked':''}><span>優先練習尚未熟練的假名（最高分未達 80）</span></label>
-        <button class="btn-primary" id="kana-start-btn">開始手寫練習</button>
-        <p class="kana-device-tip">iPad 建議橫向使用並以 Apple Pencil 書寫；手掌碰觸會在偵測到 Pencil 後暫時忽略。</p>
-      </section>`;
+          <details class="kana-advanced-settings">
+            <summary><b>更多設定</b><span>版面、弱項優先</span></summary>
+            <div class="kana-advanced-content">
+              <div class="option-group kana-compact-group kana-layout-option-group">
+                <div class="option-label">書寫版面</div>
+                <div class="kana-layout-grid" role="group" aria-label="選擇書寫版面">
+                  <button type="button" class="kana-layout-option ${this.state.layout==='auto'?'selected':''}" data-kana-layout="auto"><b>自動</b><span>依裝置調整</span></button>
+                  <button type="button" class="kana-layout-option ${this.state.layout==='phone'?'selected':''}" data-kana-layout="phone"><b>iPhone</b><span>單欄精簡版</span></button>
+                  <button type="button" class="kana-layout-option ${this.state.layout==='tablet'?'selected':''}" data-kana-layout="tablet"><b>iPad</b><span>大畫布寬版</span></button>
+                </div>
+                <div class="kana-layout-detected" id="kana-layout-detected">${this.state.layout === 'auto' ? this._layoutLabel() : '使用手動指定版面'}</div>
+              </div>
+              <label class="kana-weak-toggle"><input type="checkbox" id="kana-weak-only" ${this.state.weakOnly?'checked':''}><span>優先練習尚未熟練的假名（最高分未達 80）</span></label>
+              <p class="kana-device-tip">iPad 建議橫向使用 Apple Pencil；偵測到 Pencil 後會暫時忽略手掌觸碰。</p>
+            </div>
+          </details>
+          <button class="btn-primary kana-start-btn" id="kana-start-btn">開始手寫練習</button>
+        </section>
+      </div>`;
 
     bindPracticeModeSelector(container, 'kana');
     const persistPreferences = patch => DB.saveKanaPracticePreferences(patch);
-    const updateRowUI = () => {
+    const getPracticePool = () => {
+      let pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
+      if (this.state.weakOnly) {
+        const weakKeys = KanaProgress.getWeakKeys();
+        const attemptedKeys = new Set(KanaProgress.getProgress().map(item => item.key));
+        const weakPool = pool.filter(item => weakKeys.has(item.id) || !attemptedKeys.has(item.id));
+        if (weakPool.length) pool = weakPool;
+      }
+      return pool;
+    };
+    const updateSetupUI = () => {
       container.querySelectorAll('[data-kana-row]').forEach(button => {
         const selected = this.state.rows.includes(button.dataset.kanaRow);
         button.classList.toggle('selected', selected);
         button.setAttribute('aria-pressed', String(selected));
       });
+      container.querySelectorAll('[data-kana-repeat]').forEach(button => {
+        const selected = Number(button.dataset.kanaRepeat) === this.state.repeat;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
+      const selectedCount = getKanaSet({ script: this.state.script, rows: this.state.rows }).length;
+      const practiceCount = getPracticePool().length;
+      const totalQuestions = practiceCount * this.state.repeat;
       const rowSummary = document.getElementById('kana-row-summary');
       if (rowSummary) {
-        const characterCount = getKanaSet({ script: this.state.script, rows: this.state.rows }).length;
         const rowText = this.state.rows.includes('all') ? '全部 10 行' : `已選 ${this.state.rows.length} 行`;
-        rowSummary.textContent = `${rowText}・目前包含 ${characterCount} 個假名`;
+        rowSummary.textContent = `${rowText}・${selectedCount} 個假名`;
+      }
+      const repeatSummary = document.getElementById('kana-repeat-summary');
+      if (repeatSummary) repeatSummary.textContent = `${this.state.weakOnly ? '弱項優先・' : ''}${practiceCount} 個假名 × ${this.state.repeat} 次 ＝ ${totalQuestions} 題・隨機順序`;
+      const startButton = document.getElementById('kana-start-btn');
+      if (startButton) {
+        startButton.disabled = totalQuestions === 0;
+        startButton.textContent = totalQuestions ? `開始 ${totalQuestions} 題手寫練習` : '目前沒有可練習的假名';
       }
     };
     container.querySelectorAll('[data-kana-script]').forEach(button => button.addEventListener('click', () => {
       container.querySelectorAll('[data-kana-script]').forEach(item => item.classList.remove('selected'));
       button.classList.add('selected'); this.state.script = button.dataset.kanaScript;
       persistPreferences({ script: this.state.script });
-      updateRowUI();
+      updateSetupUI();
     }));
     container.querySelectorAll('[data-kana-row]').forEach(button => button.addEventListener('click', () => {
       const row = button.dataset.kanaRow;
@@ -3458,17 +3494,17 @@ Views.kanaPractice = {
         this.state.rows = selected.size ? [...selected] : ['all'];
       }
       persistPreferences({ rows: this.state.rows });
-      updateRowUI();
+      updateSetupUI();
     }));
     container.querySelectorAll('[data-kana-mode]').forEach(button => button.addEventListener('click', () => {
       container.querySelectorAll('[data-kana-mode]').forEach(item => item.classList.remove('selected'));
       button.classList.add('selected'); this.state.mode = button.dataset.kanaMode;
       persistPreferences({ mode: this.state.mode });
     }));
-    container.querySelectorAll('[data-kana-count]').forEach(button => button.addEventListener('click', () => {
-      container.querySelectorAll('[data-kana-count]').forEach(item => item.classList.remove('selected'));
-      button.classList.add('selected'); this.state.count = Number(button.dataset.kanaCount);
-      persistPreferences({ count: this.state.count });
+    container.querySelectorAll('[data-kana-repeat]').forEach(button => button.addEventListener('click', () => {
+      this.state.repeat = Number(button.dataset.kanaRepeat);
+      persistPreferences({ repeat: this.state.repeat });
+      updateSetupUI();
     }));
     container.querySelectorAll('[data-kana-layout]').forEach(button => button.addEventListener('click', () => {
       container.querySelectorAll('[data-kana-layout]').forEach(item => item.classList.remove('selected'));
@@ -3480,23 +3516,17 @@ Views.kanaPractice = {
     document.getElementById('kana-weak-only')?.addEventListener('change', event => {
       this.state.weakOnly = event.target.checked;
       persistPreferences({ weakOnly: this.state.weakOnly });
+      updateSetupUI();
     });
-    updateRowUI();
+    updateSetupUI();
     this._bindViewportLayout();
     document.getElementById('kana-start-btn')?.addEventListener('click', () => {
       persistPreferences({
         script: this.state.script, rows: this.state.rows, mode: this.state.mode,
-        count: this.state.count, weakOnly: this.state.weakOnly, layout: this.state.layout
+        repeat: this.state.repeat, weakOnly: this.state.weakOnly, layout: this.state.layout
       });
-      let pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
-      if (this.state.weakOnly) {
-        const weakKeys = KanaProgress.getWeakKeys();
-        const attemptedKeys = new Set(KanaProgress.getProgress().map(item => item.key));
-        const weakPool = pool.filter(item => weakKeys.has(item.id) || !attemptedKeys.has(item.id));
-        if (weakPool.length) pool = weakPool;
-      }
-      const shuffled = shuffleKana(pool);
-      this.state.items = this.state.count ? shuffled.slice(0, this.state.count) : shuffled;
+      const pool = getPracticePool();
+      this.state.items = buildRepeatedKanaPractice(pool, this.state.repeat);
       this.state.index = 0; this.state.results = []; this.state.scored = false;
       if (!this.state.items.length) { showToast('此條件沒有可練習的假名'); return; }
       Router.handwritingActive = true;

@@ -3278,3 +3278,186 @@ html.kana-view-active #global-go-bottom {
     font-size: 13px;
   }
 }
+
+/* ===== Japanese V1.2.0: compact one-page kana setup and repeated practice ===== */
+.kana-setup-page {
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 12px);
+}
+
+.kana-setup-page .practice-mode-bar {
+  width: min(calc(100% - 24px), 1040px);
+  margin: 0 auto 8px;
+}
+
+.kana-setup-page .practice-mode-select {
+  min-height: 44px;
+  padding-block: 8px;
+}
+
+.kana-setup-compact {
+  width: min(calc(100% - 24px), 1040px);
+  padding: 14px;
+}
+
+.kana-setup-compact .kana-setup-heading {
+  margin-bottom: 10px;
+}
+
+.kana-setup-compact .kana-summary-strip {
+  margin-bottom: 10px;
+}
+
+.kana-setup-compact .kana-compact-group {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.kana-setup-compact .kana-compact-group .option-label {
+  margin-bottom: 7px;
+  font-size: 11px;
+}
+
+.kana-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "script mode"
+    "rows rows"
+    "repeat repeat";
+  gap: 8px;
+}
+
+.kana-script-group { grid-area: script; }
+.kana-row-group { grid-area: rows; }
+.kana-mode-group { grid-area: mode; }
+.kana-repeat-group { grid-area: repeat; }
+
+.kana-script-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.kana-script-options .chip {
+  width: 100%;
+  min-height: 44px;
+  padding: 7px 6px;
+  font-size: 12px;
+}
+
+.kana-repeat-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.kana-repeat-chip {
+  min-width: 0;
+  min-height: 44px;
+  padding: 7px 4px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  touch-action: manipulation;
+}
+
+.kana-repeat-chip.selected {
+  border-color: var(--primary);
+  background: var(--primary-faint);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.kana-repeat-summary {
+  margin-top: 6px;
+  color: var(--primary-dark);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.kana-advanced-settings {
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg);
+}
+
+.kana-advanced-settings > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  color: var(--primary-dark);
+  cursor: pointer;
+  list-style: none;
+  touch-action: manipulation;
+}
+
+.kana-advanced-settings > summary::-webkit-details-marker { display: none; }
+.kana-advanced-settings > summary::after { content: "⌄"; font-size: 17px; transition: transform .18s ease; }
+.kana-advanced-settings[open] > summary::after { transform: rotate(180deg); }
+.kana-advanced-settings > summary b { font-size: 12px; }
+.kana-advanced-settings > summary span { margin-left: auto; color: var(--text-muted); font-size: 9px; }
+.kana-advanced-content { padding: 0 9px 9px; }
+.kana-advanced-content .kana-compact-group { padding: 9px; background: var(--card-bg); }
+.kana-advanced-content .kana-weak-toggle { margin: 9px 2px; }
+.kana-advanced-content .kana-device-tip { margin: 7px 2px 0; }
+
+.kana-start-btn {
+  min-height: 52px;
+  margin-top: 9px;
+}
+
+@media (max-width: 700px) {
+  .kana-setup-page .kana-page-header { display: none; }
+  .kana-setup-page .practice-mode-bar { width: calc(100% - 16px); margin-bottom: 6px; }
+  .kana-setup-page .practice-mode-select { min-height: 44px; padding: 7px 34px 7px 11px; font-size: 13px; }
+  .kana-setup-compact { width: calc(100% - 16px); padding: 10px; border-radius: 16px; }
+  .kana-setup-compact .kana-setup-heading { gap: 9px; margin-bottom: 6px; }
+  .kana-setup-compact .kana-setup-heading p { display: none; }
+  .kana-setup-compact .kana-setup-heading h2 { margin: 0; font-size: 16px; }
+  .kana-setup-compact .kana-setup-mark { width: 40px; height: 40px; flex-basis: 40px; border-radius: 11px; font-size: 23px; }
+  .kana-setup-compact .kana-summary-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin-bottom: 6px; }
+  .kana-setup-compact .kana-summary-strip > div { padding: 4px 2px; border-radius: 8px; }
+  .kana-setup-compact .kana-summary-strip strong { font-size: 15px; line-height: 1.1; }
+  .kana-setup-compact .kana-summary-strip span { margin-top: 1px; font-size: 8px; }
+  .kana-setup-grid { display: block; }
+  .kana-setup-compact .kana-compact-group {
+    padding: 6px 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+  }
+  .kana-setup-compact .kana-compact-group .option-label { margin-bottom: 5px; font-size: 10px; }
+  .kana-script-options { gap: 5px; }
+  .kana-script-options .chip { min-height: 44px; padding: 6px 4px; font-size: 11px; }
+  .kana-setup-compact .kana-row-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+  .kana-setup-compact .kana-row-chip { min-height: 44px; padding: 6px 3px; font-size: 11px; }
+  .kana-setup-compact .kana-row-summary { margin-top: 4px; font-size: 9px; }
+  .kana-setup-compact .kana-mode-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .kana-setup-compact .kana-mode-option { min-height: 44px; padding: 5px 6px; text-align: center; }
+  .kana-setup-compact .kana-mode-option b { margin: 0; font-size: 12px; }
+  .kana-setup-compact .kana-mode-option span { display: none; }
+  .kana-repeat-grid { gap: 5px; }
+  .kana-repeat-chip { min-height: 44px; padding: 6px 2px; font-size: 11px; }
+  .kana-repeat-summary { margin-top: 4px; font-size: 9px; }
+  .kana-advanced-settings { margin-top: 5px; }
+  .kana-advanced-settings > summary { min-height: 44px; padding: 7px 10px; }
+  .kana-advanced-content .kana-compact-group { padding: 7px; border: 1px solid var(--border); border-radius: 11px; background: var(--card-bg); }
+  .kana-advanced-content .kana-layout-option { min-height: 52px; padding: 7px 5px; }
+  .kana-start-btn { min-height: 50px; margin-top: 6px; font-size: 14px; }
+}

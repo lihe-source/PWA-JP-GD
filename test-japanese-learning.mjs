@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BASIC_KANA, getKanaSet } from './kana-data.js';
+import { BASIC_KANA, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js';
 import { buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, resolveWritingLayout, toHiragana } from './japanese-learning.js';
 
 test('the basic kana curriculum includes 46 hiragana and 46 katakana with strokes', () => {
@@ -17,6 +17,21 @@ test('kana curriculum accepts more than one selected row', () => {
   assert.equal(twoHiraganaRows.every(kana => ['a', 'ka'].includes(kana.row)), true);
   assert.equal(mixedShortRows.length, 12);
   assert.equal(mixedShortRows.every(kana => ['ya', 'wa'].includes(kana.row)), true);
+});
+
+test('one five-kana row repeated five times creates 25 randomized opportunities', () => {
+  const row = getKanaSet({ script: 'hiragana', rows: ['a'] });
+  let seed = 20260820;
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  const practice = buildRepeatedKanaPractice(row, 5, random);
+  const counts = practice.reduce((map, kana) => map.set(kana.id, (map.get(kana.id) || 0) + 1), new Map());
+  assert.equal(row.length, 5);
+  assert.equal(practice.length, 25);
+  assert.equal([...counts.values()].every(count => count === 5), true);
+  assert.notDeepEqual(practice.map(kana => kana.id), Array.from({ length: 5 }, () => row.map(kana => kana.id)).flat());
 });
 
 test('writing layout distinguishes iPhone 15 Pro Max and iPad Air in both orientations', () => {

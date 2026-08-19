@@ -4,17 +4,17 @@ import { readFile } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-test('all public app surfaces use Japanese V1.1.2', async () => {
+test('all public app surfaces use Japanese V1.2.0', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_1_2'/);
-  assert.match(html, /app\.js\?v=V1_1_2/);
-  assert.match(sw, /Japanese-PWA-V1_1_2/);
+  assert.match(app, /APP_VERSION = 'V1_2_0'/);
+  assert.match(html, /app\.js\?v=V1_2_0/);
+  assert.match(sw, /Japanese-PWA-V1_2_0/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.1\.2/);
-  assert.equal(JSON.parse(pkg).version, '1.1.2');
+  assert.match(JSON.parse(manifest).name, /V1\.2\.0/);
+  assert.equal(JSON.parse(pkg).version, '1.2.0');
 });
 
 test('V1.1 remembers practice choices and provides multi-row layout controls', async () => {
@@ -31,6 +31,19 @@ test('V1.1 remembers practice choices and provides multi-row layout controls', a
   assert.match(style, /html\.kana-view-active #global-back-top/);
   assert.match(style, /\.kana-session\[data-layout="phone"\]/);
   assert.match(style, /\.kana-session\[data-layout="tablet"\]/);
+});
+
+test('kana setup supports saved repetitions and a compact one-page layout', async () => {
+  const [app, style, kanaData] = await Promise.all([text('app.js'), text('style.css'), text('kana-data.js')]);
+  assert.match(kanaData, /KANA_REPEAT_OPTIONS/);
+  assert.match(kanaData, /buildRepeatedKanaPractice/);
+  assert.match(app, /data-kana-repeat=/);
+  assert.match(app, /repeat: KANA_REPEAT_OPTIONS\.includes/);
+  assert.match(app, /buildRepeatedKanaPractice\(pool, this\.state\.repeat\)/);
+  assert.match(app, /<details class="kana-advanced-settings">/);
+  assert.match(style, /\.kana-setup-grid/);
+  assert.match(style, /\.kana-repeat-grid/);
+  assert.match(style, /\.kana-setup-compact \.kana-row-grid \{ grid-template-columns: repeat\(4/);
 });
 
 test('iPhone score action docks before scoring and returns to flow after scoring', async () => {

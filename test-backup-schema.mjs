@@ -14,7 +14,7 @@ const collections = {
     practice: {
       lastPracticeMode: 'kana',
       wordPractice: { count: 15, order: 'newest' },
-      kanaPractice: { script: 'both', rows: ['a', 'ka'], mode: 'copy', count: 20, weakOnly: true, layout: 'auto' }
+      kanaPractice: { script: 'both', rows: ['a', 'ka'], mode: 'copy', count: 20, repeat: 5, weakOnly: true, layout: 'auto' }
     }
   }]
 };
@@ -27,6 +27,7 @@ test('Japanese V1 backup includes streak, handwriting and preferences', () => {
   assert.equal(payload.collectionCounts.handwriting, 1);
   assert.equal(payload.collectionCounts.preferences, 1);
   assert.deepEqual(payload.preferences[0].practice.kanaPractice.rows, ['a', 'ka']);
+  assert.equal(payload.preferences[0].practice.kanaPractice.repeat, 5);
   assert.equal(BackupSchema.validate(payload).valid, true);
 });
 

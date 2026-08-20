@@ -12,9 +12,9 @@ test('Japanese defaults and separate push deployment are packaged', async () => 
   assert.match(defaults, /1kAtVOK2qqhK0BY9vmp8Sm4NhQaWMJYeb/);
   assert.match(pushConfig, /japanese-daily-reminder\.rexchre\.workers\.dev/);
   assert.match(wrangler, /name = "japanese-daily-reminder"/);
-  assert.match(wrangler, /PWA-Japanese-GD/);
+  assert.match(wrangler, /PWA-JP-GD/);
   assert.match(wrangler, /crons = \["\* \* \* \* \*"\]/);
-  assert.match(worker, /SERVICE_VERSION = 'V1\.1\.0'/);
+  assert.match(worker, /SERVICE_VERSION = 'V1\.2\.2'/);
   assert.match(worker, /Japanese Daily Reminder/);
   assert.match(worker, /SELECT 1 FROM japanese_reminders/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminders/);

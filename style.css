@@ -1591,6 +1591,35 @@ a.err-back-link {
 .btn-fb-upload   { background: var(--primary); color: white; }
 .btn-fb-download { background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); border: 1.5px solid var(--primary); }
 .btn-fb-upload:disabled, .btn-fb-download:disabled { opacity: 0.5; cursor: not-allowed; }
+.drive-operation-status {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  margin: -2px 0 10px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 7%, var(--card-bg));
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.drive-operation-status[hidden] { display: none; }
+.drive-operation-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+.drive-operation-status.is-done { border-color: rgba(34,160,107,0.35); background: rgba(34,160,107,0.08); }
+.drive-operation-status.is-done .drive-operation-spinner { animation: none; border-color: #22a06b; background: #22a06b; }
+.drive-operation-status.has-error { border-color: rgba(211,74,74,0.35); background: rgba(211,74,74,0.08); color: #b53535; }
+.drive-operation-status.has-error .drive-operation-spinner { animation: none; border-color: #d34a4a; }
+#gd-operation-percent { color: var(--primary); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 .btn-fb-signin {
   display: flex; align-items: center; justify-content: center; gap: 8px;
   padding: 11px 14px; border-radius: 10px; font-size: 14px; font-weight: 700;

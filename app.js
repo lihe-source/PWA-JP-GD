@@ -1,22 +1,22 @@
-import { AppStorage } from './storage.js?v=V1_2_1';
-import { BackupSchema } from './backup-schema.js?v=V1_2_1';
-import { VersionManager } from './version-manager.js?v=V1_2_1';
-import { TrendChart } from './chart-renderer.js?v=V1_2_1';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_1';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_1';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_1';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_1';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_1';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_1';
+import { AppStorage } from './storage.js?v=V1_2_2';
+import { BackupSchema } from './backup-schema.js?v=V1_2_2';
+import { VersionManager } from './version-manager.js?v=V1_2_2';
+import { TrendChart } from './chart-renderer.js?v=V1_2_2';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_2';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_2';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_2';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_2';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_2';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_2';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_1
-// V1.2.1：重複練習採平衡隨機排題，避免相同假名連續出現
+// 日本語練習 PWA - app.js V1_2_2
+// V1.2.2：iPhone 推播自動修復、Google 登入與 Drive 備份非阻塞化
 // ===========================
 
-const APP_VERSION = 'V1_2_1';
-const APP_DISPLAY_VERSION = 'V1.2.1';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_1';
+const APP_VERSION = 'V1_2_2';
+const APP_DISPLAY_VERSION = 'V1.2.2';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_2';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -1693,6 +1693,7 @@ const GDrive = {
   _email: null,
   _client: null,
   _clientKey: '',
+  _gisPromise: null,
   _streakSyncTimer: null,
   _streakSyncPromise: null,
   STUDY_STREAK_FILE: 'japanese_learning_state.json',
@@ -1706,9 +1707,13 @@ const GDrive = {
   },
   SCOPE: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
   EXPIRY_MARGIN_MS: 5 * 60 * 1000,
+  REQUEST_TIMEOUT_MS: 20000,
+  UPLOAD_TIMEOUT_MS: 45000,
 
   isSignedIn() { return !!this._token && !this._isTokenExpired(); },
-  hasRememberedSession() { return !!this.getUserEmail(); },
+  hasRememberedSession() {
+    return !!this.getUserEmail() || !!AppStorage.getItem(this.SESSION_KEYS.lastLogin);
+  },
   getUserEmail() { return this._email || AppStorage.getItem(this.SESSION_KEYS.email) || ''; },
   getSessionStatus() {
     if (this.isSignedIn()) return 'active';
@@ -1716,23 +1721,64 @@ const GDrive = {
   },
 
   _loadGIS() {
-    return new Promise((resolve, reject) => {
-      if (window.google?.accounts?.oauth2) { resolve(); return; }
-      const existing = document.querySelector('script[data-gis="1"]');
-      if (existing) {
-        existing.addEventListener('load', () => resolve(), { once: true });
-        existing.addEventListener('error', () => reject(new Error('GIS_LOAD_FAILED')), { once: true });
-        return;
+    if (window.google?.accounts?.oauth2) return Promise.resolve();
+    if (this._gisPromise) return this._gisPromise;
+    this._gisPromise = new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        clearInterval(poll);
+        if (error) reject(error);
+        else resolve();
+      };
+      const detect = () => {
+        if (window.google?.accounts?.oauth2) finish();
+      };
+      const timeout = setTimeout(() => finish(new Error('GIS_LOAD_TIMEOUT')), 12000);
+      const poll = setInterval(detect, 50);
+      let script = document.querySelector('script[data-gis="1"]');
+      if (!script) {
+        script = document.createElement('script');
+        script.src = 'https://accounts.google.com/gsi/client';
+        script.async = true;
+        script.defer = true;
+        script.dataset.gis = '1';
+        document.head.appendChild(script);
       }
-      const s = document.createElement('script');
-      s.src = 'https://accounts.google.com/gsi/client';
-      s.async = true;
-      s.defer = true;
-      s.dataset.gis = '1';
-      s.onload = resolve;
-      s.onerror = () => reject(new Error('GIS_LOAD_FAILED'));
-      document.head.appendChild(s);
+      script.addEventListener('load', detect, { once: true });
+      script.addEventListener('error', () => finish(new Error('GIS_LOAD_FAILED')), { once: true });
+      detect();
+    }).catch(error => {
+      this._gisPromise = null;
+      throw error;
     });
+    return this._gisPromise;
+  },
+
+  preload() {
+    if (!navigator.onLine || !DB.getGDriveClientId()) return;
+    void this._loadGIS().catch(error => {
+      console.info('[GDrive] GIS preload deferred:', error.message);
+    });
+  },
+
+  _progress(options, message, percent = 0) {
+    try { options?.onProgress?.({ message, percent }); } catch {}
+  },
+
+  async _fetch(url, options = {}, timeoutMs = this.REQUEST_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error('DRIVE_TIMEOUT');
+      throw new Error('DRIVE_NETWORK_ERROR: ' + (error?.message || 'Fetch failed'));
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   _sessionClientId() { return AppStorage.getItem(this.SESSION_KEYS.clientId) || ''; },
@@ -1777,63 +1823,78 @@ const GDrive = {
     const email = AppStorage.getItem(this.SESSION_KEYS.email) || '';
     const exp = this._expiry();
     if (email) this._email = email;
-    if (!token || !email || !clientId || !this._hasSameClientAndScope(clientId)) return false;
+    if (!token || !clientId || !this._hasSameClientAndScope(clientId)) return false;
     if (Date.now() > exp - this.EXPIRY_MARGIN_MS) return false;
     this._token = token;
     this._email = email;
     return true;
   },
 
-  async _getClient(clientId) {
-    await this._loadGIS();
-    const key = clientId + '|' + this.SCOPE;
-    if (!this._client || this._clientKey !== key) {
-      this._clientKey = key;
-      this._client = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: this.SCOPE,
-        include_granted_scopes: true,
-        callback: () => {},
-        error_callback: () => {}
-      });
-    }
+  _createClient(clientId, callback, errorCallback) {
+    this._clientKey = clientId + '|' + this.SCOPE;
+    this._client = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: this.SCOPE,
+      include_granted_scopes: true,
+      callback,
+      error_callback: errorCallback
+    });
     return this._client;
+  },
+
+  async _refreshUserEmail(accessToken) {
+    try {
+      const response = await this._fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }, 12000);
+      if (!response.ok) return;
+      const info = await response.json();
+      if (this._token !== accessToken || !info.email) return;
+      this._email = info.email;
+      AppStorage.setItem(this.SESSION_KEYS.email, info.email);
+      this.scheduleStudyStreakSync(500);
+    } catch (error) {
+      console.info('[GDrive] Account email refresh deferred:', error.message);
+    }
   },
 
   async _requestToken({ promptMode = '', accountHint = '' } = {}) {
     const clientId = DB.getGDriveClientId();
     if (!clientId) throw new Error('NO_CLIENT_ID');
-    const client = await this._getClient(clientId);
+    await this._loadGIS();
     const hint = accountHint || this.getUserEmail();
     return new Promise((resolve, reject) => {
       let settled = false;
+      const timer = setTimeout(() => fail(new Error('AUTH_TIMEOUT')), 30000);
       const fail = (err) => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         reject(err instanceof Error ? err : new Error(String(err || 'AUTH_FAILED')));
       };
-      client.callback = async (resp) => {
+      const handleToken = (resp) => {
         if (settled) return;
         if (resp.error) { fail(new Error(resp.error)); return; }
-        let email = this.getUserEmail();
-        try {
-          const r = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
-            headers: { Authorization: 'Bearer ' + resp.access_token }
-          });
-          const info = await r.json();
-          email = info.email || email;
-        } catch {}
         settled = true;
-        this._saveSession(resp.access_token, email, resp.expires_in, clientId);
+        clearTimeout(timer);
+        this._saveSession(resp.access_token, this.getUserEmail(), resp.expires_in, clientId);
         resolve();
+        // User info is useful for display, but it must not delay login or Drive operations.
+        void this._refreshUserEmail(resp.access_token);
       };
-      client.error_callback = (e) => fail(new Error(e?.type || e?.message || 'AUTH_FAILED'));
-      const req = { prompt: promptMode };
-      if (hint) {
-        req.hint = hint;
-        req.login_hint = hint;
+      const req = {};
+      if (promptMode) req.prompt = promptMode;
+      if (hint) req.login_hint = hint;
+      try {
+        const client = this._createClient(
+          clientId,
+          handleToken,
+          e => fail(new Error(e?.type || e?.message || 'AUTH_FAILED'))
+        );
+        client.requestAccessToken(req);
+      } catch (error) {
+        fail(error);
       }
-      client.requestAccessToken(req);
     });
   },
 
@@ -1842,7 +1903,7 @@ const GDrive = {
   },
 
   async signIn() {
-    await this._requestToken({ promptMode: 'consent select_account' });
+    await this._requestToken({ promptMode: 'select_account' });
   },
 
   async reconnect() {
@@ -1853,22 +1914,26 @@ const GDrive = {
     const interactive = !!options.interactive;
     if (this.isSignedIn()) return;
     if (this.tryRestoreFromStorage()) return;
-    try {
-      await this.silentRefresh();
+    if (interactive) {
+      // Keep the token request inside the original tap. A silent attempt followed by
+      // a second request loses Safari's user activation and can block the popup.
+      await this._requestToken({
+        promptMode: this.getUserEmail() ? '' : 'consent select_account',
+        accountHint: this.getUserEmail()
+      });
       return;
-    } catch (e) {
+    }
+    try { await this.silentRefresh(); }
+    catch {
       this._clearTokenOnly();
-      if (!interactive) throw new Error('TOKEN_EXPIRED');
-      // Safari / iOS PWA often blocks silent OAuth after the app is closed.
-      // Because this path is triggered by a user click, we can safely show the Google consent/account UI.
-      await this._requestToken({ promptMode: this.getUserEmail() ? 'consent' : 'consent select_account' });
+      throw new Error('TOKEN_EXPIRED');
     }
   },
 
   async tryRestoreToken() {
     if (this.tryRestoreFromStorage()) return true;
     if (!DB.getGDriveClientId()) return false;
-    if (this.getUserEmail()) {
+    if (this.hasRememberedSession()) {
       try {
         await this.silentRefresh();
         return true;
@@ -1950,7 +2015,7 @@ const GDrive = {
   async _listStudyStreakFiles() {
     const q = `name='${this.STUDY_STREAK_FILE}' and mimeType='application/json' and trashed=false`;
     const params = new URLSearchParams({ q, fields: 'files(id,name,createdTime,modifiedTime)', orderBy: 'modifiedTime desc', pageSize: '20' });
-    const response = await fetch('https://www.googleapis.com/drive/v3/files?' + params, {
+    const response = await this._fetch('https://www.googleapis.com/drive/v3/files?' + params, {
       headers: { Authorization: 'Bearer ' + this._token }
     });
     if (!response.ok) {
@@ -1961,7 +2026,7 @@ const GDrive = {
   },
 
   async _downloadStudyStreakFile(fileId) {
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
+    const response = await this._fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
       headers: { Authorization: 'Bearer ' + this._token }
     });
     if (!response.ok) {
@@ -2001,11 +2066,11 @@ const GDrive = {
     const body = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
       + JSON.stringify(metadata) + '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n'
       + JSON.stringify(payload) + '\r\n--' + boundary + '--';
-    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    const response = await this._fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + this._token, 'Content-Type': 'multipart/related; boundary=' + boundary },
       body
-    });
+    }, this.UPLOAD_TIMEOUT_MS);
     if (!response.ok) {
       if (response.status === 401) this._clearTokenOnly();
       throw new Error('STREAK_CREATE_FAILED: ' + response.status);
@@ -2014,11 +2079,11 @@ const GDrive = {
   },
 
   async _updateStudyStreakFile(fileId, payload) {
-    const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media`, {
+    const response = await this._fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media`, {
       method: 'PATCH',
       headers: { Authorization: 'Bearer ' + this._token, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    });
+    }, this.UPLOAD_TIMEOUT_MS);
     if (!response.ok) {
       if (response.status === 401) this._clearTokenOnly();
       throw new Error('STREAK_UPDATE_FAILED: ' + response.status);
@@ -2029,30 +2094,33 @@ const GDrive = {
   async _readStudyStreakFiles(files) {
     const days = [];
     const handwriting = [];
-    for (const file of files) {
-      try {
-        const payload = await this._downloadStudyStreakFile(file.id);
-        days.push(...payload.studyDays);
-        handwriting.push(...(payload.handwritingHistory || []));
-      } catch (error) {
-        console.warn('[GDrive] Ignored unreadable streak file.', file.id, error.message);
+    const results = await Promise.allSettled(files.map(file => this._downloadStudyStreakFile(file.id)));
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        days.push(...result.value.studyDays);
+        handwriting.push(...(result.value.handwritingHistory || []));
+      } else {
+        console.warn('[GDrive] Ignored unreadable streak file.', files[index]?.id, result.reason?.message || result.reason);
       }
-    }
+    });
     return { studyDays: mergeStudyDays(days), handwritingHistory: mergeHandwritingHistory(handwriting) };
   },
 
   async syncStudyStreak(options = {}) {
     if (this._streakSyncPromise) return this._streakSyncPromise;
     this._streakSyncPromise = (async () => {
+      this._progress(options, '確認 Google 授權…', 10);
       await this.ensureToken(options);
       let merged = StudyStreak.getDays();
       let mergedHandwriting = KanaProgress.getHistory();
+      this._progress(options, '讀取跨裝置練習資料…', 30);
       let files = await this._listStudyStreakFiles();
 
       // Two union/write/read passes close the normal race where two devices add
       // different dates at nearly the same time. No side ever overwrites a date
       // that exists on the other side.
       for (let pass = 0; pass < 2; pass++) {
+        this._progress(options, pass === 0 ? '合併練習天數…' : '確認雲端資料一致…', pass === 0 ? 45 : 75);
         const cloudState = await this._readStudyStreakFiles(files);
         merged = mergeStudyDays(merged, cloudState.studyDays);
         mergedHandwriting = mergeHandwritingHistory(mergedHandwriting, cloudState.handwritingHistory);
@@ -2078,6 +2146,7 @@ const GDrive = {
       const syncedAt = new Date().toISOString();
       StudyStreak.markSynced(syncedAt);
       refreshStudyStreakUI();
+      this._progress(options, '練習天數同步完成', 100);
       return { studyDays: merged, handwritingHistory: mergedHandwriting, summary: StudyStreak.getSummary(), syncedAt };
     })();
     try { return await this._streakSyncPromise; }
@@ -2099,8 +2168,10 @@ const GDrive = {
   },
 
   async upload(options = {}) {
+    this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
-    await this.syncStudyStreak(options);
+    this._progress(options, '整理本機備份資料…', 30);
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
     const data     = this._buildPayload();
     const folderId = DB.getGDriveFolderId();
     const ts       = new Date().toISOString().replace(/[:.]/g, '-');
@@ -2124,11 +2195,12 @@ const GDrive = {
     const body = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
       + JSON.stringify(metadata) + '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n'
       + JSON.stringify(data) + '\r\n--' + boundary + '--';
-    const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    this._progress(options, '上傳至 Google Drive…', 55);
+    const r = await this._fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + this._token, 'Content-Type': 'multipart/related; boundary=' + boundary },
       body
-    });
+    }, this.UPLOAD_TIMEOUT_MS);
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       if (r.status === 401) { this._clearTokenOnly(); throw new Error('TOKEN_EXPIRED'); }
@@ -2136,16 +2208,22 @@ const GDrive = {
     }
     const now = new Date().toLocaleString('zh-TW');
     DB.setGDriveLastSync(now);
+    this._progress(options, '備份上傳完成', 100);
+    // The full backup already contains study days. Keep the separate live-state
+    // union in the background so it never blocks the user's upload button.
+    this.scheduleStudyStreakSync(250);
     return now;
   },
 
   async listBackups(options = {}) {
+    this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
+    this._progress(options, '讀取雲端備份清單…', 45);
     const folderId = DB.getGDriveFolderId();
     let q = "name contains 'japanese_backup_' and mimeType='application/json' and trashed=false";
     if (folderId) q += " and '" + folderId + "' in parents";
     const params = new URLSearchParams({ q, fields: 'files(id,name,createdTime,description)', orderBy: 'createdTime desc', pageSize: '10' });
-    const r = await fetch('https://www.googleapis.com/drive/v3/files?' + params, {
+    const r = await this._fetch('https://www.googleapis.com/drive/v3/files?' + params, {
       headers: { Authorization: 'Bearer ' + this._token }
     });
     if (!r.ok) {
@@ -2153,12 +2231,15 @@ const GDrive = {
       throw new Error('LIST_FAILED: ' + r.status);
     }
     const data = await r.json();
+    this._progress(options, '備份清單讀取完成', 100);
     return data.files || [];
   },
 
   async downloadFile(fileId, options = {}) {
+    this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
-    const r = await fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
+    this._progress(options, '下載備份資料…', 50);
+    const r = await this._fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
       headers: { Authorization: 'Bearer ' + this._token }
     });
     if (!r.ok) {
@@ -2168,6 +2249,7 @@ const GDrive = {
     const data = await r.json();
     const validation = BackupSchema.validate(data);
     if (!validation.valid) throw new Error('BACKUP_INVALID_' + validation.reason);
+    this._progress(options, '備份下載完成', 100);
     return data;
   },
 
@@ -5923,12 +6005,17 @@ Views.settings = {
           ${(signedIn || remembered) ? `
             <div class="fb-status-row">
               <div class="fb-status-dot ${signedIn ? 'connected' : 'disconnected'}"></div>
-              <span class="fb-status-text">${signedIn ? '已登入' : '已記住帳號，待操作時自動續權'}：${escapeHTML(email)}</span>
+              <span class="fb-status-text">${signedIn ? '已登入' : '已記住帳號，待操作時自動續權'}：${escapeHTML(email || 'Google 帳戶')}</span>
             </div>
             ${lastSync ? '<div class="fb-last-sync" style="margin-bottom:10px">上次同步：' + lastSync + '</div>' : ''}
             <div class="settings-btn-row" style="margin-bottom:10px">
               <button class="btn-fb-upload" id="gd-upload-btn" style="flex:1">${svgUp} 上傳備份</button>
               <button class="btn-fb-download" id="gd-download-btn" style="flex:1">${svgDn} 還原備份</button>
+            </div>
+            <div class="drive-operation-status" id="gd-operation-status" role="status" aria-live="polite" hidden>
+              <span class="drive-operation-spinner" aria-hidden="true"></span>
+              <span id="gd-operation-text">準備中…</span>
+              <span id="gd-operation-percent"></span>
             </div>
             <label class="fb-auto-sync-row">
               <input type="checkbox" id="gd-auto-sync"${autoSync ? ' checked' : ''}>
@@ -5945,7 +6032,7 @@ Views.settings = {
             ${remembered ? '<div class="settings-tip" style="margin-top:8px">iOS PWA 關閉後可能需要 Google 再確認一次授權；本程式會保留帳號並在上傳/還原時自動續權，不會清空登入設定。</div>' : ''}
             <button class="btn-fb-signout-bottom" id="gd-signout-btn" style="margin-top:10px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              登出 Google（${escapeHTML(email)}）
+              登出 Google（${escapeHTML(email || '目前帳戶')}）
             </button>
           ` : `
             <div class="fb-status-row" style="margin-bottom:8px">
@@ -6742,6 +6829,19 @@ Views.settings = {
       if (results.length > 0) this.render(container);
     });
 
+    const setDriveOperation = (message = '', percent = 0, state = 'busy') => {
+      const status = document.getElementById('gd-operation-status');
+      const text = document.getElementById('gd-operation-text');
+      const value = document.getElementById('gd-operation-percent');
+      if (!status) return;
+      status.hidden = !message;
+      status.classList.toggle('is-done', state === 'done');
+      status.classList.toggle('has-error', state === 'error');
+      if (text) text.textContent = message;
+      if (value) value.textContent = percent > 0 ? `${Math.min(100, Math.round(percent))}%` : '';
+    };
+    const driveProgress = ({ message, percent }) => setDriveOperation(message, percent, percent >= 100 ? 'done' : 'busy');
+
     // ── Google Drive 設定儲存 ──
     document.getElementById('gd-save-cfg-btn')?.addEventListener('click', () => {
       const cid = document.getElementById('gd-client-id-input').value.trim();
@@ -6756,26 +6856,23 @@ Views.settings = {
     // ── Google 登入 ──
     document.getElementById('gd-signin-btn')?.addEventListener('click', async (e) => {
       const btn = e.currentTarget;
-      btn.disabled = true; btn.textContent = '登入中…';
+      const original = btn.innerHTML;
+      btn.disabled = true; btn.textContent = '正在開啟 Google 登入…';
       try {
         await GDrive.signIn();
-        try {
-          await GDrive.syncStudyStreak({ interactive: true });
-          showToast('✓ 已登入並同步練習天數：' + GDrive.getUserEmail());
-        } catch (syncError) {
-          StudyStreak.markPending();
-          console.warn('[GDrive] Initial study streak sync failed.', syncError.message);
-          showToast('已登入；練習天數稍後再同步', 3200);
-        }
+        showToast('✓ Google 登入成功，雲端資料將在背景同步', 3000);
+        GDrive.scheduleStudyStreakSync(250);
         this.render(container);
       } catch(err) {
         let msg = '登入失敗，請稍後再試';
         if (err.message === 'NO_CLIENT_ID')    msg = '請先填入並儲存 OAuth Client ID';
-        if (err.message === 'GIS_LOAD_FAILED') msg = 'GIS 載入失敗，請確認網路連線';
-        if (err.message === 'popup_closed_by_user') msg = '登入視窗已關閉';
+        if (['GIS_LOAD_FAILED', 'GIS_LOAD_TIMEOUT'].includes(err.message)) msg = 'Google 登入元件載入失敗，請確認網路連線';
+        if (['popup_closed_by_user', 'popup_closed'].includes(err.message)) msg = '登入視窗已關閉';
+        if (err.message === 'popup_failed_to_open') msg = '登入視窗被阻擋，請由設定頁重新點擊登入';
+        if (err.message === 'AUTH_TIMEOUT') msg = 'Google 登入逾時，請確認網路後重試';
         if (err.message === 'access_denied')   msg = '授權被拒絕，請確認 Client ID 設定';
         showToast(msg, 3500);
-        btn.disabled = false; btn.textContent = '使用 Google 帳號登入';
+        btn.disabled = false; btn.innerHTML = original;
       }
     });
 
@@ -6784,11 +6881,13 @@ Views.settings = {
       button.disabled = true;
       button.textContent = '同步中…';
       try {
-        const result = await GDrive.syncStudyStreak({ interactive: true });
+        setDriveOperation('正在同步練習天數…', 10);
+        const result = await GDrive.syncStudyStreak({ interactive: true, onProgress: driveProgress });
         showToast(`✓ 練習天數已同步，共 ${result.summary.totalDays} 天`, 3000);
         this.render(container);
       } catch (error) {
         StudyStreak.markPending();
+        setDriveOperation('練習天數同步失敗', 0, 'error');
         showToast('練習天數同步失敗：' + error.message, 3500);
         button.disabled = false;
         button.textContent = '立即同步';
@@ -6805,25 +6904,31 @@ Views.settings = {
     // ── 上傳備份 ──
     document.getElementById('gd-upload-btn')?.addEventListener('click', async () => {
       const btn = document.getElementById('gd-upload-btn');
-      if (btn) btn.disabled = true;
+      const original = btn?.innerHTML || '';
+      if (btn) { btn.disabled = true; btn.textContent = '準備備份…'; }
+      setDriveOperation('準備備份…', 5);
       try {
-        const ts = await GDrive.upload({ interactive: true });
+        const ts = await GDrive.upload({ interactive: true, onProgress: driveProgress });
         showToast('✓ 備份已上傳至 Google Drive（' + ts + '）');
         this.render(container);
       } catch(err) {
+        setDriveOperation(err.message === 'DRIVE_TIMEOUT' ? 'Google Drive 連線逾時' : '備份上傳失敗', 0, 'error');
         if (err.message === 'NOT_SIGNED_IN')  showToast('請先登入 Google', 3000);
         else if (err.message === 'TOKEN_EXPIRED') { showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
+        else if (err.message === 'DRIVE_TIMEOUT') showToast('Google Drive 上傳逾時，請確認網路後重試', 3500);
         else showToast('上傳失敗：' + err.message, 3000);
       }
-      if (btn) btn.disabled = false;
+      if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = original; }
     });
 
     // ── 還原備份（選擇 10 個檔案之一） ──
     document.getElementById('gd-download-btn')?.addEventListener('click', async () => {
       const btn = document.getElementById('gd-download-btn');
-      if (btn) btn.disabled = true;
+      const original = btn?.innerHTML || '';
+      if (btn) { btn.disabled = true; btn.textContent = '讀取清單…'; }
+      setDriveOperation('正在讀取雲端備份清單…', 10);
       try {
-        const files = await GDrive.listBackups({ interactive: true });
+        const files = await GDrive.listBackups({ interactive: true, onProgress: driveProgress });
         if (!files.length) { showToast('雲端尚無備份，請先上傳', 3000); if (btn) btn.disabled=false; return; }
         const rows = files.map((f, i) => {
           const ts  = f.createdTime ? new Date(f.createdTime).toLocaleString('zh-TW') : '—';
@@ -6854,8 +6959,10 @@ Views.settings = {
           b.addEventListener('click', async () => {
             const fileId = b.dataset.fid;
             document.querySelectorAll('.fb-slot-btn').forEach(x => x.disabled = true);
+            const originalRow = b.innerHTML;
+            b.textContent = '正在下載此備份…';
             try {
-              const data = await GDrive.downloadFile(fileId, { interactive: true });
+              const data = await GDrive.downloadFile(fileId, { interactive: true, onProgress: driveProgress });
               Modal.show(`<div class="modal-handle"></div>
                 <div class="modal-title">套用備份</div>
                 <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
@@ -6867,22 +6974,37 @@ Views.settings = {
                   <button class="btn-secondary" id="gd-dl-merge" style="width:100%">合併（保留本機 + 備份全部）</button>
                   <button class="modal-btn-cancel" id="gd-dl-cancel2" style="width:100%;margin-top:4px">取消</button>
                 </div>`);
-              const apply = (mode) => { GDrive.applyDownload(data, mode); Modal.hide(); showToast('✓ 備份已還原至本機'); this.render(container); };
+              const apply = async (mode) => {
+                const buttons = document.querySelectorAll('#gd-dl-overwrite, #gd-dl-merge, #gd-dl-cancel2');
+                buttons.forEach(button => { button.disabled = true; });
+                const title = document.querySelector('#modal-content .modal-title');
+                if (title) title.textContent = '正在還原備份…';
+                await new Promise(resolve => requestAnimationFrame(() => resolve()));
+                GDrive.applyDownload(data, mode);
+                await AppStorage.flush();
+                Modal.hide();
+                showToast('✓ 備份已還原至本機');
+                this.render(container);
+              };
               document.getElementById('gd-dl-overwrite').addEventListener('click', () => apply('overwrite'));
               document.getElementById('gd-dl-merge').addEventListener('click',     () => apply('merge'));
               document.getElementById('gd-dl-cancel2').addEventListener('click',   () => Modal.hide());
             } catch(err) {
+              b.innerHTML = originalRow;
               if (err.message === 'TOKEN_EXPIRED') { Modal.hide(); showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
+              else if (err.message === 'DRIVE_TIMEOUT') { showToast('Google Drive 下載逾時，請確認網路後重試', 3500); Modal.hide(); }
               else { showToast('下載失敗：' + err.message, 3000); Modal.hide(); }
             }
           });
         });
       } catch(err) {
+        setDriveOperation(err.message === 'DRIVE_TIMEOUT' ? 'Google Drive 連線逾時' : '備份清單讀取失敗', 0, 'error');
         if (err.message === 'NOT_SIGNED_IN')   showToast('請先登入 Google');
         else if (err.message === 'TOKEN_EXPIRED') { showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
+        else if (err.message === 'DRIVE_TIMEOUT') showToast('Google Drive 讀取逾時，請確認網路後重試', 3500);
         else showToast('讀取失敗：' + err.message, 3000);
       }
-      if (btn) btn.disabled = false;
+      if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = original; }
     });
 
     // ── 自動同步開關 ──
@@ -6983,38 +7105,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // ── Google Drive: restore token + auto-sync on startup ──
-  try {
-    const restored = await GDrive.tryRestoreToken();
-    if (restored) {
-      try { await GDrive.syncStudyStreak({ interactive: false }); }
-      catch (error) {
-        StudyStreak.markPending();
-        console.warn('[GDrive] Startup study streak sync deferred.', error.message);
-      }
-    }
-    if (restored && DB.getGDriveAutoSync()) {
-      showToast('☁️ 檢查雲端備份中…', 1800);
-      try {
-        const syncResult = await GDrive.autoRestoreIfCloudHasMore();
-        if (syncResult.status === 'restored') {
-          showToast('✓ 已自動同步雲端最新備份', 2800);
-        } else if (syncResult.status === 'conflict') {
-          console.warn('[GDrive] Auto-sync conflict detected.', syncResult);
-          showToast('雲端與本機資料各有差異，為保護資料未自動覆寫', 3800);
-        } else if (syncResult.status === 'same') {
-          console.info('[GDrive] Local and cloud backup are identical.');
-        } else if (syncResult.status === 'safety_blocked') {
-          showToast('本機復原點無法使用，為保護資料未自動覆寫', 3600);
-        } else if (syncResult.status === 'skipped') {
-          console.info('[GDrive] Auto-sync skipped. Local:', GDrive._formatCounts(syncResult.localCounts), 'Cloud:', GDrive._formatCounts(syncResult.cloudCounts));
-          showToast('本機資料未少於雲端，不自動更新', 2600);
+  // Google authorization and Drive comparison are deliberately deferred until
+  // after the first screen is painted. Network latency must never block app entry.
+  const runCloudStartup = async () => {
+    try {
+      const restored = await GDrive.tryRestoreToken();
+      if (restored && DB.getGDriveAutoSync()) {
+        showToast('☁️ 正在背景檢查雲端備份…', 1800);
+        try {
+          const syncResult = await GDrive.autoRestoreIfCloudHasMore();
+          if (syncResult.status === 'restored') {
+            showToast('✓ 已自動同步雲端最新備份', 2800);
+            if (Router.currentView === 'home' || Router.currentView === 'settings') Router._doNavigate(Router.currentView);
+          } else if (syncResult.status === 'conflict') {
+            console.warn('[GDrive] Auto-sync conflict detected.', syncResult);
+            showToast('雲端與本機資料各有差異，為保護資料未自動覆寫', 3800);
+          } else if (syncResult.status === 'same') {
+            console.info('[GDrive] Local and cloud backup are identical.');
+          } else if (syncResult.status === 'safety_blocked') {
+            showToast('本機復原點無法使用，為保護資料未自動覆寫', 3600);
+          } else if (syncResult.status === 'skipped') {
+            console.info('[GDrive] Auto-sync skipped. Local:', GDrive._formatCounts(syncResult.localCounts), 'Cloud:', GDrive._formatCounts(syncResult.cloudCounts));
+          }
+        } catch (error) {
+          console.warn('[GDrive] Background auto-sync skipped:', error.message);
         }
-      } catch(e) {
-        console.warn('Auto-sync check failed', e.message);
       }
+      if (restored) GDrive.scheduleStudyStreakSync(250);
+    } catch (error) {
+      console.warn('[GDrive] Background login restore skipped:', error.message);
     }
-  } catch(e) { console.warn('[GDrive] init failed:', e); }
+  };
 
   // ── Global quick-scroll FABs (all pages except active spelling / essay; bottom button is Settings + Reading quiz) ──
   const _backTopBtn = document.getElementById('global-back-top');
@@ -7056,6 +7177,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   Router._doNavigate('home');
+  GDrive.preload();
+  setTimeout(() => { void runCloudStartup(); }, 350);
 
   // Check during idle time and never install/reload while an exercise is active.
   const checkForStartupUpdate = async () => {

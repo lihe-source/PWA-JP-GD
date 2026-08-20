@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 
-const SERVICE_VERSION = 'V1.1.0';
+const SERVICE_VERSION = 'V1.2.2';
 const MAX_DUE_PER_RUN = 25;
 const formatterCache = new Map();
 
@@ -208,8 +208,32 @@ async function sendPush(row, env, isTest = false) {
   return webpush.sendNotification(subscription, notificationPayload(row, env, isTest), {
     TTL: isTest ? 300 : 3600,
     urgency: isTest ? 'high' : 'normal',
-    topic: isTest ? 'japanese-test' : 'japanese-daily'
+    contentEncoding: 'aes128gcm'
   });
+}
+
+function pushErrorDetails(error) {
+  const rawBody = typeof error?.body === 'string'
+    ? error.body
+    : error?.body ? String(error.body) : '';
+  let providerReason = '';
+  try {
+    const parsed = JSON.parse(rawBody || '{}');
+    providerReason = String(parsed.reason || parsed.error || '').slice(0, 100);
+  } catch {}
+  return {
+    status: Number(error?.statusCode) || 500,
+    providerReason,
+    rawBody: rawBody.slice(0, 300)
+  };
+}
+
+function subscriptionIsInvalid(status, providerReason) {
+  return status === 404 || status === 410 || [
+    'BadDeviceToken',
+    'DeviceTokenNotForTopic',
+    'Unregistered'
+  ].includes(providerReason);
 }
 
 async function handleRegister(request, env) {
@@ -305,13 +329,22 @@ async function handleTest(request, env) {
     await sendPush(row, env, true);
     return jsonResponse(request, env, { ok: true });
   } catch (error) {
-    const status = Number(error?.statusCode) || 500;
-    if (status === 404 || status === 410) {
+    const { status, providerReason, rawBody } = pushErrorDetails(error);
+    if (subscriptionIsInvalid(status, providerReason)) {
       await env.DB.prepare('DELETE FROM japanese_reminders WHERE id = ?').bind(row.id).run();
-      return jsonResponse(request, env, { error: '裝置訂閱已失效，請重新啟用提醒', code: 'AUTH_EXPIRED' }, 410);
+      console.warn('[WebPush] Invalid subscription removed:', status, providerReason || 'expired');
+      return jsonResponse(request, env, {
+        error: '裝置訂閱已失效，正在要求重新建立',
+        code: 'SUBSCRIPTION_INVALID',
+        providerReason
+      }, 410);
     }
-    console.error('[WebPush] Test failed:', status, error?.message || error);
-    return jsonResponse(request, env, { error: '測試通知傳送失敗', code: 'PUSH_FAILED' }, 502);
+    console.error('[WebPush] Test failed:', status, error?.message || error, providerReason || rawBody);
+    return jsonResponse(request, env, {
+      error: providerReason ? `Apple 推播拒絕：${providerReason}` : '測試通知傳送失敗',
+      code: status === 400 ? 'PUSH_REJECTED' : 'PUSH_FAILED',
+      providerReason
+    }, 502);
   }
 }
 
@@ -348,8 +381,8 @@ async function processDueReminders(env, scheduledTime = Date.now()) {
         WHERE id = ?
       `).bind(next, now, now, row.id).run();
     } catch (error) {
-      const status = Number(error?.statusCode) || 0;
-      if (status === 404 || status === 410) {
+      const { status, providerReason } = pushErrorDetails(error);
+      if (subscriptionIsInvalid(status, providerReason)) {
         await env.DB.prepare('DELETE FROM japanese_reminders WHERE id = ?').bind(row.id).run();
         continue;
       }
@@ -361,8 +394,8 @@ async function processDueReminders(env, scheduledTime = Date.now()) {
         UPDATE japanese_reminders
         SET next_fire_at = ?, failure_count = ?, last_error = ?, updated_at = ?
         WHERE id = ?
-      `).bind(next, failures, String(error?.message || 'PUSH_FAILED').slice(0, 300), now, row.id).run();
-      console.error('[WebPush] Scheduled send failed:', row.id, status, error?.message || error);
+      `).bind(next, failures, String(providerReason || error?.message || 'PUSH_FAILED').slice(0, 300), now, row.id).run();
+      console.error('[WebPush] Scheduled send failed:', row.id, status, providerReason || error?.message || error);
     }
   }
 }

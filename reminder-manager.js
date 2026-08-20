@@ -45,9 +45,11 @@ function equalApplicationServerKey(existing, expected) {
   return current.every((value, index) => value === expected[index]);
 }
 
-function makeError(code, detail = '') {
+function makeError(code, detail = '', metadata = {}) {
   const error = new Error(detail || code);
   error.code = code;
+  error.detail = detail || '';
+  Object.assign(error, metadata);
   return error;
 }
 
@@ -63,7 +65,10 @@ export function reminderErrorMessage(error) {
     AUTH_EXPIRED: '提醒憑證已失效，請重新按下「儲存並啟用」',
     TIMEOUT: '推播服務連線逾時，請確認網路後再試',
     NETWORK_ERROR: '無法連線推播服務，請檢查 Worker 網址與網路',
-    SUBSCRIBE_FAILED: '無法建立通知訂閱，請重新開啟 PWA 後再試'
+    SUBSCRIBE_FAILED: '無法建立通知訂閱，請重新開啟 PWA 後再試',
+    SUBSCRIPTION_INVALID: 'iPhone 通知訂閱已失效，系統重新建立後仍失敗，請關閉 PWA 再重試',
+    PUSH_REJECTED: 'Apple 推播服務拒絕通知，系統已嘗試重建訂閱',
+    PUSH_FAILED: '測試通知傳送失敗，請確認網路後再試'
   };
   return messages[code] || error?.message || '提醒設定失敗，請稍後再試';
 }
@@ -150,8 +155,13 @@ export class ReminderManager {
       let payload = {};
       try { payload = await response.json(); } catch {}
       if (!response.ok) {
-        if (response.status === 401 || response.status === 403) throw makeError('AUTH_EXPIRED', payload.error || 'Unauthorized');
-        throw makeError(payload.code || 'NETWORK_ERROR', payload.error || `HTTP ${response.status}`);
+        const code = (response.status === 401 || response.status === 403)
+          ? 'AUTH_EXPIRED'
+          : (payload.code || 'NETWORK_ERROR');
+        throw makeError(code, payload.error || `HTTP ${response.status}`, {
+          status: response.status,
+          providerReason: payload.providerReason || ''
+        });
       }
       return payload;
     } catch (error) {
@@ -171,7 +181,7 @@ export class ReminderManager {
     return config;
   }
 
-  async _ensureSubscription() {
+  async _ensureSubscription({ forceRenew = false } = {}) {
     const server = await this._getServerConfig();
     const expectedKey = base64UrlToBytes(server.vapidPublicKey);
     if (expectedKey.length !== 65) throw makeError('INVALID_SERVER_CONFIG');
@@ -183,7 +193,7 @@ export class ReminderManager {
       })
     ]).finally(() => clearTimeout(readyTimer));
     let subscription = await registration.pushManager.getSubscription();
-    if (subscription && !equalApplicationServerKey(subscription.options?.applicationServerKey, expectedKey)) {
+    if (subscription && (forceRenew || !equalApplicationServerKey(subscription.options?.applicationServerKey, expectedKey))) {
       await subscription.unsubscribe().catch(() => false);
       subscription = null;
     }
@@ -198,6 +208,17 @@ export class ReminderManager {
       }
     }
     return subscription;
+  }
+
+  async _unsubscribeLocal() {
+    if (!('serviceWorker' in navigator)) return false;
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      return subscription ? await subscription.unsubscribe() : true;
+    } catch {
+      return false;
+    }
   }
 
   _authorizationHeaders(token) {
@@ -229,6 +250,23 @@ export class ReminderManager {
     }
   }
 
+  _storeRegistration(result, time) {
+    if (result.managementToken) this.storage.setItem(TOKEN_KEY, result.managementToken);
+    return this._saveSettings({
+      enabled: true,
+      time,
+      timeZone: result.timeZone || currentTimeZone(),
+      nextFireAt: Number(result.nextFireAt) || 0
+    });
+  }
+
+  async _renewAndRegister(time) {
+    const subscription = await this._ensureSubscription({ forceRenew: true });
+    const result = await this._register({ time, subscription });
+    this._storeRegistration(result, time);
+    return result;
+  }
+
   async enable(time) {
     if (!validTime(time)) throw makeError('INVALID_TIME');
     const capabilities = this.getCapabilities();
@@ -239,15 +277,12 @@ export class ReminderManager {
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') throw makeError('PERMISSION_DENIED');
 
-    const subscription = await this._ensureSubscription();
+    // An explicit save is also the recovery action for Apple subscriptions.
+    // Reusing an APNs device token that Apple has rejected only repeats HTTP 400.
+    const shouldRenew = this.getSettings().enabled || !!this.storage.getItem(TOKEN_KEY);
+    const subscription = await this._ensureSubscription({ forceRenew: shouldRenew });
     const result = await this._register({ time, subscription });
-    if (result.managementToken) this.storage.setItem(TOKEN_KEY, result.managementToken);
-    return this._saveSettings({
-      enabled: true,
-      time,
-      timeZone: result.timeZone || currentTimeZone(),
-      nextFireAt: Number(result.nextFireAt) || 0
-    });
+    return this._storeRegistration(result, time);
   }
 
   async disable() {
@@ -264,14 +299,12 @@ export class ReminderManager {
         this.storage.removeItem(TOKEN_KEY);
       }
     }
+    await this._unsubscribeLocal();
+    this.storage.removeItem(TOKEN_KEY);
     return this._saveSettings({ enabled: false, nextFireAt: 0 });
   }
 
-  async sendTest() {
-    const capabilities = this.getCapabilities();
-    if (!capabilities.supported) throw makeError('UNSUPPORTED');
-    if (capabilities.needsInstall) throw makeError('NOT_INSTALLED');
-    if (capabilities.permission !== 'granted') throw makeError('PERMISSION_DENIED');
+  async _sendTestOnce() {
     const token = this.storage.getItem(TOKEN_KEY) || '';
     if (!token) throw makeError('AUTH_EXPIRED');
     return this._request('/api/reminders/test', {
@@ -279,6 +312,22 @@ export class ReminderManager {
       headers: this._authorizationHeaders(token),
       body: '{}'
     });
+  }
+
+  async sendTest() {
+    const capabilities = this.getCapabilities();
+    if (!capabilities.supported) throw makeError('UNSUPPORTED');
+    if (capabilities.needsInstall) throw makeError('NOT_INSTALLED');
+    if (capabilities.permission !== 'granted') throw makeError('PERMISSION_DENIED');
+    try {
+      return await this._sendTestOnce();
+    } catch (error) {
+      const repairable = ['AUTH_EXPIRED', 'SUBSCRIPTION_INVALID', 'PUSH_REJECTED'].includes(error?.code);
+      if (!repairable) throw error;
+      const settings = this.getSettings();
+      await this._renewAndRegister(settings.time);
+      return this._sendTestOnce();
+    }
   }
 
   async reconcile() {

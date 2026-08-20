@@ -8,7 +8,7 @@ workers_dev = true
 crons = ["* * * * *"]
 
 [vars]
-APP_URL = "https://lihe-source.github.io/PWA-Japanese-GD/"
+APP_URL = "https://lihe-source.github.io/PWA-JP-GD/"
 ALLOWED_ORIGINS = "https://lihe-source.github.io"
 
 [[d1_databases]]

@@ -1,4 +1,4 @@
-# V1.2.0 已內建設定
+# V1.2.1 已內建設定
 
 ## Google
 
@@ -34,4 +34,4 @@ VAPID 公開／私密金鑰可以與英文 Worker 共用，但三個 Secrets 仍
 - 重新部署同名 Worker 不會清除 D1。
 - `schema.sql` 只會 `CREATE TABLE IF NOT EXISTS`，不會刪除既有提醒。
 - OAuth Client ID 與 Drive Folder ID 已有預設值；使用者仍可在設定頁修改。
-- V1.2.0 會記住上次練習模式、單字練習條件、五十音複選行別、每字重複次數與 iPhone／iPad 版面；完整備份亦包含這些偏好。
+- V1.2.1 會記住上次練習模式、單字練習條件、五十音複選行別、每字重複次數與 iPhone／iPad 版面；完整備份亦包含這些偏好。

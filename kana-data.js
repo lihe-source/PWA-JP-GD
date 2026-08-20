@@ -1,4 +1,4 @@
-import { KANA_STROKES } from './kana-strokes.js?v=V1_2_0';
+import { KANA_STROKES } from './kana-strokes.js?v=V1_2_1';
 
 export const KANA_SCRIPTS = Object.freeze({
   HIRAGANA: 'hiragana',
@@ -70,10 +70,41 @@ export function shuffleKana(items, random = Math.random) {
 
 export const KANA_REPEAT_OPTIONS = Object.freeze([1, 2, 3, 5, 10]);
 
+function arrangeWithoutAdjacentDuplicates(items, random = Math.random) {
+  const groups = new Map();
+  items.forEach(item => {
+    const key = String(item?.id || `${item?.script || ''}:${item?.character || ''}`);
+    const group = groups.get(key) || { key, item, remaining: 0 };
+    group.remaining += 1;
+    groups.set(key, group);
+  });
+
+  const result = [];
+  let previousKey = null;
+  while (result.length < items.length) {
+    const available = [...groups.values()].filter(group => group.remaining > 0 && group.key !== previousKey);
+    const candidates = available.length
+      ? available
+      : [...groups.values()].filter(group => group.remaining > 0);
+    if (!candidates.length) break;
+
+    // 優先抽取剩餘數量最多的題目，並在同數量候選中隨機選擇。
+    // 當至少有兩個不同假名且排法成立時，可避免把相同題目排在相鄰位置。
+    const highestRemaining = Math.max(...candidates.map(group => group.remaining));
+    const balanced = candidates.filter(group => group.remaining === highestRemaining);
+    const randomIndex = Math.min(balanced.length - 1, Math.floor(Math.max(0, random()) * balanced.length));
+    const selected = balanced[randomIndex];
+    result.push(selected.item);
+    selected.remaining -= 1;
+    previousKey = selected.key;
+  }
+  return result;
+}
+
 export function buildRepeatedKanaPractice(items, repeat = 1, random = Math.random) {
   const repetitions = KANA_REPEAT_OPTIONS.includes(Number(repeat)) ? Number(repeat) : 1;
   const source = Array.isArray(items) ? items.filter(Boolean) : [];
   const repeated = [];
   for (let round = 0; round < repetitions; round++) repeated.push(...source);
-  return shuffleKana(repeated, random);
+  return arrangeWithoutAdjacentDuplicates(repeated, random);
 }

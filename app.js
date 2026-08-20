@@ -1,22 +1,22 @@
-import { AppStorage } from './storage.js?v=V1_2_0';
-import { BackupSchema } from './backup-schema.js?v=V1_2_0';
-import { VersionManager } from './version-manager.js?v=V1_2_0';
-import { TrendChart } from './chart-renderer.js?v=V1_2_0';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_0';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_0';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_0';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_0';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_0';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_0';
+import { AppStorage } from './storage.js?v=V1_2_1';
+import { BackupSchema } from './backup-schema.js?v=V1_2_1';
+import { VersionManager } from './version-manager.js?v=V1_2_1';
+import { TrendChart } from './chart-renderer.js?v=V1_2_1';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_1';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_1';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_1';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_1';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_1';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_1';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_0
-// V1.2.0：五十音可設定重複次數並隨機出題，設定頁改為精簡單頁設計
+// 日本語練習 PWA - app.js V1_2_1
+// V1.2.1：重複練習採平衡隨機排題，避免相同假名連續出現
 // ===========================
 
-const APP_VERSION = 'V1_2_0';
-const APP_DISPLAY_VERSION = 'V1.2.0';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_0';
+const APP_VERSION = 'V1_2_1';
+const APP_DISPLAY_VERSION = 'V1.2.1';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_1';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -3378,7 +3378,7 @@ Views.kanaPractice = {
         <section class="kana-setup-card kana-setup-compact">
           <div class="kana-setup-heading">
             <div class="kana-setup-mark" aria-hidden="true">あ</div>
-            <div><h2>五十音手寫練習</h2><p>選擇假名後可設定每個字的重複次數，題目會隨機排列。</p></div>
+            <div><h2>五十音手寫練習</h2><p>選擇假名後可設定每個字的重複次數，題目會隨機排列且相同假名不會相鄰。</p></div>
           </div>
           <div class="kana-summary-grid kana-summary-strip" aria-label="五十音練習摘要">
             <div><strong>${summary.practiced}</strong><span>已練</span></div>
@@ -3471,7 +3471,10 @@ Views.kanaPractice = {
         rowSummary.textContent = `${rowText}・${selectedCount} 個假名`;
       }
       const repeatSummary = document.getElementById('kana-repeat-summary');
-      if (repeatSummary) repeatSummary.textContent = `${this.state.weakOnly ? '弱項優先・' : ''}${practiceCount} 個假名 × ${this.state.repeat} 次 ＝ ${totalQuestions} 題・隨機順序`;
+      if (repeatSummary) {
+        const orderLabel = practiceCount > 1 ? '不連續隨機' : '單一假名重複';
+        repeatSummary.textContent = `${this.state.weakOnly ? '弱項優先・' : ''}${practiceCount} 個假名 × ${this.state.repeat} 次 ＝ ${totalQuestions} 題・${orderLabel}`;
+      }
       const startButton = document.getElementById('kana-start-btn');
       if (startButton) {
         startButton.disabled = totalQuestions === 0;

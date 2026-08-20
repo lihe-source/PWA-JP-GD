@@ -31,7 +31,29 @@ test('one five-kana row repeated five times creates 25 randomized opportunities'
   assert.equal(row.length, 5);
   assert.equal(practice.length, 25);
   assert.equal([...counts.values()].every(count => count === 5), true);
+  assert.equal(practice.slice(1).every((kana, index) => kana.id !== practice[index].id), true);
   assert.notDeepEqual(practice.map(kana => kana.id), Array.from({ length: 5 }, () => row.map(kana => kana.id)).flat());
+});
+
+test('repeated kana never appear consecutively across randomized seeds', () => {
+  const row = getKanaSet({ script: 'hiragana', rows: ['a'] });
+  for (let initialSeed = 1; initialSeed <= 100; initialSeed++) {
+    let seed = initialSeed;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x100000000;
+    };
+    const practice = buildRepeatedKanaPractice(row, 10, random);
+    assert.equal(practice.length, 50);
+    assert.equal(practice.slice(1).every((kana, index) => kana.id !== practice[index].id), true);
+  }
+});
+
+test('a single available kana remains usable when separation is mathematically impossible', () => {
+  const onlyKana = getKanaSet({ script: 'hiragana', rows: ['a'] }).slice(0, 1);
+  const practice = buildRepeatedKanaPractice(onlyKana, 5, () => 0.5);
+  assert.equal(practice.length, 5);
+  assert.equal(practice.every(kana => kana.id === onlyKana[0].id), true);
 });
 
 test('writing layout distinguishes iPhone 15 Pro Max and iPad Air in both orientations', () => {

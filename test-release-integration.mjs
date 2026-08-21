@@ -4,20 +4,20 @@ import { readFile } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-test('all public app surfaces use Japanese V1.2.2', async () => {
+test('all public app surfaces use Japanese V1.2.3', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_2_2'/);
-  assert.match(html, /app\.js\?v=V1_2_2/);
-  assert.match(sw, /Japanese-PWA-V1_2_2/);
+  assert.match(app, /APP_VERSION = 'V1_2_3'/);
+  assert.match(html, /app\.js\?v=V1_2_3/);
+  assert.match(sw, /Japanese-PWA-V1_2_3/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.2\.2/);
-  assert.equal(JSON.parse(pkg).version, '1.2.2');
+  assert.match(JSON.parse(manifest).name, /V1\.2\.3/);
+  assert.equal(JSON.parse(pkg).version, '1.2.3');
 });
 
-test('V1.2.2 repairs Apple subscriptions and reports provider errors', async () => {
+test('V1.2.3 keeps Apple subscription repair and provider errors', async () => {
   const [manager, worker] = await Promise.all([text('reminder-manager.js'), text('worker.js')]);
   assert.match(manager, /forceRenew/);
   assert.match(manager, /SUBSCRIPTION_INVALID/);
@@ -37,6 +37,18 @@ test('Google Drive startup and backup operations are non-blocking and observable
   assert.doesNotMatch(app, /async upload[\s\S]{0,180}await this\.syncStudyStreak/);
   assert.match(app, /DRIVE_TIMEOUT/);
   assert.match(style, /\.drive-operation-status/);
+});
+
+test('remembered Google account restores without account chooser before home', async () => {
+  const app = await text('app.js');
+  assert.match(app, /promptMode !== undefined/);
+  assert.match(app, /req\.prompt = promptMode/);
+  assert.match(app, /promptMode: 'none', accountHint: this\.getUserEmail\(\)/);
+  assert.match(app, /promptMode: this\.getUserEmail\(\) \? '' : 'consent select_account'/);
+  assert.match(app, /void AppUpdater\.register\(\)/);
+  assert.doesNotMatch(app, /await AppUpdater\.register\(\)/);
+  assert.match(app, /Router\._doNavigate\('home'\);[\s\S]{0,120}GDrive\.preload\(\)/);
+  assert.doesNotMatch(app, /await runCloudStartup\(\)/);
 });
 
 test('V1.1 remembers practice choices and provides multi-row layout controls', async () => {

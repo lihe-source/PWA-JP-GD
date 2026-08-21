@@ -1,22 +1,22 @@
-import { AppStorage } from './storage.js?v=V1_2_2';
-import { BackupSchema } from './backup-schema.js?v=V1_2_2';
-import { VersionManager } from './version-manager.js?v=V1_2_2';
-import { TrendChart } from './chart-renderer.js?v=V1_2_2';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_2';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_2';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_2';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_2';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_2';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_2';
+import { AppStorage } from './storage.js?v=V1_2_3';
+import { BackupSchema } from './backup-schema.js?v=V1_2_3';
+import { VersionManager } from './version-manager.js?v=V1_2_3';
+import { TrendChart } from './chart-renderer.js?v=V1_2_3';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_3';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_3';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_3';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_3';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_3';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_3';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_2
-// V1.2.2：iPhone 推播自動修復、Google 登入與 Drive 備份非阻塞化
+// 日本語練習 PWA - app.js V1_2_3
+// V1.2.3：Google 帳號無提示背景恢復，開啟後直接進入主畫面
 // ===========================
 
-const APP_VERSION = 'V1_2_2';
-const APP_DISPLAY_VERSION = 'V1.2.2';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_2';
+const APP_VERSION = 'V1_2_3';
+const APP_DISPLAY_VERSION = 'V1.2.3';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_3';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -1694,6 +1694,7 @@ const GDrive = {
   _client: null,
   _clientKey: '',
   _gisPromise: null,
+  _silentRestorePromise: null,
   _streakSyncTimer: null,
   _streakSyncPromise: null,
   STUDY_STREAK_FILE: 'japanese_learning_state.json',
@@ -1858,7 +1859,7 @@ const GDrive = {
     }
   },
 
-  async _requestToken({ promptMode = '', accountHint = '' } = {}) {
+  async _requestToken({ promptMode, accountHint = '' } = {}) {
     const clientId = DB.getGDriveClientId();
     if (!clientId) throw new Error('NO_CLIENT_ID');
     await this._loadGIS();
@@ -1883,7 +1884,10 @@ const GDrive = {
         void this._refreshUserEmail(resp.access_token);
       };
       const req = {};
-      if (promptMode) req.prompt = promptMode;
+      // An empty prompt is meaningful to Google: it reuses a previously approved
+      // account without showing the account chooser. Do not test truthiness here,
+      // otherwise GIS falls back to its default `select_account` prompt.
+      if (promptMode !== undefined) req.prompt = promptMode;
       if (hint) req.login_hint = hint;
       try {
         const client = this._createClient(
@@ -1899,7 +1903,10 @@ const GDrive = {
   },
 
   async silentRefresh() {
-    await this._requestToken({ promptMode: '' });
+    // Startup must never display an account chooser or consent dialog. When the
+    // Google session cannot be restored without UI, the app remains usable and
+    // Drive authorization is deferred to the next user-initiated Drive action.
+    await this._requestToken({ promptMode: 'none', accountHint: this.getUserEmail() });
   },
 
   async signIn() {
@@ -1933,16 +1940,21 @@ const GDrive = {
   async tryRestoreToken() {
     if (this.tryRestoreFromStorage()) return true;
     if (!DB.getGDriveClientId()) return false;
-    if (this.hasRememberedSession()) {
+    if (!this.hasRememberedSession()) return false;
+    if (this._silentRestorePromise) return this._silentRestorePromise;
+    this._silentRestorePromise = (async () => {
       try {
         await this.silentRefresh();
         return true;
-      } catch (e) {
+      } catch (error) {
         this._clearTokenOnly();
+        console.info('[GDrive] Silent account restore deferred:', error?.message || error);
         return false;
+      } finally {
+        this._silentRestorePromise = null;
       }
-    }
-    return false;
+    })();
+    return this._silentRestorePromise;
   },
 
   signOut() {
@@ -1951,6 +1963,7 @@ const GDrive = {
     }
     this._client = null;
     this._clientKey = '';
+    this._silentRestorePromise = null;
     clearTimeout(this._streakSyncTimer);
     this._streakSyncTimer = null;
     this._clearSession();
@@ -6005,7 +6018,7 @@ Views.settings = {
           ${(signedIn || remembered) ? `
             <div class="fb-status-row">
               <div class="fb-status-dot ${signedIn ? 'connected' : 'disconnected'}"></div>
-              <span class="fb-status-text">${signedIn ? '已登入' : '已記住帳號，待操作時自動續權'}：${escapeHTML(email || 'Google 帳戶')}</span>
+              <span class="fb-status-text">${signedIn ? '已登入' : '帳號已記住，雲端功能會自動續權'}：${escapeHTML(email || 'Google 帳戶')}</span>
             </div>
             ${lastSync ? '<div class="fb-last-sync" style="margin-bottom:10px">上次同步：' + lastSync + '</div>' : ''}
             <div class="settings-btn-row" style="margin-bottom:10px">
@@ -6029,7 +6042,7 @@ Views.settings = {
               <button class="btn-secondary" id="gd-streak-sync-btn" type="button">立即同步</button>
             </div>
             <button class="btn-secondary" id="local-recovery-btn" style="width:100%;margin-top:9px">本機復原點</button>
-            ${remembered ? '<div class="settings-tip" style="margin-top:8px">iOS PWA 關閉後可能需要 Google 再確認一次授權；本程式會保留帳號並在上傳/還原時自動續權，不會清空登入設定。</div>' : ''}
+            ${remembered ? '<div class="settings-tip" style="margin-top:8px">開啟程式會直接進入主畫面，並在背景無提示恢復 Google 登入。只有 Google 工作階段失效或權限被撤銷時，下一次使用雲端功能才需要重新授權。</div>' : ''}
             <button class="btn-fb-signout-bottom" id="gd-signout-btn" style="margin-top:10px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               登出 Google（${escapeHTML(email || '目前帳戶')}）
@@ -6039,8 +6052,8 @@ Views.settings = {
               <div class="fb-status-dot disconnected"></div>
               <span class="fb-status-text">${clientId ? '尚未登入 Google' : '請先在下方填入 OAuth Client ID'}</span>
             </div>
-            ${clientId ? '<button class="btn-fb-signin" id="gd-signin-btn" style="width:100%;padding:9px 12px;font-size:13px">' + svgG + ' 使用 Google 帳號登入</button>' : ''}
-            <div class="settings-tip" style="margin-top:8px;margin-bottom:0">登入後可將資料備份至 Google Drive，也可在雲端資料較多時自動同步到本機。設定請見下方。</div>
+            ${clientId ? '<button class="btn-fb-signin" id="gd-signin-btn" style="width:100%;padding:9px 12px;font-size:13px">' + svgG + ' 首次連結 Google 帳號</button>' : ''}
+            <div class="settings-tip" style="margin-top:8px;margin-bottom:0">首次連結並完成授權後，程式會記住帳號；之後開啟會直接進入主畫面並在背景恢復登入。</div>
           `}
         </div>
 
@@ -7078,7 +7091,9 @@ Views.settings = {
 document.addEventListener('DOMContentLoaded', async () => {
   await AppStorage.init();
   StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true });
-  await AppUpdater.register();
+  // Service Worker registration may touch the network on iOS. It must not delay
+  // the first render or make app entry look like it is waiting for Google login.
+  void AppUpdater.register();
 
   // Keep the device subscription, time zone and next trigger in sync whenever
   // the PWA is opened. Permission is requested only from the Settings button.

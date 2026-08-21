@@ -4,7 +4,7 @@
 
 ## 1. 解壓縮
 
-1. 在 iPhone／iPad 的「檔案」App 找到 `PWA-Japanese-GD-V1_2_2-FLAT.zip`。
+1. 在 iPhone／iPad 的「檔案」App 找到 `PWA-Japanese-GD-V1_2_3-FLAT.zip`。
 2. 點一下 ZIP，系統會建立解壓後的資料夾。
 3. 打開資料夾；所有檔案都在同一層，不需新增子資料夾。
 
@@ -14,7 +14,7 @@
 2. 確認左上分支為 `main`。
 3. 點 **Add file → Upload files → choose your files**。
 4. 在檔案選擇器按右上角「選取」，一次勾選解壓後的全部檔案。
-5. Commit message 輸入 `Release Japanese PWA V1.2.2`。
+5. Commit message 輸入 `Release Japanese PWA V1.2.3`。
 6. 選擇直接提交到 `main`，按 **Commit changes**。
 
 若 Repository 內有舊檔而本次 ZIP 不再提供，GitHub 的一般上傳不會自動刪除舊檔。舊英文版 CHANGELOG 留在 Repository 不影響執行，但建議另外刪除，避免文件混淆。
@@ -42,7 +42,7 @@
 
 ## 5. 更新後仍顯示舊版
 
-1. 確認設定頁的版本是否為 `V1.2.2`。
+1. 確認設定頁的版本是否為 `V1.2.3`。
 2. 按設定頁的「檢查更新」。
 3. 完全關閉 PWA 後重新開啟。
 4. 若仍舊版，等待 GitHub Pages 部署完成後再試；不要先刪除網站資料，以免本機尚未同步的學習資料遺失。

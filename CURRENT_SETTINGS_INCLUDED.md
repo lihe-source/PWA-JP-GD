@@ -1,4 +1,4 @@
-# V1.2.3 已內建設定
+# V1.2.4 已內建設定
 
 ## Google
 
@@ -16,7 +16,7 @@
 | `wrangler.toml` | Worker `japanese-daily-reminder`、每分鐘 Cron、日文 Pages URL、允許來源與既有 D1 Database ID |
 | `push-config.js` | Worker URL `https://japanese-daily-reminder.rexchre.workers.dev`、預設提醒 22:00 與日文通知文字 |
 | `schema.sql` | 獨立的 `japanese_reminders` 資料表；不會改動英文版 `reminders` |
-| `worker.js` | V1.2.3 日文提醒、Apple 錯誤辨識、失效訂閱清除與測試通知自動修復；本版必須重新部署 Worker，避免前端與 Worker 版本不一致 |
+| `worker.js` | V1.2.4 日文提醒、Apple 錯誤辨識、失效訂閱清除與測試通知自動修復；本版必須重新部署 Worker，避免前端與 Worker 版本不一致 |
 
 如果 Cloudflare 帳號的 workers.dev 子網域不是 `rexchre`，請在第一次部署後把 `push-config.js` 的 `apiBaseUrl` 改成終端機顯示的實際網址，再上傳該檔案到 GitHub。
 
@@ -34,5 +34,5 @@ VAPID 公開／私密金鑰可以與英文 Worker 共用，但三個 Secrets 仍
 - 重新部署同名 Worker 不會清除 D1。
 - `schema.sql` 只會 `CREATE TABLE IF NOT EXISTS`，不會刪除既有提醒。
 - OAuth Client ID 與 Drive Folder ID 已有預設值；使用者仍可在設定頁修改。
-- V1.2.3 會記住 Google 帳號識別、上次練習模式、單字練習條件、五十音複選行別、每字重複次數與 iPhone／iPad 版面；完整備份亦包含學習偏好。
+- V1.2.4 會記住 Google 帳號識別、上次練習模式、單字練習條件、五十音複選行別、每字重複次數、自動發音開關與 iPhone／iPad 版面；完整備份亦包含學習偏好。
 - Google Access Token 僅放在當次安全工作階段，不永久寫入備份或裝置資料；首次授權後會以無提示模式嘗試背景恢復。

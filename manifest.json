@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "日本語練習 V1.2.3",
+  "name": "日本語練習 V1.2.4",
   "short_name": "日文練習",
-  "description": "支援無提示 Google 帳號背景恢復、iPhone 推播、快速 Drive 備份與五十音手寫的日本語練習 PWA V1.2.3",
+  "description": "支援五十音手寫自動發音、無提示 Google 帳號背景恢復、iPhone 推播與快速 Drive 備份的日本語練習 PWA V1.2.4",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

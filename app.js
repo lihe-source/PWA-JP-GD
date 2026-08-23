@@ -1,22 +1,22 @@
-import { AppStorage } from './storage.js?v=V1_2_3';
-import { BackupSchema } from './backup-schema.js?v=V1_2_3';
-import { VersionManager } from './version-manager.js?v=V1_2_3';
-import { TrendChart } from './chart-renderer.js?v=V1_2_3';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_3';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_3';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_3';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_3';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_3';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_3';
+import { AppStorage } from './storage.js?v=V1_2_4';
+import { BackupSchema } from './backup-schema.js?v=V1_2_4';
+import { VersionManager } from './version-manager.js?v=V1_2_4';
+import { TrendChart } from './chart-renderer.js?v=V1_2_4';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_4';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_4';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_4';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_4';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_4';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_4';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_3
-// V1.2.3：Google 帳號無提示背景恢復，開啟後直接進入主畫面
+// 日本語練習 PWA - app.js V1_2_4
+// V1.2.4：五十音手寫每題自動播放日文發音
 // ===========================
 
-const APP_VERSION = 'V1_2_3';
-const APP_DISPLAY_VERSION = 'V1.2.3';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_3';
+const APP_VERSION = 'V1_2_4';
+const APP_DISPLAY_VERSION = 'V1.2.4';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_4';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -810,7 +810,8 @@ const DB = {
       count: [0, 5, 10, 20].includes(Number(saved.count)) ? Number(saved.count) : 10,
       repeat: KANA_REPEAT_OPTIONS.includes(Number(saved.repeat)) ? Number(saved.repeat) : 1,
       weakOnly: saved.weakOnly === true,
-      layout: ['auto', 'phone', 'tablet'].includes(saved.layout) ? saved.layout : 'auto'
+      layout: ['auto', 'phone', 'tablet'].includes(saved.layout) ? saved.layout : 'auto',
+      autoSpeak: saved.autoSpeak !== false
     };
   },
   saveKanaPracticePreferences(patch = {}) {
@@ -826,7 +827,8 @@ const DB = {
       count: [0, 5, 10, 20].includes(Number(next.count)) ? Number(next.count) : current.count,
       repeat: KANA_REPEAT_OPTIONS.includes(Number(next.repeat)) ? Number(next.repeat) : current.repeat,
       weakOnly: next.weakOnly === true,
-      layout: ['auto', 'phone', 'tablet'].includes(next.layout) ? next.layout : current.layout
+      layout: ['auto', 'phone', 'tablet'].includes(next.layout) ? next.layout : current.layout,
+      autoSpeak: next.autoSpeak !== false
     };
     AppStorage.setItem('kanaPracticePreferencesV1', JSON.stringify(normalized));
     return normalized;
@@ -2450,8 +2452,9 @@ const TTS = {
     this._synth.cancel();
   },
 
-  speak(text, rate = 0.85) {
-    if (!this._synth || !this._enabled) return;
+  speak(text, rate = 0.85, options = {}) {
+    const force = options?.force === true;
+    if (!this._synth || (!this._enabled && !force)) return false;
     this._synth.cancel();
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'ja-JP'; utter.rate = rate; utter.pitch = 1.0; utter.volume = 1.0;
@@ -2461,16 +2464,28 @@ const TTS = {
     ) || voices.find(v => /^ja-JP/i.test(v.lang)) || voices.find(v => /^ja/i.test(v.lang));
     if (preferred) utter.voice = preferred;
     this._synth.speak(utter);
+    return true;
   },
 
-  speakWhenReady(text, rate = 0.85) {
-    if (!this._synth || !this._enabled) return;
+  speakWhenReady(text, rate = 0.85, options = {}) {
+    const force = options?.force === true;
+    if (!this._synth || (!this._enabled && !force)) return false;
     const voices = this._synth.getVoices();
     if (voices.length > 0) {
-      this.speak(text, rate);
+      return this.speak(text, rate, options);
     } else {
-      this._synth.onvoiceschanged = () => { this.speak(text, rate); this._synth.onvoiceschanged = null; };
+      this._synth.onvoiceschanged = () => { this.speak(text, rate, options); this._synth.onvoiceschanged = null; };
+      return true;
     }
+  },
+
+  speakKana(text, rate = 0.62, { immediate = false } = {}) {
+    // Handwriting pronunciation has its own saved preference, independent of
+    // the spelling quiz TTS switch. A direct call preserves the user gesture on
+    // iPhone/iPad; the ready path is retained for manual replay.
+    return immediate
+      ? this.speak(text, rate, { force: true })
+      : this.speakWhenReady(text, rate, { force: true });
   }
 };
 
@@ -3397,11 +3412,12 @@ Views.kanaPractice = {
   engine: null,
   _viewportHandler: null,
   state: {
-    script: 'hiragana', rows: ['all'], mode: 'trace', repeat: 1, weakOnly: false, layout: 'auto',
+    script: 'hiragana', rows: ['all'], mode: 'trace', repeat: 1, weakOnly: false, layout: 'auto', autoSpeak: true,
     selection: 'random', items: [], index: 0, results: [], scored: false
   },
 
   cleanup() {
+    TTS.stop();
     this.engine?.destroy?.();
     this.engine = null;
     if (this._viewportHandler) {
@@ -3465,6 +3481,7 @@ Views.kanaPractice = {
     this.state.repeat = savedPreferences.repeat;
     this.state.weakOnly = savedPreferences.weakOnly;
     this.state.layout = savedPreferences.layout;
+    this.state.autoSpeak = savedPreferences.autoSpeak;
     const summary = KanaProgress.getSummary();
     container.innerHTML = `
       <div class="kana-setup-page">
@@ -3526,6 +3543,7 @@ Views.kanaPractice = {
                 </div>
                 <div class="kana-layout-detected" id="kana-layout-detected">${this.state.layout === 'auto' ? this._layoutLabel() : '使用手動指定版面'}</div>
               </div>
+              <label class="kana-weak-toggle"><input type="checkbox" id="kana-auto-speak" ${this.state.autoSpeak?'checked':''}><span>進入每一題時自動播放該假名發音</span></label>
               <label class="kana-weak-toggle"><input type="checkbox" id="kana-weak-only" ${this.state.weakOnly?'checked':''}><span>優先練習尚未熟練的假名（最高分未達 80）</span></label>
               <p class="kana-device-tip">iPad 建議橫向使用 Apple Pencil；偵測到 Pencil 後會暫時忽略手掌觸碰。</p>
             </div>
@@ -3616,12 +3634,17 @@ Views.kanaPractice = {
       persistPreferences({ weakOnly: this.state.weakOnly });
       updateSetupUI();
     });
+    document.getElementById('kana-auto-speak')?.addEventListener('change', event => {
+      this.state.autoSpeak = event.target.checked;
+      persistPreferences({ autoSpeak: this.state.autoSpeak });
+    });
     updateSetupUI();
     this._bindViewportLayout();
     document.getElementById('kana-start-btn')?.addEventListener('click', () => {
       persistPreferences({
         script: this.state.script, rows: this.state.rows, mode: this.state.mode,
-        repeat: this.state.repeat, weakOnly: this.state.weakOnly, layout: this.state.layout
+        repeat: this.state.repeat, weakOnly: this.state.weakOnly, layout: this.state.layout,
+        autoSpeak: this.state.autoSpeak
       });
       const pool = getPracticePool();
       this.state.items = buildRepeatedKanaPractice(pool, this.state.repeat);
@@ -3692,7 +3715,7 @@ Views.kanaPractice = {
     document.getElementById('kana-clear-btn')?.addEventListener('click', () => this.engine?.clear());
     document.getElementById('kana-guide-btn')?.addEventListener('click', () => this.engine?.revealGuide());
     document.getElementById('kana-animate-btn')?.addEventListener('click', () => this.engine?.animateGuide());
-    document.getElementById('kana-listen-btn')?.addEventListener('click', () => TTS.speakWhenReady(kana.character, 0.62));
+    document.getElementById('kana-listen-btn')?.addEventListener('click', () => TTS.speakKana(kana.character));
     document.getElementById('kana-reveal-btn')?.addEventListener('click', event => {
       const reference = document.getElementById('kana-reference-character');
       if (reference) { reference.textContent = kana.character; reference.classList.remove('is-hidden'); }
@@ -3704,6 +3727,10 @@ Views.kanaPractice = {
       document.getElementById('kana-leave')?.addEventListener('click', () => { Modal.hide(); this.cleanup(); this.renderSetup(container); });
     });
     document.getElementById('kana-score-btn')?.addEventListener('click', event => this.scoreCurrent(container, kana, event.currentTarget));
+
+    // renderWriter is entered directly from the Start / Next user gesture, so
+    // speaking here works reliably in iPhone and iPad standalone PWA mode.
+    if (this.state.autoSpeak) TTS.speakKana(kana.character, 0.62, { immediate: true });
   },
 
   scoreCurrent(container, kana, button) {

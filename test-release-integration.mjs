@@ -4,20 +4,20 @@ import { readFile } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-test('all public app surfaces use Japanese V1.2.3', async () => {
+test('all public app surfaces use Japanese V1.2.4', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_2_3'/);
-  assert.match(html, /app\.js\?v=V1_2_3/);
-  assert.match(sw, /Japanese-PWA-V1_2_3/);
+  assert.match(app, /APP_VERSION = 'V1_2_4'/);
+  assert.match(html, /app\.js\?v=V1_2_4/);
+  assert.match(sw, /Japanese-PWA-V1_2_4/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.2\.3/);
-  assert.equal(JSON.parse(pkg).version, '1.2.3');
+  assert.match(JSON.parse(manifest).name, /V1\.2\.4/);
+  assert.equal(JSON.parse(pkg).version, '1.2.4');
 });
 
-test('V1.2.3 keeps Apple subscription repair and provider errors', async () => {
+test('V1.2.4 keeps Apple subscription repair and provider errors', async () => {
   const [manager, worker] = await Promise.all([text('reminder-manager.js'), text('worker.js')]);
   assert.match(manager, /forceRenew/);
   assert.match(manager, /SUBSCRIPTION_INVALID/);
@@ -79,6 +79,16 @@ test('kana setup supports saved repetitions and a compact one-page layout', asyn
   assert.match(style, /\.kana-setup-grid/);
   assert.match(style, /\.kana-repeat-grid/);
   assert.match(style, /\.kana-setup-compact \.kana-row-grid \{ grid-template-columns: repeat\(4/);
+});
+
+test('every handwriting question automatically speaks its kana with replay support', async () => {
+  const app = await text('app.js');
+  assert.match(app, /autoSpeak: saved\.autoSpeak !== false/);
+  assert.match(app, /id="kana-auto-speak"/);
+  assert.match(app, /speakKana\(text, rate = 0\.62/);
+  assert.match(app, /if \(this\.state\.autoSpeak\) TTS\.speakKana\(kana\.character, 0\.62, \{ immediate: true \}\)/);
+  assert.match(app, /id="kana-listen-btn"[\s\S]{0,6500}TTS\.speakKana\(kana\.character\)/);
+  assert.match(app, /cleanup\(\) \{[\s\S]{0,120}TTS\.stop\(\)/);
 });
 
 test('iPhone score action docks before scoring and returns to flow after scoring', async () => {

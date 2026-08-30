@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "日本語練習 V1.2.5",
+  "name": "日本語練習 V1.2.6",
   "short_name": "日文練習",
-  "description": "支援 JLPT 分級與五十音行別每日推薦單字、五十音手寫、Google Drive 備份及 iPhone 推播的日本語練習 PWA V1.2.5",
+  "description": "支援 JLPT 分級與五十音行別每日推薦單字、五十音手寫、Google Drive 備份及 iPhone 推播的日本語練習 PWA V1.2.6",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

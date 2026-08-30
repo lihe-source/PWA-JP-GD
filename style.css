@@ -149,6 +149,16 @@ html, body {
   touch-action: manipulation;
 }
 .daily-vocab-foot { position: relative; z-index: 1; margin-top: 8px; font-size: 9px; opacity: .68; text-align: right; }
+.daily-vocab-sentence-status {
+  position: relative;
+  z-index: 1;
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: right;
+  opacity: .82;
+}
 .daily-vocab-message { position: relative; z-index: 1; padding: 24px 8px; font-size: 13px; line-height: 1.65; text-align: center; opacity: .88; }
 
 .home-menu-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 12px; }

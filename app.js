@@ -1,23 +1,23 @@
-import { AppStorage } from './storage.js?v=V1_2_5';
-import { BackupSchema } from './backup-schema.js?v=V1_2_5';
-import { VersionManager } from './version-manager.js?v=V1_2_5';
-import { TrendChart } from './chart-renderer.js?v=V1_2_5';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_5';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_5';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_5';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_5';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_5';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_5';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_5';
+import { AppStorage } from './storage.js?v=V1_2_6';
+import { BackupSchema } from './backup-schema.js?v=V1_2_6';
+import { VersionManager } from './version-manager.js?v=V1_2_6';
+import { TrendChart } from './chart-renderer.js?v=V1_2_6';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_6';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_6';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_6';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_6';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_6';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_6';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_6';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_5
-// V1.2.5：依 JLPT 等級與複選五十音行產生每日推薦單字
+// 日本語練習 PWA - app.js V1_2_6
+// V1.2.6：依 JLPT 等級與複選五十音行產生每日推薦單字
 // ===========================
 
-const APP_VERSION = 'V1_2_5';
-const APP_DISPLAY_VERSION = 'V1.2.5';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_5';
+const APP_VERSION = 'V1_2_6';
+const APP_DISPLAY_VERSION = 'V1.2.6';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_6';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -788,7 +788,13 @@ const DB = {
       const saved = JSON.parse(AppStorage.getItem('todayDailyVocabularyV1') || 'null');
       const preferences = this.getDailyLearningPreferences();
       const signature = dailyLearningSignature({ date: todayStr(), ...preferences });
-      return saved?.signature === signature && Array.isArray(saved.words) ? saved : null;
+      if (saved?.signature !== signature || !Array.isArray(saved.words) || !saved.words.length) return null;
+      // V1.2.6 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
+      const normalized = { ...saved, words: saved.words.slice(0, 1) };
+      if (saved.words.length !== normalized.words.length) {
+        AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(normalized));
+      }
+      return normalized;
     } catch { return null; }
   },
   saveTodayDailyVocabulary(words) {
@@ -799,7 +805,7 @@ const DB = {
       source: DAILY_LEARNING_SOURCES.LEVEL,
       level: preferences.level,
       rows: preferences.rows,
-      words: Array.isArray(words) ? words.slice(0, 5) : [],
+      words: Array.isArray(words) ? words.slice(0, 1) : [],
       generatedAt: new Date().toISOString()
     };
     AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(data));
@@ -897,7 +903,15 @@ const DB = {
   getSentenceLog() { try { return JSON.parse(AppStorage.getItem('sentenceLog') || '[]'); } catch { return []; } },
   saveSentenceToLog(entry) {
     const log = this.getSentenceLog();
-    log.unshift({ ...entry, id: Date.now().toString() });
+    if (entry?.source === 'daily-recommendation') {
+      for (let index = log.length - 1; index >= 0; index--) {
+        if (log[index]?.date === entry.date && log[index]?.source === 'daily-recommendation') log.splice(index, 1);
+      }
+    }
+    const key = `${entry?.date || todayStr()}|${entry?.wordEn || ''}`;
+    const duplicateIndex = log.findIndex(item => `${item?.date || ''}|${item?.wordEn || ''}` === key);
+    const previous = duplicateIndex >= 0 ? log.splice(duplicateIndex, 1)[0] : null;
+    log.unshift({ ...previous, ...entry, id: previous?.id || Date.now().toString() });
     if (log.length > 120) log.length = 120;
     AppStorage.setItem('sentenceLog', JSON.stringify(log));
   },
@@ -1428,7 +1442,7 @@ ZH: [繁體中文翻譯]`;
     throw lastErr || new Error('API_ERROR');
   },
 
-  async generateDailyVocabulary({ level, rows, count = 5 }) {
+  async generateDailyVocabulary({ level, rows, count = 1 }) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
     const normalized = normalizeDailyLearningPreferences({ source: DAILY_LEARNING_SOURCES.LEVEL, level, rows });
@@ -1454,7 +1468,7 @@ Requirements:
 - level: exactly ${normalized.level}`;
     const body = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.65, maxOutputTokens: 900 }
+      generationConfig: { temperature: 0.65, maxOutputTokens: 360 }
     });
     let best = [];
     let lastError = null;
@@ -2714,10 +2728,13 @@ Views.home = {
     document.getElementById('hero-refresh').addEventListener('click', () => this.loadHero(true));
     if (levelLearning) {
       const cached = DB.getTodayDailyVocabulary();
-      if (cached) this.displayDailyVocabulary(cached);
+      if (cached) {
+        this.displayDailyVocabulary(cached);
+        queueMicrotask(() => this.ensureDailyVocabularySentence(cached));
+      }
       else queueMicrotask(() => this.loadDailyVocabulary(false));
     } else {
-      // Database mode preserves the V1.2.5 behavior and does not spend AI quota automatically.
+      // Database mode preserves the V1.2.6 behavior and does not spend AI quota automatically.
       const cached = DB.getTodaySentenceAny();
       if (cached) this.displaySentence(cached);
     }
@@ -2747,6 +2764,7 @@ Views.home = {
       if (!document.getElementById('hero-content')) return;
       const saved = DB.saveTodayDailyVocabulary(words);
       this.displayDailyVocabulary(saved);
+      await this.ensureDailyVocabularySentence(saved);
     } catch (error) {
       if (!document.getElementById('hero-content')) return;
       let message = '推薦單字產生失敗，請點右上角重試。';
@@ -2782,10 +2800,55 @@ Views.home = {
           </article>
         `).join('')}
       </div>
-      <div class="daily-vocab-foot">JLPT ${escapeHTML(data.level || DB.getJlptLevel())}・${escapeHTML(selectedLearningRowLabel(data.rows || ['all']))}・每日快取一次</div>`;
+      <div class="daily-vocab-foot">JLPT ${escapeHTML(data.level || DB.getJlptLevel())}・${escapeHTML(selectedLearningRowLabel(data.rows || ['all']))}・每日一詞</div>
+      <div class="daily-vocab-sentence-status" id="daily-vocab-sentence-status" role="status" aria-live="polite">正在同步至每日例句…</div>`;
     heroContent.querySelectorAll('[data-daily-speak]').forEach(button => {
       button.addEventListener('click', () => TTS.speakKana(button.dataset.dailySpeak, 0.72, { immediate: true }));
     });
+  },
+  async ensureDailyVocabularySentence(data) {
+    const word = Array.isArray(data?.words) ? data.words[0] : null;
+    if (!word?.word) return null;
+    const status = document.getElementById('daily-vocab-sentence-status');
+    const existing = DB.getCombinedSentenceLog().find(entry =>
+      entry?.date === todayStr() && normalizeJapaneseAnswer(entry?.wordEn) === normalizeJapaneseAnswer(word.word)
+    );
+    if (existing) {
+      DB.saveTodaySentence(existing);
+      if (status) status.textContent = '已儲存至今日例句練習';
+      return existing;
+    }
+    if (status) status.textContent = '正在建立並儲存今日例句…';
+    try {
+      const result = await Gemini.generateSentence({
+        english: word.word,
+        reading: word.reading || '',
+        romaji: word.romaji || '',
+        partOfSpeech: word.partOfSpeech || '語彙',
+        chinese: word.meaning || ''
+      });
+      if (!result?.en || !result?.zh) throw new Error('PARSE_ERROR');
+      const entry = {
+        date: todayStr(),
+        wordEn: word.word,
+        wordZh: word.meaning || '',
+        wordPos: word.partOfSpeech || '語彙',
+        wordReading: word.reading || '',
+        wordRomaji: word.romaji || '',
+        en: result.en,
+        reading: result.reading || '',
+        zh: result.zh,
+        source: 'daily-recommendation'
+      };
+      DB.saveTodaySentence(entry);
+      DB.saveSentenceToLog(entry);
+      this.renderSentenceLog();
+      if (status) status.textContent = '已儲存至今日例句練習';
+      return entry;
+    } catch (error) {
+      if (status) status.textContent = '推薦詞已保存；例句建立失敗，可點右上角重試';
+      return null;
+    }
   },
   async loadSentence(forceNew) {
     const heroContent = document.getElementById('hero-content');
@@ -2834,7 +2897,9 @@ Views.home = {
     if (!heroContent) return;
     const sourceTag = entry.source === 'csv'
       ? `<span class="hero-source-tag">📄 CSV</span>`
-      : `<span class="hero-source-tag">✨ AI</span>`;
+      : entry.source === 'daily-recommendation'
+        ? `<span class="hero-source-tag">🌱 每日推薦</span>`
+        : `<span class="hero-source-tag">✨ AI</span>`;
     heroContent.innerHTML = `
       <div class="hero-sentence">
         <div>${highlightEn(entry.en, entry.wordEn)}</div>
@@ -2860,7 +2925,7 @@ Views.home = {
         <div class="log-entry-header">
           <span class="log-date">${escapeHTML(entry.date)}</span>
           <span class="log-word-chip">${escapeHTML(entry.wordEn)} <span style="opacity:0.6;font-size:10px">${escapeHTML(entry.wordPos||'')}</span></span>
-          ${entry.source === 'csv' ? `<span class="log-source-csv">CSV</span>` : ''}
+          ${entry.source === 'csv' ? `<span class="log-source-csv">CSV</span>` : entry.source === 'daily-recommendation' ? `<span class="log-source-csv">每日推薦</span>` : ''}
         </div>
         <div class="log-entry-en">${highlightEn(entry.en, entry.wordEn)}</div>
         ${entry.reading ? `<div class="japanese-reading">${escapeHTML(entry.reading)}</div>` : ''}
@@ -6551,7 +6616,7 @@ Views.settings = {
           <div class="model-dropdown-row">
             <label class="model-dropdown-label">今日學習來源</label>
             <select class="model-dropdown-select" id="daily-learning-source-select">
-              <option value="database" ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.DATABASE?'selected':''}>單字庫（原 V1.2.5 模式）</option>
+              <option value="database" ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.DATABASE?'selected':''}>單字庫（原模式）</option>
               <option value="level" ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.LEVEL?'selected':''}>依等級學習（AI 每日推薦）</option>
             </select>
           </div>

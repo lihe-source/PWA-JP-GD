@@ -98,7 +98,7 @@ export function kanaToRomaji(value) {
   return result;
 }
 
-export function normalizeDailyVocabulary(items, { level = 'N5', rows = ['all'], limit = 5 } = {}) {
+export function normalizeDailyVocabulary(items, { level = 'N5', rows = ['all'], limit = 1 } = {}) {
   const result = [];
   const seen = new Set();
   for (const raw of Array.isArray(items) ? items : []) {

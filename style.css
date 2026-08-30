@@ -72,6 +72,15 @@ html, body {
 .home-hero::before { content:''; position:absolute; top:-30px; right:-30px; width:120px; height:120px; background:rgba(255,255,255,0.05); border-radius:50%; }
 .hero-label { font-size:11px; font-weight:800; letter-spacing:0.12em; text-transform:uppercase; opacity:0.7; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
 .hero-label svg { width:14px; height:14px; }
+.hero-learning-context {
+  margin-left: auto;
+  margin-right: 38px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: none;
+  text-align: right;
+}
 .hero-sentence { font-size:15px; line-height:1.6; position:relative; z-index:1; }
 .zh-text { font-size:13px; opacity:0.85; margin-top:8px; display:block; }
 
@@ -92,6 +101,55 @@ html, body {
   cursor:pointer; color:white; z-index:2;
 }
 .hero-refresh-btn svg { width:16px; height:16px; }
+.daily-vocab-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 7px;
+}
+.daily-vocab-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 12px;
+  background: rgba(255,255,255,.11);
+  backdrop-filter: blur(3px);
+}
+.daily-vocab-index {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255,255,255,.17);
+  font-size: 10px;
+  font-weight: 900;
+}
+.daily-vocab-main { min-width: 0; }
+.daily-vocab-word { font-size: 18px; font-weight: 900; line-height: 1.25; }
+.daily-vocab-reading { margin-top: 1px; font-size: 12px; font-weight: 700; line-height: 1.3; }
+.daily-vocab-reading span { margin-left: 5px; opacity: .72; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+.daily-vocab-meaning { margin-top: 3px; font-size: 11px; line-height: 1.35; opacity: .88; overflow-wrap: anywhere; }
+.daily-vocab-side { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.daily-vocab-side > span { max-width: 76px; font-size: 9px; font-weight: 800; opacity: .78; text-align: right; }
+.daily-vocab-speak {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 999px;
+  background: rgba(255,255,255,.14);
+  color: white;
+  font-size: 14px;
+  touch-action: manipulation;
+}
+.daily-vocab-foot { position: relative; z-index: 1; margin-top: 8px; font-size: 9px; opacity: .68; text-align: right; }
+.daily-vocab-message { position: relative; z-index: 1; padding: 24px 8px; font-size: 13px; line-height: 1.65; text-align: center; opacity: .88; }
 
 .home-menu-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 12px; }
 .menu-card {
@@ -1669,6 +1727,38 @@ a.err-back-link {
   appearance: auto;
 }
 .model-dropdown-select:focus { outline: none; border-color: var(--primary); }
+.daily-learning-row-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  transition: opacity .18s ease;
+}
+.daily-learning-row-section.is-disabled {
+  opacity: .42;
+  pointer-events: none;
+}
+.daily-learning-row-head { margin-bottom: 9px; }
+.daily-learning-row-head strong,
+.daily-learning-row-head small { display: block; }
+.daily-learning-row-head strong { color: var(--text); font-size: 12px; }
+.daily-learning-row-head small { margin-top: 3px; color: var(--text-muted); font-size: 10px; line-height: 1.45; }
+.daily-learning-row-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.daily-learning-row-grid .kana-row-chip { min-height: 44px; padding: 6px 3px; font-size: 11px; }
+
+@media (min-width: 700px) {
+  .daily-vocab-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .daily-vocab-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .daily-learning-row-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+
+@media (max-width: 390px) {
+  .home-hero { padding: 16px; }
+  .hero-learning-context { max-width: 46%; font-size: 8px; }
+  .daily-vocab-card { grid-template-columns: 22px minmax(0, 1fr) auto; padding: 8px; gap: 7px; }
+  .daily-vocab-word { font-size: 17px; }
+  .model-dropdown-row { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .model-dropdown-select { width: 100%; min-height: 44px; }
+}
 
 /* ══ Bottom signout button ══ */
 .btn-fb-signout-bottom {

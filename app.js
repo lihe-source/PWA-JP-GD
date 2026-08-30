@@ -1,22 +1,23 @@
-import { AppStorage } from './storage.js?v=V1_2_4';
-import { BackupSchema } from './backup-schema.js?v=V1_2_4';
-import { VersionManager } from './version-manager.js?v=V1_2_4';
-import { TrendChart } from './chart-renderer.js?v=V1_2_4';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_4';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_4';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_4';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_4';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_4';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_4';
+import { AppStorage } from './storage.js?v=V1_2_5';
+import { BackupSchema } from './backup-schema.js?v=V1_2_5';
+import { VersionManager } from './version-manager.js?v=V1_2_5';
+import { TrendChart } from './chart-renderer.js?v=V1_2_5';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_5';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_5';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_5';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_5';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_5';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_5';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_5';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_4
-// V1.2.4：五十音手寫每題自動播放日文發音
+// 日本語練習 PWA - app.js V1_2_5
+// V1.2.5：依 JLPT 等級與複選五十音行產生每日推薦單字
 // ===========================
 
-const APP_VERSION = 'V1_2_4';
-const APP_DISPLAY_VERSION = 'V1.2.4';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_4';
+const APP_VERSION = 'V1_2_5';
+const APP_DISPLAY_VERSION = 'V1.2.5';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_5';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -770,6 +771,40 @@ const DB = {
   saveTtsDelay(ms) { AppStorage.setItem('ttsDelay', String(ms)); },
   getJlptLevel() { return AppStorage.getItem('japaneseJlptLevel') || JAPANESE_DEFAULTS.jlptLevel; },
   saveJlptLevel(level) { AppStorage.setItem('japaneseJlptLevel', String(level || 'N5').toUpperCase()); },
+  getDailyLearningPreferences() {
+    let saved = {};
+    try { saved = JSON.parse(AppStorage.getItem('dailyLearningPreferencesV1') || '{}') || {}; } catch {}
+    return normalizeDailyLearningPreferences({ ...saved, level: this.getJlptLevel() });
+  },
+  saveDailyLearningPreferences(patch = {}) {
+    const current = this.getDailyLearningPreferences();
+    const normalized = normalizeDailyLearningPreferences({ ...current, ...patch });
+    this.saveJlptLevel(normalized.level);
+    AppStorage.setItem('dailyLearningPreferencesV1', JSON.stringify({ source: normalized.source, rows: normalized.rows }));
+    return normalized;
+  },
+  getTodayDailyVocabulary() {
+    try {
+      const saved = JSON.parse(AppStorage.getItem('todayDailyVocabularyV1') || 'null');
+      const preferences = this.getDailyLearningPreferences();
+      const signature = dailyLearningSignature({ date: todayStr(), ...preferences });
+      return saved?.signature === signature && Array.isArray(saved.words) ? saved : null;
+    } catch { return null; }
+  },
+  saveTodayDailyVocabulary(words) {
+    const preferences = this.getDailyLearningPreferences();
+    const data = {
+      date: todayStr(),
+      signature: dailyLearningSignature({ date: todayStr(), ...preferences }),
+      source: DAILY_LEARNING_SOURCES.LEVEL,
+      level: preferences.level,
+      rows: preferences.rows,
+      words: Array.isArray(words) ? words.slice(0, 5) : [],
+      generatedAt: new Date().toISOString()
+    };
+    AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(data));
+    return data;
+  },
   getLastPracticeMode() {
     const saved = AppStorage.getItem('lastPracticeMode') || 'quiz';
     return ['quiz', 'kana', 'essay', 'reading', 'aiask'].includes(saved) ? saved : 'quiz';
@@ -837,13 +872,15 @@ const DB = {
     return {
       lastPracticeMode: this.getLastPracticeMode(),
       wordPractice: this.getWordPracticePreferences(),
-      kanaPractice: this.getKanaPracticePreferences()
+      kanaPractice: this.getKanaPracticePreferences(),
+      dailyLearning: this.getDailyLearningPreferences()
     };
   },
   applyPracticePreferenceBundle(bundle = {}) {
     if (bundle.lastPracticeMode) this.saveLastPracticeMode(bundle.lastPracticeMode);
     if (bundle.wordPractice) this.saveWordPracticePreferences(bundle.wordPractice);
     if (bundle.kanaPractice) this.saveKanaPracticePreferences(bundle.kanaPractice);
+    if (bundle.dailyLearning) this.saveDailyLearningPreferences(bundle.dailyLearning);
   },
   toggleBoost(id) {
     const b = this.getBoostedWords(); const idx = b.indexOf(id);
@@ -1389,6 +1426,55 @@ ZH: [繁體中文翻譯]`;
       }
     }
     throw lastErr || new Error('API_ERROR');
+  },
+
+  async generateDailyVocabulary({ level, rows, count = 5 }) {
+    const apiKey = DB.getApiKey();
+    if (!apiKey) throw new Error('NO_API_KEY');
+    const normalized = normalizeDailyLearningPreferences({ source: DAILY_LEARNING_SOURCES.LEVEL, level, rows });
+    const rowDescription = selectedLearningRows(normalized.rows)
+      .map(row => `${row.label}（${row.kana}）`).join('、');
+    const prompt = `You are selecting daily Japanese vocabulary for a Traditional Chinese learner.
+
+Target level: JLPT ${normalized.level}
+Allowed initial kana rows: ${rowDescription}
+Number of words: ${count}
+
+Choose ${count} useful, non-duplicate Japanese words commonly taught around JLPT ${normalized.level}. The full kana reading of every word MUST begin with a kana from one of the allowed rows. When several rows are selected, distribute the words across them as evenly as practical. Avoid names, brands, obsolete words, particles by themselves, and words substantially outside the target level.
+
+Return ONLY a JSON array with exactly ${count} objects and no markdown:
+[{"word":"愛","reading":"あい","romaji":"ai","partOfSpeech":"名詞","meaning":"愛、愛情","level":"${normalized.level}"}]
+
+Requirements:
+- word: normal Japanese spelling (kanji/kana as commonly written)
+- reading: full hiragana reading
+- romaji: Hepburn-style lowercase romaji
+- partOfSpeech: Traditional Chinese label
+- meaning: concise Traditional Chinese meaning
+- level: exactly ${normalized.level}`;
+    const body = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.65, maxOutputTokens: 900 }
+    });
+    let best = [];
+    let lastError = null;
+    for (const model of this._getModelList()) {
+      try {
+        const raw = await this._callModel(model, body, apiKey);
+        const parsed = parseDailyVocabularyResponse(raw, { level: normalized.level, rows: normalized.rows, limit: count });
+        if (parsed.length === count) return parsed;
+        for (const word of parsed) {
+          if (!best.some(item => item.word === word.word && item.reading === word.reading)) best.push(word);
+          if (best.length === count) return best;
+        }
+        lastError = new Error('PARSE_ERROR');
+      } catch (error) {
+        if (error.message === 'NETWORK_ERROR') throw error;
+        if (error.fallback) { lastError = error; continue; }
+        throw error;
+      }
+    }
+    throw lastError || new Error('PARSE_ERROR');
   },
 
 
@@ -2363,6 +2449,7 @@ const GDrive = {
         if (!AppStorage.getItem('lastPracticeMode') && remotePractice.lastPracticeMode) DB.saveLastPracticeMode(remotePractice.lastPracticeMode);
         if (!AppStorage.getItem('wordPracticePreferencesV1') && remotePractice.wordPractice) DB.saveWordPracticePreferences(remotePractice.wordPractice);
         if (!AppStorage.getItem('kanaPracticePreferencesV1') && remotePractice.kanaPractice) DB.saveKanaPracticePreferences(remotePractice.kanaPractice);
+        if (!AppStorage.getItem('dailyLearningPreferencesV1') && remotePractice.dailyLearning) DB.saveDailyLearningPreferences(remotePractice.dailyLearning);
       }
       StudyStreak.merge(data.studyDays || [], { markPending: true });
     }
@@ -2548,6 +2635,8 @@ const Views = {};
 Views.home = {
   render(container) {
     const streak = StudyStreak.getSummary();
+    const dailyPreferences = DB.getDailyLearningPreferences();
+    const levelLearning = dailyPreferences.source === DAILY_LEARNING_SOURCES.LEVEL;
     container.innerHTML = `
       <div id="home-view">
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -2576,10 +2665,11 @@ Views.home = {
         <div class="home-hero" id="hero-card">
           <div class="hero-label">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            今日例句
+            <span>${levelLearning ? '今日推薦單字' : '今日例句'}</span>
+            <small class="hero-learning-context">${levelLearning ? `JLPT ${escapeHTML(dailyPreferences.level)}・${escapeHTML(selectedLearningRowLabel(dailyPreferences.rows))}` : '來源：單字庫'}</small>
           </div>
           <div id="hero-content">
-            <div class="hero-idle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:28px;height:28px;opacity:0.35;display:block;margin:0 auto 8px"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><div style="font-size:12px;opacity:0.5">點右上角 ↻ 生成今日例句</div></div>
+            <div class="hero-idle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:28px;height:28px;opacity:0.35;display:block;margin:0 auto 8px"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><div style="font-size:12px;opacity:0.5">${levelLearning ? '正在準備今日推薦單字…' : '點右上角 ↻ 生成今日例句'}</div></div>
           </div>
           <button class="hero-refresh-btn" id="hero-refresh" title="強制重新生成">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -2621,12 +2711,81 @@ Views.home = {
       const target = el.dataset.nav;
       Router.navigate(target, target === 'practice' ? { restoreLast: true } : {});
     }));
-    document.getElementById('hero-refresh').addEventListener('click', () => this.loadSentence(true));
-    // On page load: show cached sentence if available, otherwise show idle state (no auto API call)
-    const cached = DB.getTodaySentenceAny();
-    if (cached) { this.displaySentence(cached); }
+    document.getElementById('hero-refresh').addEventListener('click', () => this.loadHero(true));
+    if (levelLearning) {
+      const cached = DB.getTodayDailyVocabulary();
+      if (cached) this.displayDailyVocabulary(cached);
+      else queueMicrotask(() => this.loadDailyVocabulary(false));
+    } else {
+      // Database mode preserves the V1.2.5 behavior and does not spend AI quota automatically.
+      const cached = DB.getTodaySentenceAny();
+      if (cached) this.displaySentence(cached);
+    }
     this.renderSentenceLog();
     refreshStudyStreakUI();
+  },
+  loadHero(forceNew) {
+    const preferences = DB.getDailyLearningPreferences();
+    return preferences.source === DAILY_LEARNING_SOURCES.LEVEL
+      ? this.loadDailyVocabulary(forceNew)
+      : this.loadSentence(forceNew);
+  },
+  async loadDailyVocabulary(forceNew = false) {
+    const heroContent = document.getElementById('hero-content');
+    if (!heroContent) return;
+    const cached = DB.getTodayDailyVocabulary();
+    if (!forceNew && cached) { this.displayDailyVocabulary(cached); return; }
+    if (!DB.getApiKey()) {
+      heroContent.innerHTML = '<div class="daily-vocab-message">請先在設定頁填入 Gemini API Key，才能依等級產生推薦單字。</div>';
+      return;
+    }
+    const preferences = DB.getDailyLearningPreferences();
+    heroContent.innerHTML = '<div class="hero-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>正在產生今日推薦單字…</span></div>';
+    try {
+      const words = await Gemini.generateDailyVocabulary(preferences);
+      if (!words.length) throw new Error('PARSE_ERROR');
+      if (!document.getElementById('hero-content')) return;
+      const saved = DB.saveTodayDailyVocabulary(words);
+      this.displayDailyVocabulary(saved);
+    } catch (error) {
+      if (!document.getElementById('hero-content')) return;
+      let message = '推薦單字產生失敗，請點右上角重試。';
+      if (error.message === 'NO_API_KEY') message = '請先在設定頁填入 Gemini API Key。';
+      else if (error.message === 'NETWORK_ERROR') message = '目前無法連線 Gemini，請確認網路後重試。';
+      else if (/quota|RESOURCE_EXHAUSTED|429/i.test(error.message || '')) message = 'Gemini 今日配額暫時不足，請稍後再試。';
+      else if (/API_KEY_INVALID|403|permission/i.test(error.message || '')) message = 'Gemini API Key 無效或沒有權限，請到設定頁確認。';
+      heroContent.innerHTML = `<div class="daily-vocab-message">${escapeHTML(message)}</div>`;
+    }
+  },
+  displayDailyVocabulary(data) {
+    const heroContent = document.getElementById('hero-content');
+    if (!heroContent) return;
+    const words = Array.isArray(data?.words) ? data.words : [];
+    if (!words.length) {
+      heroContent.innerHTML = '<div class="daily-vocab-message">尚無今日推薦單字，請點右上角重新產生。</div>';
+      return;
+    }
+    heroContent.innerHTML = `
+      <div class="daily-vocab-grid">
+        ${words.map((word, index) => `
+          <article class="daily-vocab-card">
+            <div class="daily-vocab-index">${index + 1}</div>
+            <div class="daily-vocab-main">
+              <div class="daily-vocab-word">${escapeHTML(word.word)}</div>
+              <div class="daily-vocab-reading">${escapeHTML(word.reading)} <span>${escapeHTML(word.romaji)}</span></div>
+              <div class="daily-vocab-meaning">${escapeHTML(word.meaning)}</div>
+            </div>
+            <div class="daily-vocab-side">
+              <span>${escapeHTML(word.partOfSpeech || '語彙')}</span>
+              <button type="button" class="daily-vocab-speak" data-daily-speak="${escapeAttr(word.reading)}" aria-label="播放 ${escapeAttr(word.reading)} 發音">🔊</button>
+            </div>
+          </article>
+        `).join('')}
+      </div>
+      <div class="daily-vocab-foot">JLPT ${escapeHTML(data.level || DB.getJlptLevel())}・${escapeHTML(selectedLearningRowLabel(data.rows || ['all']))}・每日快取一次</div>`;
+    heroContent.querySelectorAll('[data-daily-speak]').forEach(button => {
+      button.addEventListener('click', () => TTS.speakKana(button.dataset.dailySpeak, 0.72, { immediate: true }));
+    });
   },
   async loadSentence(forceNew) {
     const heroContent = document.getElementById('hero-content');
@@ -6026,6 +6185,7 @@ Views.settings = {
     const handwritingHistory = KanaProgress.getHistory();
     const kanaSummary       = KanaProgress.getSummary();
     const jlptLevel         = DB.getJlptLevel();
+    const dailyLearningPreferences = DB.getDailyLearningPreferences();
     const studyDays         = StudyStreak.getDays();
     const streakSummary     = StudyStreak.getSummary();
     const streakSyncState   = StudyStreak.getSyncState();
@@ -6382,7 +6542,40 @@ Views.settings = {
           <div class="settings-tip" style="margin-top:10px;margin-bottom:0">需在 Google Cloud Console 建立 OAuth 2.0 用戶端 ID（類型：網頁應用程式），並將本站網址加入授權來源。資料夾 ID 可從 Drive 資料夾網址中取得（/folders/ 後面的部分）。</div>
         </div>
 
-        <!-- 7. Gemini API 金鑰設定 -->
+        <!-- 7. 每日推薦學習設定 -->
+        <div class="settings-section-label" style="margin-top:16px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M12 2l2.4 6.1L21 9l-5 4.3 1.5 6.5L12 16.4 6.5 19.8 8 13.3 3 9l6.6-.9L12 2z"/></svg>
+          每日推薦學習設定
+        </div>
+        <div class="settings-card daily-learning-settings-card">
+          <div class="model-dropdown-row">
+            <label class="model-dropdown-label">今日學習來源</label>
+            <select class="model-dropdown-select" id="daily-learning-source-select">
+              <option value="database" ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.DATABASE?'selected':''}>單字庫（原 V1.2.5 模式）</option>
+              <option value="level" ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.LEVEL?'selected':''}>依等級學習（AI 每日推薦）</option>
+            </select>
+          </div>
+          <div class="model-dropdown-row">
+            <label class="model-dropdown-label">目前日文等級</label>
+            <select class="model-dropdown-select" id="jlpt-level-select">
+              ${['N5','N4','N3','N2','N1'].map(level => `<option value="${level}" ${jlptLevel===level?'selected':''}>JLPT ${level}</option>`).join('')}
+            </select>
+          </div>
+          <div class="daily-learning-row-section ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.LEVEL?'':'is-disabled'}" id="daily-learning-row-section">
+            <div class="daily-learning-row-head">
+              <strong>想學習的五十音行</strong>
+              <small>可同時選擇多行；推薦單字的假名讀音會從所選行開始</small>
+            </div>
+            <div class="kana-row-grid daily-learning-row-grid" role="group" aria-label="選擇推薦單字的五十音行">
+              <button class="kana-row-chip ${dailyLearningPreferences.rows.includes('all')?'selected':''}" type="button" data-learning-row="all" aria-pressed="${dailyLearningPreferences.rows.includes('all')}">全部行</button>
+              ${LEARNING_KANA_ROWS.map(row => `<button class="kana-row-chip ${dailyLearningPreferences.rows.includes(row.id)?'selected':''}" type="button" data-learning-row="${row.id}" aria-pressed="${dailyLearningPreferences.rows.includes(row.id)}">${row.label}</button>`).join('')}
+            </div>
+            <div class="kana-row-summary" id="daily-learning-row-summary">目前選擇：${escapeHTML(selectedLearningRowLabel(dailyLearningPreferences.rows))}</div>
+          </div>
+          <div class="settings-tip" style="margin-bottom:0">「單字庫」保留原本從資料庫抽字並生成例句的方式；「依等級學習」每天依 JLPT 等級與所選五十音行推薦 5 個單字，包含假名、羅馬拼音、詞性及中文。</div>
+        </div>
+
+        <!-- 8. Gemini API 金鑰設定 -->
         <div class="settings-section-label" style="margin-top:16px">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           Gemini API 金鑰設定
@@ -6410,17 +6603,11 @@ Views.settings = {
               ).join('')}
             </select>
           </div>
-          <div class="model-dropdown-row">
-            <label class="model-dropdown-label">學習等級</label>
-            <select class="model-dropdown-select" id="jlpt-level-select">
-              ${['N5','N4','N3','N2','N1'].map(level => `<option value="${level}" ${jlptLevel===level?'selected':''}>JLPT ${level}</option>`).join('')}
-            </select>
-          </div>
           <a class="api-link" href="https://aistudio.google.com/app/apikey" target="_blank">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             取得 Gemini Key（Google AI Studio）
           </a>
-          <div class="settings-tip" style="margin-bottom:0">學習等級會套用到 AI 例句與閱讀文章。免費方案每天有配額限制；Gemini Key 僅儲存於本機裝置。</div>
+          <div class="settings-tip" style="margin-bottom:0">目前日文等級會套用到每日推薦單字、AI 例句與閱讀文章。免費方案每天有配額限制；Gemini Key 僅儲存於本機裝置。</div>
         </div>
 
         <!-- 每日學習提醒 -->
@@ -6625,8 +6812,39 @@ Views.settings = {
       showToast('✓ 模型：' + (Gemini.AVAILABLE_MODELS.find(m=>m.id===e.target.value)?.label || e.target.value));
     });
     document.getElementById('jlpt-level-select')?.addEventListener('change', event => {
-      DB.saveJlptLevel(event.target.value);
+      DB.saveDailyLearningPreferences({ level: event.target.value });
       showToast(`✓ 學習等級：JLPT ${event.target.value}`);
+    });
+    document.getElementById('daily-learning-source-select')?.addEventListener('change', event => {
+      const preferences = DB.saveDailyLearningPreferences({ source: event.target.value });
+      const rowSection = document.getElementById('daily-learning-row-section');
+      rowSection?.classList.toggle('is-disabled', preferences.source !== DAILY_LEARNING_SOURCES.LEVEL);
+      showToast(preferences.source === DAILY_LEARNING_SOURCES.LEVEL ? '✓ 首頁改為依等級推薦單字' : '✓ 首頁改為從單字庫產生例句');
+    });
+    const refreshDailyLearningRowUI = preferences => {
+      document.querySelectorAll('[data-learning-row]').forEach(button => {
+        const selected = preferences.rows.includes(button.dataset.learningRow);
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+      const summary = document.getElementById('daily-learning-row-summary');
+      if (summary) summary.textContent = `目前選擇：${selectedLearningRowLabel(preferences.rows)}`;
+    };
+    document.querySelectorAll('[data-learning-row]').forEach(button => {
+      button.addEventListener('click', () => {
+        const row = button.dataset.learningRow;
+        const current = DB.getDailyLearningPreferences();
+        let rows;
+        if (row === 'all') rows = ['all'];
+        else {
+          const selected = new Set(current.rows.includes('all') ? [] : current.rows);
+          if (selected.has(row)) selected.delete(row); else selected.add(row);
+          rows = selected.size ? [...selected] : ['all'];
+          if (rows.length === LEARNING_KANA_ROWS.length) rows = ['all'];
+        }
+        const saved = DB.saveDailyLearningPreferences({ rows });
+        refreshDailyLearningRowUI(saved);
+      });
     });
 
     // ── helper: confirm-clear modal ──

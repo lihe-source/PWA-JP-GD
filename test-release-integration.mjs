@@ -4,20 +4,20 @@ import { readFile } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-test('all public app surfaces use Japanese V1.2.4', async () => {
+test('all public app surfaces use Japanese V1.2.5', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_2_4'/);
-  assert.match(html, /app\.js\?v=V1_2_4/);
-  assert.match(sw, /Japanese-PWA-V1_2_4/);
+  assert.match(app, /APP_VERSION = 'V1_2_5'/);
+  assert.match(html, /app\.js\?v=V1_2_5/);
+  assert.match(sw, /Japanese-PWA-V1_2_5/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.2\.4/);
-  assert.equal(JSON.parse(pkg).version, '1.2.4');
+  assert.match(JSON.parse(manifest).name, /V1\.2\.5/);
+  assert.equal(JSON.parse(pkg).version, '1.2.5');
 });
 
-test('V1.2.4 keeps Apple subscription repair and provider errors', async () => {
+test('V1.2.5 keeps Apple subscription repair and provider errors', async () => {
   const [manager, worker] = await Promise.all([text('reminder-manager.js'), text('worker.js')]);
   assert.match(manager, /forceRenew/);
   assert.match(manager, /SUBSCRIPTION_INVALID/);
@@ -117,6 +117,21 @@ test('all five completed practice paths qualify as study activity', async () => 
   for (const activity of ['WORD_QUIZ', 'KANA_HANDWRITING', 'READING_QUIZ', 'ESSAY_REVIEW', 'AI_ASK']) {
     assert.match(app, new RegExp(`recordStudyActivity\\(STUDY_ACTIVITY_TYPES\\.${activity}`));
   }
+});
+
+test('V1.2.5 adds daily vocabulary by level, source and multi-row selection', async () => {
+  const [app, style, module, sw] = await Promise.all([
+    text('app.js'), text('style.css'), text('daily-learning.js'), text('sw.js')
+  ]);
+  assert.match(app, /daily-learning\.js\?v=V1_2_5/);
+  assert.match(app, /id="daily-learning-source-select"/);
+  assert.match(app, /data-learning-row=/);
+  assert.match(app, /generateDailyVocabulary/);
+  assert.match(app, /dailyLearning: this\.getDailyLearningPreferences\(\)/);
+  assert.match(module, /kanaToRomaji/);
+  assert.match(module, /readingMatchesRows/);
+  assert.match(style, /\.daily-vocab-grid/);
+  assert.match(sw, /daily-learning\.js\?v=V1_2_5/);
 });
 
 test('backup and Drive sync include study days, handwriting and practice choices', async () => {

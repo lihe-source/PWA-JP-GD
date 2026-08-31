@@ -1,9 +1,10 @@
 const PRODUCT_ID = 'pwa-japanese-gd';
-const COLLECTION_KEYS = Object.freeze([
+const V1_COLLECTION_KEYS = Object.freeze([
   'words', 'history', 'sentences', 'imported', 'boosted',
   'readingQuizHistory', 'essayHistory', 'aiAskHistory', 'studyDays',
   'handwritingHistory', 'kanaProgress', 'preferences'
 ]);
+const COLLECTION_KEYS = Object.freeze([...V1_COLLECTION_KEYS, 'kanaReadingHistory']);
 
 function stableStringify(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -25,7 +26,7 @@ function safeArray(value) { return Array.isArray(value) ? value : []; }
 
 export const BackupSchema = {
   product: PRODUCT_ID,
-  schemaVersion: 1,
+  schemaVersion: 2,
   collectionKeys: COLLECTION_KEYS,
 
   normalize(data = {}) {
@@ -47,6 +48,7 @@ export const BackupSchema = {
       aiAsk: collections.aiAskHistory.length,
       studyDays: collections.studyDays.length,
       handwriting: collections.handwritingHistory.length,
+      kanaReading: collections.kanaReadingHistory.length,
       kanaProgress: collections.kanaProgress.length,
       preferences: collections.preferences.length
     };
@@ -68,7 +70,11 @@ export const BackupSchema = {
     if (!COLLECTION_KEYS.some(key => Array.isArray(source[key]))) return { valid: false, reason: 'NO_COLLECTIONS' };
     const collections = this.normalize(data);
     if (data.payloadChecksum && data.payloadChecksum !== this.checksum(collections)) {
-      return { valid: false, reason: 'CHECKSUM_MISMATCH', actual: this.checksum(collections) };
+      const legacyCollections = Object.fromEntries(V1_COLLECTION_KEYS.map(key => [key, safeArray(source[key])]));
+      const legacyChecksum = hashString(stableStringify(legacyCollections));
+      if (Number(data.schemaVersion) > 1 || data.payloadChecksum !== legacyChecksum) {
+        return { valid: false, reason: 'CHECKSUM_MISMATCH', actual: this.checksum(collections) };
+      }
     }
     return { valid: true, collections, legacy: false, sourceSchemaVersion: Number(data.schemaVersion) || 1 };
   },
@@ -79,7 +85,7 @@ export const BackupSchema = {
     return {
       ...normalized,
       product: PRODUCT_ID,
-      schemaVersion: 1,
+      schemaVersion: 2,
       backupId: crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       deviceId: deviceId || 'unknown-device',
       revision: revision || Date.now(),

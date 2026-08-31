@@ -5,6 +5,7 @@
 export const STUDY_ACTIVITY_TYPES = Object.freeze({
   WORD_QUIZ: 'word_quiz',
   KANA_HANDWRITING: 'kana_handwriting',
+  KANA_READING: 'kana_reading',
   READING_QUIZ: 'reading_quiz',
   ESSAY_REVIEW: 'essay_review',
   AI_ASK: 'ai_ask'
@@ -170,7 +171,7 @@ function migrationEvent(type, date, suffix = '') {
   };
 }
 
-export function deriveStudyDays({ history = [], readingQuizHistory = [], essayHistory = [], aiAskHistory = [], handwritingHistory = [] } = {}) {
+export function deriveStudyDays({ history = [], readingQuizHistory = [], essayHistory = [], aiAskHistory = [], handwritingHistory = [], kanaReadingHistory = [] } = {}) {
   const derived = [];
   safeArray(history).forEach((entry, index) => {
     const day = migrationEvent(STUDY_ACTIVITY_TYPES.WORD_QUIZ, entry?.date, String(entry?.id || index));
@@ -196,6 +197,11 @@ export function deriveStudyDays({ history = [], readingQuizHistory = [], essayHi
   safeArray(handwritingHistory).forEach((entry, index) => {
     const suffix = `${entry?.id || 'kana'}-${entry?.ts || index}`;
     const day = migrationEvent(STUDY_ACTIVITY_TYPES.KANA_HANDWRITING, entry?.ts || entry?.date, suffix);
+    if (day) derived.push(day);
+  });
+  safeArray(kanaReadingHistory).forEach((entry, index) => {
+    const suffix = `${entry?.id || 'kana-reading'}-${entry?.ts || index}`;
+    const day = migrationEvent(STUDY_ACTIVITY_TYPES.KANA_READING, entry?.ts || entry?.date, suffix);
     if (day) derived.push(day);
   });
   return mergeStudyDays(derived);

@@ -77,16 +77,17 @@ test('leap day and year boundaries remain consecutive', () => {
   assert.equal(year.longest, 2);
 });
 
-test('histories migrate all five qualifying activity types', () => {
+test('histories migrate all six qualifying activity types', () => {
   const migrated = deriveStudyDays({
     history: [{ date: '2026/08/01', total: 10 }],
     readingQuizHistory: [{ date: '2026/08/02', sessions: [{ id: 'r1' }] }],
     essayHistory: [{ date: '2026/08/03', sessions: [{ ts: 3 }] }],
     aiAskHistory: [{ id: 'a1', ts: Date.parse('2026-08-04T05:00:00.000Z') }],
-    handwritingHistory: [{ id: 'h1', character: 'あ', ts: Date.parse('2026-08-05T05:00:00.000Z') }]
+    handwritingHistory: [{ id: 'h1', character: 'あ', ts: Date.parse('2026-08-05T05:00:00.000Z') }],
+    kanaReadingHistory: [{ id: 'k1', character: 'ア', ts: Date.parse('2026-08-06T05:00:00.000Z') }]
   });
-  assert.equal(migrated.length, 5);
-  assert.deepEqual(migrated.flatMap(day => day.activities).sort(), ['ai_ask', 'essay_review', 'kana_handwriting', 'reading_quiz', 'word_quiz']);
+  assert.equal(migrated.length, 6);
+  assert.deepEqual(migrated.flatMap(day => day.activities).sort(), ['ai_ask', 'essay_review', 'kana_handwriting', 'kana_reading', 'reading_quiz', 'word_quiz']);
 });
 
 test('study-day CSV survives an export/import round trip', () => {

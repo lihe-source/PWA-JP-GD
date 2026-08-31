@@ -1,4 +1,4 @@
-# PWA Japanese GD V1.2.6
+# PWA Japanese GD V1.2.7
 
 以繁體中文操作的日文學習 PWA，可直接部署到 GitHub Pages。保留原英文版的語彙、測驗、閱讀、寫作、Gemini AI、統計、Google Drive 備份、連續練習天數與每日 Web Push 提醒，並新增適合 iPad Air 11 吋與 Apple Pencil 的五十音手寫練習。
 
@@ -11,6 +11,7 @@
 - 推薦內容完整顯示日文表記、假名、羅馬拼音、詞性與繁體中文，並提供單字發音；系統也會自動為推薦詞建立例句並加入「每日例句記錄」。
 - 語彙練習：依日文表記、假名與中文進行測驗與複習。
 - 五十音手寫：平假名 46 字、片假名 46 字，共 92 字。
+- 五十音讀音：顯示平假名或片假名，輸入羅馬拼音作答；支援假名類型、五十音行複選、重複次數與獨立正確率統計。
 - 選項記憶：保留上次練習模式、題數、出題順序、假名類型、五十音行、重複次數、書寫模式與版面選擇。
 - 五十音行複選：可依進度同時選取多個行別；「全部行」可一鍵重設。
 - 重複加深印象：每個已選假名可重複 1、2、3、5 或 10 次，再以平衡隨機方式排題；例如あ行 5 字 × 5 次＝25 題，而且相同假名不會連續出現。
@@ -50,7 +51,7 @@ OAuth Client ID 可以與英文版共用，因兩個 GitHub Pages 專案位於�
 6. 依 `SETUP_PUSH_NOTIFICATIONS.md` 部署 Cloudflare Worker，才能在 PWA 關閉後於指定時間通知。
 7. iPhone／iPad 以 Safari 開啟網站，加入主畫面後再從圖示啟動。
 
-手機上傳的逐步畫面路徑請見 `MOBILE_UPLOAD_GUIDE.md`；系統架構與資料隔離請見 `ARCHITECTURE_V1_2_6.md`；本版變更請見 `CHANGELOG_V1_2_6.md`。
+手機上傳的逐步畫面路徑請見 `MOBILE_UPLOAD_GUIDE.md`；系統架構與資料隔離請見 `ARCHITECTURE_V1_2_7.md`；本版變更請見 `CHANGELOG_V1_2_7.md`。
 
 ## 重要檔案
 
@@ -58,6 +59,7 @@ OAuth Client ID 可以與英文版共用，因兩個 GitHub Pages 專案位於�
 |---|---|
 | `index.html`、`app.js`、`style.css` | PWA 介面與學習功能 |
 | `kana-data.js`、`kana-strokes.js` | 五十音資料與標準筆畫 |
+| `kana-reading.js` | 五十音羅馬拼音判定、常用別名、作答記錄與正確率統計 |
 | `handwriting-engine.js` | iPad／Apple Pencil 手寫畫布及本機評分 |
 | `japanese-learning.js` | 日文正規化、預設設定與手寫進度 |
 | `daily-learning.js` | JLPT／五十音行設定、AI 結果驗證、假名轉羅馬拼音與每日快取簽章 |

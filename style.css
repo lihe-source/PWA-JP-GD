@@ -161,6 +161,110 @@ html, body {
 }
 .daily-vocab-message { position: relative; z-index: 1; padding: 24px 8px; font-size: 13px; line-height: 1.65; text-align: center; opacity: .88; }
 
+/* ══ Kana reading: kana → romaji ══ */
+.kana-reading-page,
+.kana-reading-session,
+.kana-reading-result-view {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 18px);
+}
+.kana-reading-setup-card,
+.kana-reading-question-card,
+.kana-reading-result-view {
+  margin: 0 12px 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+}
+.kana-reading-setup-grid { display: grid; gap: 12px; margin-top: 12px; }
+.kana-reading-question-card {
+  min-height: min(600px, calc(100dvh - var(--nav-height) - var(--safe-bottom) - 145px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.kana-reading-row-label {
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+.kana-reading-character {
+  margin: 12px 0 4px;
+  color: var(--text);
+  font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif;
+  font-size: clamp(96px, 24vw, 180px);
+  font-weight: 800;
+  line-height: 1.05;
+}
+.kana-reading-question-card > p { margin: 4px 0 14px; color: var(--text-muted); font-size: 13px; }
+.kana-reading-answer-form { width: min(100%, 430px); display: grid; gap: 10px; }
+.kana-reading-answer-form input {
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 14px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font: 800 24px/1.2 'Nunito', sans-serif;
+  text-align: center;
+  text-transform: lowercase;
+  outline: none;
+}
+.kana-reading-answer-form input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent); }
+.kana-reading-answer-form input:disabled { opacity: .75; }
+.kana-reading-feedback { width: min(100%, 430px); min-height: 58px; margin-top: 10px; }
+.kana-reading-feedback > div { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; font-size: 13px; }
+.kana-reading-feedback strong { font-size: 15px; }
+.kana-reading-feedback .is-correct { background: color-mix(in srgb, var(--correct) 12%, transparent); color: var(--correct); }
+.kana-reading-feedback .is-wrong { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
+.kana-reading-listen { width: min(100%, 430px); margin-top: 4px; }
+.kana-reading-result-view { text-align: center; }
+.kana-reading-result-view h1 { margin: 12px 0 16px; color: var(--text); font-size: 24px; }
+.kana-reading-result-view > .btn-primary,
+.kana-reading-result-view > .btn-secondary { width: 100%; margin-top: 10px; }
+.kana-reading-wrong-list { margin: 16px 0; text-align: left; }
+.kana-reading-wrong-list h2 { margin-bottom: 8px; color: var(--text-muted); font-size: 13px; }
+.kana-reading-wrong-list > div {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.kana-reading-wrong-list b { font-family: 'Noto Sans JP', sans-serif; font-size: 28px; }
+.kana-reading-wrong-list span { min-width: 0; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.kana-reading-wrong-list strong { color: var(--primary); font-size: 16px; }
+.kana-reading-perfect { margin: 18px 0; padding: 18px; border-radius: 14px; background: color-mix(in srgb, var(--correct) 10%, transparent); color: var(--correct); font-weight: 800; }
+.kana-reading-stat-note { margin: 8px 0 12px; color: var(--text-muted); font-size: 12px; text-align: center; }
+
+@media (min-width: 700px) {
+  .kana-reading-setup-grid { grid-template-columns: 1fr 1fr; }
+  .kana-reading-setup-grid > :nth-child(2) { grid-column: 1 / -1; }
+  .kana-reading-question-card { margin-inline: 24px; }
+}
+
+@media (max-width: 430px) {
+  .kana-reading-setup-card,
+  .kana-reading-question-card,
+  .kana-reading-result-view { margin-inline: 8px; padding: 14px; }
+  .kana-reading-question-card { min-height: calc(100dvh - var(--nav-height) - var(--safe-bottom) - 140px); justify-content: flex-start; padding-top: 24px; }
+  .kana-reading-character { font-size: clamp(92px, 35vw, 142px); }
+}
+
 .home-menu-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 12px; }
 .menu-card {
   background: var(--card-bg); border-radius: var(--radius); padding: 18px 14px;

@@ -3694,3 +3694,223 @@ html.kana-view-active #global-go-bottom {
   .kana-advanced-content .kana-layout-option { min-height: 52px; padding: 7px 5px; }
   .kana-start-btn { min-height: 50px; margin-top: 6px; font-size: 14px; }
 }
+
+/* ===== Japanese V1.2.8: unified compact practice setup pages ===== */
+.practice-compact-page {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 12px);
+}
+
+.practice-compact-page > .practice-mode-bar {
+  width: min(calc(100% - 24px), 1040px);
+  margin: 0 auto 8px;
+}
+
+.practice-compact-page > .practice-mode-bar .practice-mode-select {
+  min-height: 44px;
+  padding-block: 8px;
+}
+
+.practice-compact-card {
+  width: min(calc(100% - 24px), 1040px);
+  margin: 0 auto 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow);
+}
+
+.practice-compact-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 10px;
+  text-align: left;
+}
+
+.practice-compact-heading h2 {
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 19px;
+}
+
+.practice-compact-heading p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.practice-compact-mark {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--primary-faint);
+  color: var(--primary);
+  font: 800 30px/1 "Noto Sans JP", sans-serif;
+}
+
+.practice-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.practice-summary-strip > div {
+  padding: 9px 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  text-align: center;
+}
+
+.practice-summary-strip strong,
+.practice-summary-strip span { display: block; }
+.practice-summary-strip strong { color: var(--primary); font-size: 18px; line-height: 1.1; }
+.practice-summary-strip span { margin-top: 3px; color: var(--text-muted); font-size: 9px; font-weight: 700; }
+
+.practice-compact-group {
+  margin: 0 0 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.practice-compact-group .option-label { margin-bottom: 7px; font-size: 11px; }
+.practice-six-grid,
+.practice-five-grid {
+  display: grid;
+  gap: 6px;
+  flex-wrap: initial;
+}
+.practice-six-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.practice-five-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.practice-six-grid .chip,
+.practice-five-grid .chip { width: 100%; min-height: 44px; padding: 7px 4px; }
+.practice-two-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.practice-two-grid .radio-option { min-height: 54px; padding: 8px 10px; }
+.word-practice-setup-card > .btn-primary,
+.reading-practice-page .reading-setup-card > .btn-primary { min-height: 52px; margin-top: 1px; }
+
+/* Reuse the handwriting card rhythm for kana reading. */
+.kana-reading-page.kana-setup-page { max-width: 1040px; }
+.kana-reading-page .kana-reading-setup-card { text-align: left; }
+.kana-reading-page .kana-reading-setup-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas: "script script" "rows rows" "repeat repeat";
+  gap: 8px;
+  margin-top: 0;
+}
+
+.reading-practice-page .reading-setup-card { text-align: left; }
+.reading-practice-page .reading-rule-grid { margin: 0 0 10px; }
+
+.essay-practice-card .essay-mode-toggle {
+  margin: 0 0 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.essay-practice-card .essay-words-card,
+.essay-practice-card .essay-ai-topic-card,
+.essay-practice-card .essay-input-card {
+  margin: 0;
+  padding: 10px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.essay-practice-card .essay-chips-row { gap: 5px; }
+.essay-practice-card .essay-chip-pill { padding: 6px 8px; }
+.essay-practice-card .essay-textarea { min-height: 150px; }
+
+.aiask-practice-card .aiask-input-label {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.aiask-practice-card .aiask-textarea { min-height: 100px; }
+
+@media (max-width: 700px) {
+  .practice-compact-page > .practice-page-header { display: none; }
+  .practice-compact-page > .practice-mode-bar { width: calc(100% - 16px); margin-bottom: 6px; }
+  .practice-compact-page > .practice-mode-bar .practice-mode-select {
+    min-height: 44px;
+    padding: 7px 34px 7px 11px;
+    font-size: 13px;
+  }
+  .practice-compact-card {
+    width: calc(100% - 16px);
+    margin-bottom: 8px;
+    padding: 10px;
+    border-radius: 16px;
+  }
+  .practice-compact-heading { gap: 9px; margin-bottom: 6px; }
+  .practice-compact-heading p { display: none; }
+  .practice-compact-heading h2 { margin: 0; font-size: 16px; }
+  .practice-compact-mark { width: 40px; height: 40px; flex-basis: 40px; border-radius: 11px; font-size: 23px; }
+  .practice-summary-strip { gap: 4px; margin-bottom: 6px; }
+  .practice-summary-strip > div { padding: 4px 2px; border-radius: 8px; }
+  .practice-summary-strip strong { font-size: 15px; }
+  .practice-summary-strip span { margin-top: 1px; font-size: 8px; }
+  .practice-compact-group {
+    margin: 0;
+    padding: 6px 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+  }
+  .practice-compact-group .option-label { margin-bottom: 5px; font-size: 10px; }
+  .practice-six-grid,
+  .practice-five-grid { gap: 5px; }
+  .practice-six-grid .chip,
+  .practice-five-grid .chip { min-height: 44px; padding: 6px 2px; font-size: 11px; }
+  .practice-two-grid { gap: 5px; }
+  .practice-two-grid .radio-option { min-height: 44px; padding: 6px 8px; gap: 7px; }
+  .practice-two-grid .radio-circle { width: 17px; height: 17px; }
+  .practice-two-grid .radio-text { font-size: 11px; }
+  .practice-two-grid .radio-sub { display: none; }
+  .word-practice-setup-card > .btn-primary,
+  .reading-practice-page .reading-setup-card > .btn-primary { min-height: 50px; font-size: 14px; }
+
+  .kana-reading-page .kana-reading-setup-grid { display: block; }
+  .kana-reading-page .kana-reading-setup-card { margin-inline: auto; padding: 10px; }
+
+  .reading-practice-page .reading-rule-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .reading-practice-page .reading-rule-grid div { padding: 4px 2px; border-radius: 8px; }
+  .reading-practice-page .reading-rule-grid strong { font-size: 15px; }
+  .reading-practice-page .reading-rule-grid span { margin-top: 1px; font-size: 8px; }
+
+  .essay-practice-card .essay-mode-toggle { gap: 5px; padding-top: 6px; }
+  .essay-practice-card .essay-mode-btn { min-height: 42px; padding: 6px; font-size: 11px; }
+  .essay-practice-card .essay-words-card,
+  .essay-practice-card .essay-ai-topic-card,
+  .essay-practice-card .essay-input-card { padding: 7px 0; }
+  .essay-practice-card .essay-words-top { margin-bottom: 6px; }
+  .essay-practice-card .essay-words-label { margin: 0; font-size: 10px; }
+  .essay-practice-card .essay-chip-pill { padding: 5px 6px; }
+  .essay-practice-card .essay-chip-en { font-size: 11px; }
+  .essay-practice-card .essay-chip-zh { font-size: 9px; }
+  .essay-practice-card .essay-textarea { min-height: 124px; padding: 9px; font-size: 13px; }
+  .essay-practice-card > .btn-primary { min-height: 48px; font-size: 13px; }
+
+  .aiask-practice-card .aiask-input-label { padding-top: 6px; }
+  .aiask-practice-card .aiask-model-hint { margin-bottom: 5px; }
+  .aiask-practice-card .aiask-textarea { min-height: 92px; padding: 8px 10px; font-size: 13px; }
+}
+
+@media (max-width: 390px) {
+  .practice-six-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .practice-five-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .practice-five-grid .chip { font-size: 10px; }
+}

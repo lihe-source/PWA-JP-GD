@@ -4,20 +4,37 @@ import { readFile } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-test('all public app surfaces use Japanese V1.2.7', async () => {
+test('all public app surfaces use Japanese V1.2.8', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_2_7'/);
-  assert.match(html, /app\.js\?v=V1_2_7/);
-  assert.match(sw, /Japanese-PWA-V1_2_7/);
+  assert.match(app, /APP_VERSION = 'V1_2_8'/);
+  assert.match(html, /app\.js\?v=V1_2_8/);
+  assert.match(sw, /Japanese-PWA-V1_2_8/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.2\.7/);
-  assert.equal(JSON.parse(pkg).version, '1.2.7');
+  assert.match(JSON.parse(manifest).name, /V1\.2\.8/);
+  assert.equal(JSON.parse(pkg).version, '1.2.8');
 });
 
-test('V1.2.7 keeps Apple subscription repair and provider errors', async () => {
+test('all six practice modes share the compact setup layout', async () => {
+  const [app, style] = await Promise.all([text('app.js'), text('style.css')]);
+  for (const className of [
+    'word-practice-page', 'kana-setup-page', 'kana-reading-page',
+    'essay-practice-page', 'reading-practice-page', 'aiask-practice-page'
+  ]) assert.match(app, new RegExp(className));
+  assert.match(app, /word-practice-setup-card/);
+  assert.match(app, /kana-reading-setup-card kana-setup-card kana-setup-compact practice-compact-card/);
+  assert.match(app, /reading-rule-grid practice-summary-strip/);
+  assert.match(app, /settings-card practice-compact-card aiask-practice-card/);
+  assert.match(style, /\.practice-compact-page/);
+  assert.match(style, /\.practice-summary-strip/);
+  assert.match(style, /@media \(max-width: 700px\)[\s\S]*?\.practice-compact-page > \.practice-page-header \{ display: none/);
+  assert.match(style, /\.practice-six-grid \{ grid-template-columns: repeat\(6/);
+  assert.match(style, /\.reading-practice-page \.reading-rule-grid \{ grid-template-columns: repeat\(4/);
+});
+
+test('V1.2.8 keeps Apple subscription repair and provider errors', async () => {
   const [manager, worker] = await Promise.all([text('reminder-manager.js'), text('worker.js')]);
   assert.match(manager, /forceRenew/);
   assert.match(manager, /SUBSCRIPTION_INVALID/);
@@ -119,7 +136,7 @@ test('all six completed practice paths qualify as study activity', async () => {
   }
 });
 
-test('V1.2.7 adds kana-to-romaji practice under handwriting with statistics', async () => {
+test('V1.2.8 adds kana-to-romaji practice under handwriting with statistics', async () => {
   const [app, style, module, backup] = await Promise.all([
     text('app.js'), text('style.css'), text('kana-reading.js'), text('backup-schema.js')
   ]);
@@ -135,11 +152,11 @@ test('V1.2.7 adds kana-to-romaji practice under handwriting with statistics', as
   assert.match(backup, /kanaReadingHistory/);
 });
 
-test('V1.2.7 recommends one daily word and stores its sentence practice', async () => {
+test('V1.2.8 recommends one daily word and stores its sentence practice', async () => {
   const [app, style, module, sw] = await Promise.all([
     text('app.js'), text('style.css'), text('daily-learning.js'), text('sw.js')
   ]);
-  assert.match(app, /daily-learning\.js\?v=V1_2_7/);
+  assert.match(app, /daily-learning\.js\?v=V1_2_8/);
   assert.match(app, /id="daily-learning-source-select"/);
   assert.match(app, /data-learning-row=/);
   assert.match(app, /generateDailyVocabulary/);
@@ -152,7 +169,7 @@ test('V1.2.7 recommends one daily word and stores its sentence practice', async 
   assert.match(module, /kanaToRomaji/);
   assert.match(module, /readingMatchesRows/);
   assert.match(style, /\.daily-vocab-grid/);
-  assert.match(sw, /daily-learning\.js\?v=V1_2_7/);
+  assert.match(sw, /daily-learning\.js\?v=V1_2_8/);
 });
 
 test('backup and Drive sync include study days, handwriting and practice choices', async () => {

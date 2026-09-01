@@ -1,24 +1,24 @@
-import { AppStorage } from './storage.js?v=V1_2_7';
-import { BackupSchema } from './backup-schema.js?v=V1_2_7';
-import { VersionManager } from './version-manager.js?v=V1_2_7';
-import { TrendChart } from './chart-renderer.js?v=V1_2_7';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_7';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_7';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_7';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_7';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_7';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_7';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_7';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_7';
+import { AppStorage } from './storage.js?v=V1_2_8';
+import { BackupSchema } from './backup-schema.js?v=V1_2_8';
+import { VersionManager } from './version-manager.js?v=V1_2_8';
+import { TrendChart } from './chart-renderer.js?v=V1_2_8';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_8';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_8';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_8';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_8';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_8';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_8';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_8';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_8';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_7
-// V1.2.7：每日一詞、五十音手寫與五十音讀音練習
+// 日本語練習 PWA - app.js V1_2_8
+// V1.2.8：每日一詞、五十音手寫與五十音讀音練習
 // ===========================
 
-const APP_VERSION = 'V1_2_7';
-const APP_DISPLAY_VERSION = 'V1.2.7';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_7';
+const APP_VERSION = 'V1_2_8';
+const APP_DISPLAY_VERSION = 'V1.2.8';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_8';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -790,7 +790,7 @@ const DB = {
       const preferences = this.getDailyLearningPreferences();
       const signature = dailyLearningSignature({ date: todayStr(), ...preferences });
       if (saved?.signature !== signature || !Array.isArray(saved.words) || !saved.words.length) return null;
-      // V1.2.7 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
+      // V1.2.8 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
       const normalized = { ...saved, words: saved.words.slice(0, 1) };
       if (saved.words.length !== normalized.words.length) {
         AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(normalized));
@@ -2772,7 +2772,7 @@ Views.home = {
       }
       else queueMicrotask(() => this.loadDailyVocabulary(false));
     } else {
-      // Database mode preserves the V1.2.7 behavior and does not spend AI quota automatically.
+      // Database mode preserves the V1.2.8 behavior and does not spend AI quota automatically.
       const cached = DB.getTodaySentenceAny();
       if (cached) this.displaySentence(cached);
     }
@@ -3137,52 +3137,71 @@ Views.practice = {
     this.state.selectedCount = savedPreferences.count;
     this.state.selectedMode = savedPreferences.order;
     const totalWords = DB.getWords().length;
+    const savedDelay = DB.getTtsDelay();
+    const orderLabel = this.state.selectedMode === 'newest' ? '最新' : '隨機';
+    const delayLabel = savedDelay === 0 ? '立即' : savedDelay < 1000 ? `${savedDelay}ms` : `${savedDelay / 1000}s`;
     container.innerHTML = `
-      <div class="section-header"><h1 class="section-title">練習</h1></div>
+      <div class="practice-compact-page word-practice-page">
+      <div class="section-header practice-page-header"><h1 class="section-title">練習</h1></div>
       ${renderPracticeModeSelector('quiz')}
-      <div class="practice-setup">
-        ${totalWords === 0 ? `<div class="no-api-warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>資料庫尚無單字，請先新增單字</div>` : ''}
-        <div class="option-group">
-          <div class="option-label">練習題數</div>
-          <div class="option-chips">${[5,10,15,20,25,30].map(n=>`<button class="chip ${n===this.state.selectedCount?'selected':''}" data-count="${n}">${n}</button>`).join('')}</div>
-          <div class="num-words-info">資料庫共 ${totalWords} 個單字</div>
+      <section class="practice-compact-card word-practice-setup-card">
+        <div class="practice-compact-heading">
+          <div class="practice-compact-mark" aria-hidden="true">日</div>
+          <div><h2>單字拼寫練習</h2><p>選擇題數、出題順序與發音延遲後開始練習。</p></div>
         </div>
-        <div class="option-group">
+        <div class="practice-summary-strip" aria-label="單字拼寫設定摘要">
+          <div><strong>${totalWords}</strong><span>題庫</span></div>
+          <div><strong id="word-summary-count">${this.state.selectedCount}</strong><span>題數</span></div>
+          <div><strong id="word-summary-order">${orderLabel}</strong><span>順序</span></div>
+          <div><strong id="word-summary-delay">${delayLabel}</strong><span>延遲</span></div>
+        </div>
+        ${totalWords === 0 ? `<div class="no-api-warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>資料庫尚無單字，請先新增單字</div>` : ''}
+        <div class="option-group practice-compact-group">
+          <div class="option-label">練習題數</div>
+          <div class="option-chips practice-six-grid">${[5,10,15,20,25,30].map(n=>`<button class="chip ${n===this.state.selectedCount?'selected':''}" data-count="${n}">${n}</button>`).join('')}</div>
+        </div>
+        <div class="option-group practice-compact-group">
           <div class="option-label">出題順序</div>
-          <div class="option-radio-group">
+          <div class="option-radio-group practice-two-grid">
             <div class="radio-option ${this.state.selectedMode==='newest'?'selected':''}" data-mode="newest"><div class="radio-circle"></div><div><div class="radio-text">從最新加入開始</div><div class="radio-sub">依最近加入的單字優先出題</div></div></div>
             <div class="radio-option ${this.state.selectedMode==='all'?'selected':''}" data-mode="all"><div class="radio-circle"></div><div><div class="radio-text">全部隨機</div><div class="radio-sub">從題庫所有單字中隨機出題</div></div></div>
           </div>
         </div>
-        <div class="option-group">
+        <div class="option-group practice-compact-group">
           <div class="option-label">唸單字延遲</div>
-          <div class="option-chips">
+          <div class="option-chips practice-five-grid">
             ${[0,300,600,1000,2000].map(ms => {
               const label = ms === 0 ? '立即' : ms < 1000 ? ms+'ms' : (ms/1000)+'s';
-              const saved = DB.getTtsDelay();
-              return `<button class="chip ${ms === saved ? 'selected' : ''}" data-tts-delay="${ms}">${label}</button>`;
+              return `<button class="chip ${ms === savedDelay ? 'selected' : ''}" data-tts-delay="${ms}">${label}</button>`;
             }).join('')}
           </div>
-          <div class="num-words-info">進入單字練習後，系統唸出單字前的等待時間</div>
         </div>
         <button class="btn-primary" id="start-btn" ${totalWords===0?'disabled':''}>開始練習</button>
+      </section>
       </div>
     `;
     const state = this.state;
     container.querySelectorAll('[data-count]').forEach(btn => btn.addEventListener('click', () => {
       container.querySelectorAll('[data-count]').forEach(b=>b.classList.remove('selected')); btn.classList.add('selected'); state.selectedCount = parseInt(btn.dataset.count);
       DB.saveWordPracticePreferences({ count: state.selectedCount });
+      const summaryCount = document.getElementById('word-summary-count');
+      if (summaryCount) summaryCount.textContent = String(state.selectedCount);
     }));
     container.querySelectorAll('[data-mode]').forEach(opt => opt.addEventListener('click', () => {
       container.querySelectorAll('[data-mode]').forEach(o=>o.classList.remove('selected')); opt.classList.add('selected'); state.selectedMode = opt.dataset.mode;
       DB.saveWordPracticePreferences({ order: state.selectedMode });
+      const summaryOrder = document.getElementById('word-summary-order');
+      if (summaryOrder) summaryOrder.textContent = state.selectedMode === 'newest' ? '最新' : '隨機';
     }));
     bindPracticeModeSelector(container, 'quiz');
     container.querySelectorAll('[data-tts-delay]').forEach(btn => {
       btn.addEventListener('click', () => {
         container.querySelectorAll('[data-tts-delay]').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
-        DB.saveTtsDelay(parseInt(btn.dataset.ttsDelay));
+        const ms = parseInt(btn.dataset.ttsDelay);
+        DB.saveTtsDelay(ms);
+        const summaryDelay = document.getElementById('word-summary-delay');
+        if (summaryDelay) summaryDelay.textContent = ms === 0 ? '立即' : ms < 1000 ? `${ms}ms` : `${ms / 1000}s`;
       });
     });
 
@@ -4092,10 +4111,10 @@ Views.kanaReadingPractice = {
     this.state.answered = false;
     const summary = KanaReadingProgress.getSummary();
     container.innerHTML = `
-      <div class="kana-reading-page">
-        <div class="section-header kana-page-header"><h1 class="section-title">練習</h1></div>
+      <div class="kana-reading-page kana-setup-page practice-compact-page">
+        <div class="section-header kana-page-header practice-page-header"><h1 class="section-title">練習</h1></div>
         ${renderPracticeModeSelector('kanaReading')}
-        <section class="kana-reading-setup-card">
+        <section class="kana-reading-setup-card kana-setup-card kana-setup-compact practice-compact-card">
           <div class="kana-setup-heading">
             <div class="kana-setup-mark" aria-hidden="true">A</div>
             <div><h2>五十音讀音練習</h2><p>看平假名或片假名，輸入對應的羅馬拼音。例如看到「あ」，輸入「a」。</p></div>
@@ -4106,8 +4125,8 @@ Views.kanaReadingPractice = {
             <div><strong>${summary.accuracy}%</strong><span>正確率</span></div>
             <div><strong>${summary.attempts}</strong><span>總題數</span></div>
           </div>
-          <div class="kana-reading-setup-grid">
-            <div class="option-group kana-compact-group">
+          <div class="kana-setup-grid kana-reading-setup-grid">
+            <div class="option-group kana-compact-group kana-script-group">
               <div class="option-label">假名類型</div>
               <div class="option-chips kana-option-chips kana-script-options">
                 <button class="chip ${this.state.script==='hiragana'?'selected':''}" type="button" data-reading-script="hiragana">平假名</button>
@@ -4115,7 +4134,7 @@ Views.kanaReadingPractice = {
                 <button class="chip ${this.state.script==='both'?'selected':''}" type="button" data-reading-script="both">兩者混合</button>
               </div>
             </div>
-            <div class="option-group kana-compact-group">
+            <div class="option-group kana-compact-group kana-row-group">
               <div class="option-label">五十音行（可複選）</div>
               <div class="kana-row-grid kana-row-grid-compact" role="group" aria-label="選擇五十音行">
                 <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-reading-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
@@ -4123,7 +4142,7 @@ Views.kanaReadingPractice = {
               </div>
               <div class="kana-row-summary" id="kana-reading-row-summary"></div>
             </div>
-            <div class="option-group kana-compact-group">
+            <div class="option-group kana-compact-group kana-repeat-group">
               <div class="option-label">每個假名練習次數</div>
               <div class="kana-repeat-grid" role="group" aria-label="選擇每個假名的練習次數">
                 ${KANA_REPEAT_OPTIONS.map(value => `<button type="button" class="kana-repeat-chip ${value===this.state.repeat?'selected':''}" data-reading-repeat="${value}" aria-pressed="${value===this.state.repeat}">${value} 次</button>`).join('')}
@@ -4298,15 +4317,15 @@ Views.readingQuiz = {
     const hasKey = !!DB.getApiKey();
     const canStart = totalWords >= 5 && hasKey;
     container.innerHTML = `
-      <div class="section-header"><h1 class="section-title">練習</h1></div>
+      <div class="practice-compact-page reading-practice-page">
+      <div class="section-header practice-page-header"><h1 class="section-title">練習</h1></div>
       ${renderPracticeModeSelector('reading')}
-      <div class="reading-setup-card">
-        <div class="reading-setup-icon">📖</div>
-        <div class="reading-setup-title">文章閱讀測驗</div>
-        <div class="reading-setup-desc">
-          系統會從目前資料庫隨機挑選 5 個日文語彙，依設定的 JLPT 等級生成短文，並針對每個語彙各出 1 題日文近義／釋義選擇題。
+      <section class="reading-setup-card practice-compact-card">
+        <div class="practice-compact-heading">
+          <div class="practice-compact-mark" aria-hidden="true">読</div>
+          <div><h2>文章閱讀測驗</h2><p>從單字庫選出 5 個日文語彙，依 JLPT 等級生成短文與選擇題。</p></div>
         </div>
-        <div class="reading-rule-grid">
+        <div class="reading-rule-grid practice-summary-strip">
           <div><strong>5</strong><span>個單字</span></div>
           <div><strong>5</strong><span>題測驗</span></div>
           <div><strong>20</strong><span>分 / 題</span></div>
@@ -4315,8 +4334,9 @@ Views.readingQuiz = {
         ${!hasKey ? `<div class="no-api-warning" style="margin-top:12px">請先在設定頁填入 Gemini API Key</div>` : ''}
         ${totalWords < 5 ? `<div class="no-api-warning" style="margin-top:12px">資料庫至少需要 5 個單字，目前只有 ${totalWords} 個</div>` : ''}
         <button class="btn-primary" id="reading-start-btn" ${canStart ? '' : 'disabled'}>生成文章並開始測驗</button>
-      </div>
+      </section>
       <div id="reading-generate-status"></div>
+      </div>
     `;
     bindPracticeModeSelector(container, 'reading');
     document.getElementById('reading-start-btn')?.addEventListener('click', async () => {
@@ -5323,11 +5343,17 @@ Views.essay = {
     const modeVocabActive = this._mode === 'vocab';
 
     container.innerHTML = `
-      <div class="section-header">
+      <div class="practice-compact-page essay-practice-page">
+      <div class="section-header practice-page-header">
         <button class="back-link" id="essay-back-btn">← 返回</button>
         <h1 class="section-title">文章撰寫</h1>
       </div>
       ${renderPracticeModeSelector('essay')}
+      <section class="practice-compact-card essay-practice-card">
+      <div class="practice-compact-heading">
+        <div class="practice-compact-mark" aria-hidden="true">文</div>
+        <div><h2>日文文章撰寫</h2><p>選擇單字題目或 AI 出題，在同一頁完成寫作並送出批改。</p></div>
+      </div>
       ${!hasKey ? '<div class="no-api-warning">請先在設定頁填入 Gemini API Key</div>' : ''}
 
       <div class="essay-mode-toggle">
@@ -5351,11 +5377,13 @@ Views.essay = {
       </div>
       <button class="btn-primary" id="essay-submit-btn"
         ${(modeVocabActive && words.length < 3) || !hasKey || (!modeVocabActive && !this._topic) ? 'disabled' : ''}
-        style="margin-top:12px">
+        style="margin-top:8px">
         送出文章給 AI 批改
       </button>
+      </section>
       <div id="essay-result-area" style="margin-top:16px"></div>
       <div style="height:20px"></div>
+      </div>
     `;
 
     bindPracticeModeSelector(container, 'essay');
@@ -5649,7 +5677,8 @@ Views.aiAsk = {
     const modelLabel = (Gemini.AVAILABLE_MODELS.find(m => m.id === model)?.label) || model;
 
     container.innerHTML = `
-      <div class="section-header">
+      <div class="practice-compact-page aiask-practice-page">
+      <div class="section-header practice-page-header">
         <button class="back-link" id="aiask-back-btn">← 返回</button>
         <h1 class="section-title">AI 詢問</h1>
       </div>
@@ -5657,7 +5686,11 @@ Views.aiAsk = {
 
       ${!hasKey ? '<div class="no-api-warning">請先在設定頁填入 Gemini API Key 才能使用 AI 詢問</div>' : ''}
 
-      <div class="settings-card" style="margin-bottom:14px">
+      <section class="settings-card practice-compact-card aiask-practice-card" style="margin-bottom:10px">
+        <div class="practice-compact-heading">
+          <div class="practice-compact-mark" aria-hidden="true">問</div>
+          <div><h2>AI 日文老師</h2><p>詢問日文文法、句子修改或單字用法，並保留查詢記錄。</p></div>
+        </div>
         <div class="aiask-input-label">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;flex-shrink:0"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           提問（日文文法、句子修改、單字用法…）
@@ -5673,7 +5706,7 @@ Views.aiAsk = {
           </button>
         </div>
         <div id="aiask-result-area" style="margin-top:10px"></div>
-      </div>
+      </section>
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px;padding:0 2px">
         <span style="font-size:13px;font-weight:700;color:var(--text-primary)">詢問記錄 <span style="font-weight:400;color:var(--text-muted)">${history.length} 筆</span></span>
@@ -5684,6 +5717,7 @@ Views.aiAsk = {
       </div>
       <div id="aiask-history-list"></div>
       <div style="height:20px"></div>
+      </div>
     `;
 
     bindPracticeModeSelector(container, 'aiask');

@@ -1,4 +1,4 @@
-# GitHub Pages＋每日推播設定（V1.2.9）
+# GitHub Pages＋每日推播設定（V1.2.10）
 
 PWA 關閉後，網頁本身無法持續計時。本專案使用 Cloudflare Worker＋D1＋Cron 在指定時間傳送 Web Push；每一台 iPhone／iPad／電腦都要各自啟用一次。
 
@@ -66,7 +66,7 @@ npm run worker:deploy
 {
   "ok": true,
   "service": "Japanese Daily Reminder",
-  "version": "V1.2.9",
+  "version": "V1.2.10",
   "configured": true,
   "checks": {
     "database": true,
@@ -127,9 +127,9 @@ https://lihe-source.github.io
 4. iPad/iPhone **設定 → 通知 → 日文練習** 是否允許通知。
 5. 專注模式、排程摘要或低耗電設定是否延後通知。
 6. 裝置是否有網路；Apple Push 由系統傳遞，PWA 可關閉，但裝置仍需連線。
-7. 若剛更新 VAPID Keys，重新按「儲存並啟用」；V1.2.9 會自動汰換舊的 Apple 訂閱。
+7. 若剛更新 VAPID Keys，重新按「儲存並啟用」；V1.2.10 會自動汰換舊的 Apple 訂閱。
 
-若測試仍失敗，先確認 Worker 根網址顯示版本也是 `V1.2.9`，再執行 `npx wrangler tail japanese-daily-reminder --format pretty`。V1.2.9 會在紀錄中顯示 Apple 的 `providerReason`，並對 `BadDeviceToken` 自動刪除失效資料、由前端重建訂閱後重送一次。
+若測試仍失敗，先確認 Worker 根網址顯示版本也是 `V1.2.10`，再執行 `npx wrangler tail japanese-daily-reminder --format pretty`。V1.2.10 會在紀錄中顯示 Apple 的 `providerReason`，並對 `BadDeviceToken` 自動刪除失效資料、由前端重建訂閱後重送一次。
 
 ## 七、改用新的 D1（僅在現有 ID 無權限時）
 

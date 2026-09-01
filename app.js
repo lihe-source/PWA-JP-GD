@@ -1,24 +1,24 @@
-import { AppStorage } from './storage.js?v=V1_2_9';
-import { BackupSchema } from './backup-schema.js?v=V1_2_9';
-import { VersionManager } from './version-manager.js?v=V1_2_9';
-import { TrendChart } from './chart-renderer.js?v=V1_2_9';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_9';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_9';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_9';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_9';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_9';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_9';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_9';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_9';
+import { AppStorage } from './storage.js?v=V1_2_10';
+import { BackupSchema } from './backup-schema.js?v=V1_2_10';
+import { VersionManager } from './version-manager.js?v=V1_2_10';
+import { TrendChart } from './chart-renderer.js?v=V1_2_10';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_10';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_10';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_10';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_10';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_10';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_10';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_10';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_10';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_9
-// V1.2.9：五十音讀音答題音效與 iOS 每題自動鍵盤
+// 日本語練習 PWA - app.js V1_2_10
+// V1.2.10：五十音讀音答題音效與 iOS 每題自動鍵盤
 // ===========================
 
-const APP_VERSION = 'V1_2_9';
-const APP_DISPLAY_VERSION = 'V1.2.9';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_9';
+const APP_VERSION = 'V1_2_10';
+const APP_DISPLAY_VERSION = 'V1.2.10';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_10';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -50,7 +50,18 @@ const Sound = {
   lastPlayed: '',
   lastPlayedAt: '',
 
+  _configureAudioSession() {
+    // iOS uses an ambient session for Web Audio by default, which is muted by the
+    // Ring/Silent switch. Playback keeps learning feedback audible in an installed PWA.
+    try {
+      if (navigator.audioSession && navigator.audioSession.type !== 'playback') {
+        navigator.audioSession.type = 'playback';
+      }
+    } catch {}
+  },
+
   _getCtx() {
+    this._configureAudioSession();
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) {
       this.lastError = '此瀏覽器不支援 Web Audio API';
@@ -78,6 +89,7 @@ const Sound = {
     return {
       supported,
       state,
+      audioSessionType: navigator.audioSession?.type || 'unavailable',
       lastError: this.lastError,
       lastPlayed: this.lastPlayed,
       lastPlayedAt: this.lastPlayedAt
@@ -88,6 +100,7 @@ const Sound = {
   // audio route without relying on speechSynthesis or an asynchronous timer.
   unlock() {
     try {
+      this._configureAudioSession();
       const ctx = this._getCtx();
       if (!ctx) return Promise.resolve(false);
 
@@ -138,6 +151,7 @@ const Sound = {
   // the oscillator is scheduled immediately inside the user's input event.
   _withCtx(fn, label) {
     try {
+      this._configureAudioSession();
       const ctx = this._getCtx();
       if (!ctx) return Promise.resolve(false);
 
@@ -247,8 +261,8 @@ const Sound = {
 // after iOS speech synthesis or returning to the PWA from the background.
 let lastQuizSoundPrimeAt = 0;
 const primeQuizSound = () => {
-  // Keep the global listeners dormant outside the spelling quiz.
-  if (!document.getElementById('quiz-ghost-input')) return;
+  // Keep the global listeners dormant outside spelling and kana-reading practice.
+  if (!document.querySelector('#quiz-ghost-input, #kana-reading-answer')) return;
   if (Sound.ctx?.state === 'running') return;
   const now = Date.now();
   if (now - lastQuizSoundPrimeAt < 750) return;
@@ -790,7 +804,7 @@ const DB = {
       const preferences = this.getDailyLearningPreferences();
       const signature = dailyLearningSignature({ date: todayStr(), ...preferences });
       if (saved?.signature !== signature || !Array.isArray(saved.words) || !saved.words.length) return null;
-      // V1.2.9 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
+      // V1.2.10 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
       const normalized = { ...saved, words: saved.words.slice(0, 1) };
       if (saved.words.length !== normalized.words.length) {
         AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(normalized));
@@ -2772,7 +2786,7 @@ Views.home = {
       }
       else queueMicrotask(() => this.loadDailyVocabulary(false));
     } else {
-      // Database mode preserves the V1.2.9 behavior and does not spend AI quota automatically.
+      // Database mode preserves the V1.2.10 behavior and does not spend AI quota automatically.
       const cached = DB.getTodaySentenceAny();
       if (cached) this.displaySentence(cached);
     }
@@ -4086,10 +4100,15 @@ Views.kanaPractice = {
 Views.kanaReadingPractice = {
   state: {
     script: 'hiragana', rows: ['all'], repeat: 1,
-    items: [], index: 0, results: [], answered: false
+    items: [], index: 0, results: [], answered: false, transitioning: false
   },
+  _advanceTimer: null,
 
   cleanup() {
+    if (this._advanceTimer !== null) {
+      clearTimeout(this._advanceTimer);
+      this._advanceTimer = null;
+    }
     TTS.stop();
     Router.quizActive = false;
     resumeAppUpdateWhenSafe();
@@ -4232,6 +4251,7 @@ Views.kanaReadingPractice = {
       this.state.index = 0;
       this.state.results = [];
       this.state.answered = false;
+      this.state.transitioning = false;
       DB.saveKanaReadingPreferences({ script: this.state.script, rows: this.state.rows, repeat: this.state.repeat });
       Router.quizActive = true;
       this.renderQuestion(container);
@@ -4240,59 +4260,125 @@ Views.kanaReadingPractice = {
   },
 
   renderQuestion(container) {
-    const kana = this.state.items[this.state.index];
-    const total = this.state.items.length;
-    const progress = Math.round(this.state.index / total * 100);
-    this.state.answered = false;
     container.innerHTML = `
       <div class="kana-reading-session">
         <header class="kana-session-header">
           <button class="kana-back-btn" id="kana-reading-exit-btn" type="button" aria-label="離開讀音練習">‹</button>
-          <div class="kana-session-progress"><span>五十音讀音 ${this.state.index + 1} / ${total}</span><div><i style="width:${progress}%"></i></div></div>
-          <span class="kana-mode-badge">${kana.scriptLabel}</span>
+          <div class="kana-session-progress"><span id="kana-reading-progress-text"></span><div><i id="kana-reading-progress-fill"></i></div></div>
+          <span class="kana-mode-badge" id="kana-reading-script-badge"></span>
         </header>
         <main class="kana-reading-question-card">
-          <span class="kana-reading-row-label">${kana.scriptLabel}・${kana.rowLabel}</span>
-          <div class="kana-reading-character" aria-label="題目 ${kana.character}">${kana.character}</div>
-          <p>請輸入羅馬拼音讀音</p>
+          <span class="kana-reading-row-label" id="kana-reading-row-label"></span>
+          <div class="kana-reading-character" id="kana-reading-character"></div>
+          <p>輸入羅馬拼音，按鍵盤「下一個／換行」送出並自動換題</p>
           <form class="kana-reading-answer-form" id="kana-reading-answer-form">
-            <input id="kana-reading-answer" type="text" inputmode="text" lang="en" enterkeyhint="done" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="8" autofocus aria-label="輸入 ${kana.character} 的羅馬拼音" placeholder="例如：a">
-            <button class="btn-primary" id="kana-reading-submit" type="submit">確認答案</button>
+            <input id="kana-reading-answer" type="text" inputmode="text" lang="en" enterkeyhint="next" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="8" autofocus aria-label="輸入假名的羅馬拼音" placeholder="例如：a">
+            <button class="btn-primary" id="kana-reading-submit" type="submit">送出並下一題</button>
           </form>
           <div class="kana-reading-feedback" id="kana-reading-feedback" role="status" aria-live="polite"></div>
           <button class="btn-secondary kana-reading-listen" id="kana-reading-listen" type="button">🔊 播放假名發音</button>
         </main>
       </div>`;
     const input = document.getElementById('kana-reading-answer');
-    this._focusAnswerInput(input);
-    document.getElementById('kana-reading-listen')?.addEventListener('click', () => TTS.speakKana(kana.character, 0.62, { immediate: true }));
+    const form = document.getElementById('kana-reading-answer-form');
+    input?.addEventListener('beforeinput', event => {
+      if (this.state.transitioning) event.preventDefault();
+    });
+    input?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      form?.requestSubmit();
+    });
+    document.getElementById('kana-reading-listen')?.addEventListener('click', () => {
+      const kana = this.state.items[this.state.index];
+      if (kana) TTS.speakKana(kana.character, 0.62, { immediate: true });
+    });
     document.getElementById('kana-reading-exit-btn')?.addEventListener('click', () => {
       Modal.show(`<div class="modal-handle"></div><div class="modal-title">離開五十音讀音練習？</div><p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">已完成的題目會保留，這次未完成的進度不列入測驗結果。</p><div class="modal-actions"><button class="modal-btn-cancel" id="kana-reading-stay">繼續練習</button><button class="modal-btn-delete" id="kana-reading-leave">離開</button></div>`);
       document.getElementById('kana-reading-stay')?.addEventListener('click', () => Modal.hide());
       document.getElementById('kana-reading-leave')?.addEventListener('click', () => { Modal.hide(); this.cleanup(); this.renderSetup(container); });
     });
-    document.getElementById('kana-reading-answer-form')?.addEventListener('submit', event => {
+    form?.addEventListener('submit', event => {
       event.preventDefault();
-      if (this.state.answered) {
-        if (this.state.index + 1 >= total) this.renderResult(container);
-        else { this.state.index += 1; this.renderQuestion(container); }
-        return;
-      }
+      this._submitCurrentAnswer(container);
+      this._focusAnswerInput(input);
+    });
+    this._paintCurrentQuestion();
+    this._focusAnswerInput(input);
+  },
+
+  _paintCurrentQuestion() {
+    const kana = this.state.items[this.state.index];
+    const total = this.state.items.length;
+    if (!kana || !total) return;
+    const progress = Math.round(this.state.index / total * 100);
+    const isLast = this.state.index + 1 >= total;
+    this.state.answered = false;
+    this.state.transitioning = false;
+    const progressText = document.getElementById('kana-reading-progress-text');
+    const progressFill = document.getElementById('kana-reading-progress-fill');
+    const badge = document.getElementById('kana-reading-script-badge');
+    const rowLabel = document.getElementById('kana-reading-row-label');
+    const character = document.getElementById('kana-reading-character');
+    const input = document.getElementById('kana-reading-answer');
+    const submit = document.getElementById('kana-reading-submit');
+    const feedback = document.getElementById('kana-reading-feedback');
+    if (progressText) progressText.textContent = `五十音讀音 ${this.state.index + 1} / ${total}`;
+    if (progressFill) progressFill.style.width = `${progress}%`;
+    if (badge) badge.textContent = kana.scriptLabel;
+    if (rowLabel) rowLabel.textContent = `${kana.scriptLabel}・${kana.rowLabel}`;
+    if (character) {
+      character.textContent = kana.character;
+      character.setAttribute('aria-label', `題目 ${kana.character}`);
+    }
+    if (input) {
+      input.value = '';
+      input.disabled = false;
+      input.setAttribute('aria-label', `輸入 ${kana.character} 的羅馬拼音`);
+      input.setAttribute('enterkeyhint', isLast ? 'done' : 'next');
+    }
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = isLast ? '送出並完成練習' : '送出並下一題';
+    }
+    if (feedback) feedback.innerHTML = '';
+  },
+
+  _submitCurrentAnswer(container) {
+    if (this.state.transitioning) return;
+    const kana = this.state.items[this.state.index];
+    const total = this.state.items.length;
+    const input = document.getElementById('kana-reading-answer');
+    const submit = document.getElementById('kana-reading-submit');
+    if (!kana || !input || !total) return;
       const checked = checkKanaReadingAnswer(kana, input?.value || '');
       if (!checked.normalized) { showToast('請先輸入羅馬拼音'); this._focusAnswerInput(input); return; }
       this.state.answered = true;
+      this.state.transitioning = true;
       const result = { kana, answer: checked.normalized, correct: checked.correct };
       this.state.results.push(result);
       KanaReadingProgress.recordAttempt(kana, checked.normalized, checked.correct);
       void (checked.correct ? Sound.playCorrect() : Sound.playWrong());
-      if (input) input.disabled = true;
       const feedback = document.getElementById('kana-reading-feedback');
       if (feedback) feedback.innerHTML = checked.correct
         ? `<div class="is-correct"><strong>✓ 答對了</strong><span>${escapeHTML(kana.character)} = ${escapeHTML(checked.expected)}</span></div>`
         : `<div class="is-wrong"><strong>✗ 再加油</strong><span>你的答案：${escapeHTML(checked.normalized)}　正確答案：${escapeHTML(checked.expected)}</span></div>`;
-      const submit = document.getElementById('kana-reading-submit');
-      if (submit) submit.textContent = this.state.index + 1 >= total ? '查看練習結果' : '下一題';
-    });
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = this.state.index + 1 >= total ? '正在完成…' : '正在前往下一題…';
+      }
+      // Keep the same input element focused. Replacing or disabling it makes iOS
+      // dismiss the keyboard, which forced the learner to tap and scroll each time.
+      this._advanceTimer = setTimeout(() => {
+        this._advanceTimer = null;
+        if (this.state.index + 1 >= total) {
+          this.renderResult(container);
+          return;
+        }
+        this.state.index += 1;
+        this._paintCurrentQuestion();
+        this._focusAnswerInput(input);
+      }, 650);
   },
 
   renderResult(container) {
@@ -7137,7 +7223,7 @@ Views.settings = {
             <button class="btn-secondary sound-test-btn" id="test-wrong-sound-btn" type="button">✕ 答錯音效</button>
             <button class="btn-primary sound-test-btn sound-test-wide" id="test-result-sound-btn" type="button">♫ 總結音效（100%）</button>
           </div>
-          <div class="settings-tip sound-test-tip">請先將 iPhone 的媒體音量調高，再逐一點擊測試。狀態顯示為 running 但仍聽不到時，請關閉靜音模式後再測試。</div>
+          <div class="settings-tip sound-test-tip">請先將 iPhone 的媒體音量調高，再逐一點擊測試。iOS 會自動切換為 playback 音訊工作階段，避免靜音模式關閉學習提示音。</div>
         </div>
 
         <div style="height:12px"></div>
@@ -7226,8 +7312,9 @@ Views.settings = {
         : status.state === 'not-created' ? '尚未建立'
         : status.state;
       const recent = status.lastPlayed ? `；最近播放：${status.lastPlayed}` : '';
+      const audioSession = status.audioSessionType !== 'unavailable' ? `；AudioSession：${status.audioSessionType}` : '';
       const error = status.lastError ? `；錯誤：${status.lastError}` : '';
-      soundStatusEl.textContent = `${prefix}${prefix ? '｜' : ''}AudioContext：${stateText}${recent}${error}`;
+      soundStatusEl.textContent = `${prefix}${prefix ? '｜' : ''}AudioContext：${stateText}${audioSession}${recent}${error}`;
       soundStatusEl.classList.toggle('is-running', status.state === 'running' && !status.lastError);
       soundStatusEl.classList.toggle('has-error', !!status.lastError || !status.supported);
     };

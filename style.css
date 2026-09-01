@@ -263,6 +263,15 @@ html, body {
   .kana-reading-result-view { margin-inline: 8px; padding: 14px; }
   .kana-reading-question-card { min-height: calc(100dvh - var(--nav-height) - var(--safe-bottom) - 140px); justify-content: flex-start; padding-top: 24px; }
   .kana-reading-character { font-size: clamp(92px, 35vw, 142px); }
+  .kana-reading-question-card:focus-within {
+    min-height: auto;
+    padding-top: 12px;
+  }
+  .kana-reading-question-card:focus-within .kana-reading-character {
+    margin-block: 5px 2px;
+    font-size: clamp(76px, 26vw, 108px);
+  }
+  .kana-reading-question-card:focus-within > p { margin-block: 2px 8px; }
 }
 
 .home-menu-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 12px; }

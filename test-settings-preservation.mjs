@@ -14,7 +14,7 @@ test('Japanese defaults and separate push deployment are packaged', async () => 
   assert.match(wrangler, /name = "japanese-daily-reminder"/);
   assert.match(wrangler, /PWA-JP-GD/);
   assert.match(wrangler, /crons = \["\* \* \* \* \*"\]/);
-  assert.match(worker, /SERVICE_VERSION = 'V1\.2\.8'/);
+  assert.match(worker, /SERVICE_VERSION = 'V1\.2\.9'/);
   assert.match(worker, /Japanese Daily Reminder/);
   assert.match(worker, /SELECT 1 FROM japanese_reminders/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminders/);

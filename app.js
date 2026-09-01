@@ -1,24 +1,24 @@
-import { AppStorage } from './storage.js?v=V1_2_8';
-import { BackupSchema } from './backup-schema.js?v=V1_2_8';
-import { VersionManager } from './version-manager.js?v=V1_2_8';
-import { TrendChart } from './chart-renderer.js?v=V1_2_8';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_8';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_8';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_8';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_8';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_8';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_8';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_8';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_8';
+import { AppStorage } from './storage.js?v=V1_2_9';
+import { BackupSchema } from './backup-schema.js?v=V1_2_9';
+import { VersionManager } from './version-manager.js?v=V1_2_9';
+import { TrendChart } from './chart-renderer.js?v=V1_2_9';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_9';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_9';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_9';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_9';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_9';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_9';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_9';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_9';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_8
-// V1.2.8：每日一詞、五十音手寫與五十音讀音練習
+// 日本語練習 PWA - app.js V1_2_9
+// V1.2.9：五十音讀音答題音效與 iOS 每題自動鍵盤
 // ===========================
 
-const APP_VERSION = 'V1_2_8';
-const APP_DISPLAY_VERSION = 'V1.2.8';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_8';
+const APP_VERSION = 'V1_2_9';
+const APP_DISPLAY_VERSION = 'V1.2.9';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_9';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -790,7 +790,7 @@ const DB = {
       const preferences = this.getDailyLearningPreferences();
       const signature = dailyLearningSignature({ date: todayStr(), ...preferences });
       if (saved?.signature !== signature || !Array.isArray(saved.words) || !saved.words.length) return null;
-      // V1.2.8 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
+      // V1.2.9 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
       const normalized = { ...saved, words: saved.words.slice(0, 1) };
       if (saved.words.length !== normalized.words.length) {
         AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(normalized));
@@ -2772,7 +2772,7 @@ Views.home = {
       }
       else queueMicrotask(() => this.loadDailyVocabulary(false));
     } else {
-      // Database mode preserves the V1.2.8 behavior and does not spend AI quota automatically.
+      // Database mode preserves the V1.2.9 behavior and does not spend AI quota automatically.
       const cached = DB.getTodaySentenceAny();
       if (cached) this.displaySentence(cached);
     }
@@ -4095,6 +4095,28 @@ Views.kanaReadingPractice = {
     resumeAppUpdateWhenSafe();
   },
 
+  _focusAnswerInput(input) {
+    if (!input?.isConnected || input.disabled) return false;
+    const focus = () => {
+      if (!input?.isConnected || input.disabled) return;
+      try { input.focus({ preventScroll: true }); }
+      catch { input.focus(); }
+      try {
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
+      } catch {}
+    };
+    // The first focus must stay synchronous with Start／Next. iOS only opens the
+    // software keyboard when focus is part of the user's current tap or key event.
+    focus();
+    // Desktop browsers and a few iPadOS transitions may replace the active element
+    // during layout. Retry only when the synchronous focus did not stick.
+    requestAnimationFrame(() => {
+      if (document.activeElement !== input) focus();
+    });
+    return document.activeElement === input;
+  },
+
   render(container) {
     this.cleanup();
     this.renderSetup(container);
@@ -4203,6 +4225,7 @@ Views.kanaReadingPractice = {
       updateSetupUI();
     }));
     document.getElementById('kana-reading-start-btn')?.addEventListener('click', () => {
+      void Sound.unlock();
       const pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
       this.state.items = buildRepeatedKanaPractice(pool, this.state.repeat);
       if (!this.state.items.length) { showToast('此條件沒有可練習的假名'); return; }
@@ -4233,7 +4256,7 @@ Views.kanaReadingPractice = {
           <div class="kana-reading-character" aria-label="題目 ${kana.character}">${kana.character}</div>
           <p>請輸入羅馬拼音讀音</p>
           <form class="kana-reading-answer-form" id="kana-reading-answer-form">
-            <input id="kana-reading-answer" type="text" inputmode="latin" enterkeyhint="done" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="8" aria-label="輸入 ${kana.character} 的羅馬拼音" placeholder="例如：a">
+            <input id="kana-reading-answer" type="text" inputmode="text" lang="en" enterkeyhint="done" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="8" autofocus aria-label="輸入 ${kana.character} 的羅馬拼音" placeholder="例如：a">
             <button class="btn-primary" id="kana-reading-submit" type="submit">確認答案</button>
           </form>
           <div class="kana-reading-feedback" id="kana-reading-feedback" role="status" aria-live="polite"></div>
@@ -4241,7 +4264,7 @@ Views.kanaReadingPractice = {
         </main>
       </div>`;
     const input = document.getElementById('kana-reading-answer');
-    requestAnimationFrame(() => input?.focus({ preventScroll: true }));
+    this._focusAnswerInput(input);
     document.getElementById('kana-reading-listen')?.addEventListener('click', () => TTS.speakKana(kana.character, 0.62, { immediate: true }));
     document.getElementById('kana-reading-exit-btn')?.addEventListener('click', () => {
       Modal.show(`<div class="modal-handle"></div><div class="modal-title">離開五十音讀音練習？</div><p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">已完成的題目會保留，這次未完成的進度不列入測驗結果。</p><div class="modal-actions"><button class="modal-btn-cancel" id="kana-reading-stay">繼續練習</button><button class="modal-btn-delete" id="kana-reading-leave">離開</button></div>`);
@@ -4256,11 +4279,12 @@ Views.kanaReadingPractice = {
         return;
       }
       const checked = checkKanaReadingAnswer(kana, input?.value || '');
-      if (!checked.normalized) { showToast('請先輸入羅馬拼音'); input?.focus(); return; }
+      if (!checked.normalized) { showToast('請先輸入羅馬拼音'); this._focusAnswerInput(input); return; }
       this.state.answered = true;
       const result = { kana, answer: checked.normalized, correct: checked.correct };
       this.state.results.push(result);
       KanaReadingProgress.recordAttempt(kana, checked.normalized, checked.correct);
+      void (checked.correct ? Sound.playCorrect() : Sound.playWrong());
       if (input) input.disabled = true;
       const feedback = document.getElementById('kana-reading-feedback');
       if (feedback) feedback.innerHTML = checked.correct
@@ -4277,6 +4301,7 @@ Views.kanaReadingPractice = {
     const correct = results.filter(item => item.correct).length;
     const score = results.length ? Math.round(correct / results.length * 100) : 0;
     const wrong = results.filter(item => !item.correct);
+    setTimeout(() => { void Sound.playResult(score); }, 150);
     recordStudyActivity(STUDY_ACTIVITY_TYPES.KANA_READING, `kana-reading:${todayStr()}:${Date.now()}`);
     GDrive.scheduleStudyStreakSync(350);
     container.innerHTML = `

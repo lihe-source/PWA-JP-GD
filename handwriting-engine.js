@@ -82,6 +82,11 @@ export class HandwritingEngine {
     this.reveal = false;
     this.animationStroke = -1;
     this.animationTimer = null;
+    this.guidePaths = [];
+    this.canvasRect = null;
+    this.pixelRatio = 1;
+    this.pendingSegments = [];
+    this.segmentFrame = null;
     this.destroyed = false;
     this._bindEvents();
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -98,35 +103,33 @@ export class HandwritingEngine {
       event.preventDefault();
       this.pointerId = event.pointerId;
       this.canvas.setPointerCapture?.(event.pointerId);
+      this._refreshCanvasRect();
       const point = this._eventPoint(event);
       this.activeStroke = [point];
       this.strokes.push(this.activeStroke);
-      this._render();
       this.options.onStrokeStart?.(this.strokes.length);
     };
     this._pointerMove = event => {
       if (event.pointerId !== this.pointerId || !this.activeStroke) return;
       event.preventDefault();
-      const events = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [event];
-      for (const item of events) {
-        const point = this._eventPoint(item);
-        const previous = this.activeStroke.at(-1);
-        if (!previous || distance(previous, point) >= 0.22) this.activeStroke.push(point);
-      }
-      this._render();
+      this._appendPointerSamples(event);
     };
     this._pointerUp = event => {
       if (event.pointerId !== this.pointerId) return;
       event.preventDefault();
-      this.canvas.releasePointerCapture?.(event.pointerId);
+      this._appendPointerSamples(event);
+      try { this.canvas.releasePointerCapture?.(event.pointerId); } catch {}
       if (this.activeStroke?.length === 1) {
         const point = this.activeStroke[0];
-        this.activeStroke.push({ ...point, x: point.x + 0.15, y: point.y + 0.15 });
+        const end = { ...point, x: point.x + 0.15, y: point.y + 0.15 };
+        this.activeStroke.push(end);
+        this.pendingSegments.push({ before: point, current: end });
       }
+      this._flushPendingSegments();
       this.activeStroke = null;
       this.pointerId = null;
       this.options.onStrokeEnd?.(this.strokes.length);
-      this._render();
+      this.options.onChange?.(this.strokes.length);
     };
     this.canvas.addEventListener('pointerdown', this._pointerDown, { passive: false });
     this.canvas.addEventListener('pointermove', this._pointerMove, { passive: false });
@@ -134,40 +137,105 @@ export class HandwritingEngine {
     this.canvas.addEventListener('pointercancel', this._pointerUp, { passive: false });
   }
 
+  _refreshCanvasRect() {
+    this.canvasRect = this.canvas.getBoundingClientRect();
+    return this.canvasRect;
+  }
+
   _eventPoint(event) {
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.canvasRect || this._refreshCanvasRect();
     return {
       x: clamp((event.clientX - rect.left) / Math.max(1, rect.width) * VIEWBOX_SIZE, 0, VIEWBOX_SIZE),
       y: clamp((event.clientY - rect.top) / Math.max(1, rect.height) * VIEWBOX_SIZE, 0, VIEWBOX_SIZE),
       pressure: event.pointerType === 'pen' && event.pressure > 0 ? event.pressure : 0.5,
-      time: performance.now()
+      time: Number.isFinite(event.timeStamp) ? event.timeStamp : performance.now()
     };
+  }
+
+  _appendPointerSamples(event) {
+    if (!this.activeStroke) return;
+    const coalesced = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
+    const samples = coalesced?.length ? coalesced : [event];
+    let added = false;
+    for (const item of samples) {
+      const point = this._eventPoint(item);
+      const previous = this.activeStroke.at(-1);
+      // 0.22 viewBox units is roughly one CSS pixel on the supported phone/iPad
+      // layouts. It removes duplicate touch samples without changing scoring data.
+      if (previous && distance(previous, point) < 0.22) continue;
+      this.activeStroke.push(point);
+      if (previous) this.pendingSegments.push({ before: previous, current: point });
+      added = true;
+    }
+    if (added) this._scheduleSegmentRender();
+  }
+
+  _scheduleSegmentRender() {
+    if (this.segmentFrame !== null || this.destroyed) return;
+    this.segmentFrame = requestAnimationFrame(() => {
+      this.segmentFrame = null;
+      this._flushPendingSegments();
+    });
+  }
+
+  _cancelSegmentRender() {
+    if (this.segmentFrame !== null) cancelAnimationFrame(this.segmentFrame);
+    this.segmentFrame = null;
+  }
+
+  _flushPendingSegments() {
+    this._cancelSegmentRender();
+    if (!this.pendingSegments.length || !this.context || !this.canvas.width || !this.canvas.height) {
+      this.pendingSegments.length = 0;
+      return;
+    }
+    const segments = this.pendingSegments.splice(0);
+    const context = this.context;
+    context.save();
+    context.setTransform(this.canvas.width / VIEWBOX_SIZE, 0, 0, this.canvas.height / VIEWBOX_SIZE, 0, 0);
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.strokeStyle = '#102a43';
+    for (const { before, current } of segments) {
+      context.beginPath();
+      context.lineWidth = 2.6 + clamp((before.pressure + current.pressure) / 2, 0.15, 1) * 2.1;
+      context.moveTo(before.x, before.y);
+      context.lineTo(current.x, current.y);
+      context.stroke();
+    }
+    context.restore();
   }
 
   resize() {
     if (this.destroyed) return;
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this._refreshCanvasRect();
     if (!rect.width || !rect.height) return;
-    const ratio = clamp(window.devicePixelRatio || 1, 1, 3);
+    // A 3x full-size square canvas is expensive on iPhone and brings no useful
+    // handwriting detail. 2x remains sharp on Retina and keeps iPad under 1280px.
+    const edgeLimitRatio = 1280 / Math.max(rect.width, rect.height);
+    const ratio = clamp(Math.min(window.devicePixelRatio || 1, 2, edgeLimitRatio), 1, 2);
     const width = Math.max(1, Math.round(rect.width * ratio));
     const height = Math.max(1, Math.round(rect.height * ratio));
-    if (this.canvas.width !== width || this.canvas.height !== height) {
-      this.canvas.width = width;
-      this.canvas.height = height;
-    }
+    if (this.canvas.width === width && this.canvas.height === height) return;
+    this.pixelRatio = ratio;
+    this.canvas.width = width;
+    this.canvas.height = height;
     this._render();
   }
 
   setKana(kana) {
     this.stopAnimation();
     this.kana = kana || null;
+    this.guidePaths = (this.kana?.strokes || []).map(pathData => {
+      try { return new Path2D(pathData); } catch { return null; }
+    });
     this.clear();
   }
 
   setMode(mode) {
     this.mode = ['trace', 'copy', 'recall'].includes(mode) ? mode : 'trace';
     this.reveal = false;
-    this._render();
+    if (this.kana) this._render();
   }
 
   clear() {
@@ -213,6 +281,8 @@ export class HandwritingEngine {
   }
 
   _render() {
+    this._cancelSegmentRender();
+    this.pendingSegments.length = 0;
     const context = this.context;
     if (!context || !this.canvas.width || !this.canvas.height) return;
     const sx = this.canvas.width / VIEWBOX_SIZE;
@@ -244,7 +314,8 @@ export class HandwritingEngine {
         context.lineWidth = this.animationStroke === index ? 4.1 : 3.2;
         context.lineCap = 'round';
         context.lineJoin = 'round';
-        context.stroke(new Path2D(pathData));
+        const guidePath = this.guidePaths[index];
+        if (guidePath) context.stroke(guidePath);
         context.restore();
         const start = this.kana.starts?.[index];
         if (start && (this.reveal || this.mode === 'trace' || this.animationStroke === index)) {
@@ -315,6 +386,8 @@ export class HandwritingEngine {
   destroy() {
     this.destroyed = true;
     this.stopAnimation();
+    this._cancelSegmentRender();
+    this.pendingSegments.length = 0;
     this.resizeObserver?.disconnect();
     this.canvas.removeEventListener('pointerdown', this._pointerDown);
     this.canvas.removeEventListener('pointermove', this._pointerMove);
@@ -322,4 +395,3 @@ export class HandwritingEngine {
     this.canvas.removeEventListener('pointercancel', this._pointerUp);
   }
 }
-

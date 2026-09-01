@@ -1,24 +1,24 @@
-import { AppStorage } from './storage.js?v=V1_2_10';
-import { BackupSchema } from './backup-schema.js?v=V1_2_10';
-import { VersionManager } from './version-manager.js?v=V1_2_10';
-import { TrendChart } from './chart-renderer.js?v=V1_2_10';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_10';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_10';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_10';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_10';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_10';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_10';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_10';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_10';
+import { AppStorage } from './storage.js?v=V1_2_11';
+import { BackupSchema } from './backup-schema.js?v=V1_2_11';
+import { VersionManager } from './version-manager.js?v=V1_2_11';
+import { TrendChart } from './chart-renderer.js?v=V1_2_11';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_11';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_11';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_11';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_11';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_11';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_11';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_11';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_11';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_10
-// V1.2.10：五十音讀音答題音效與 iOS 每題自動鍵盤
+// 日本語練習 PWA - app.js V1_2_11
+// V1.2.11：五十音手寫逐幀合併與增量繪製效能優化
 // ===========================
 
-const APP_VERSION = 'V1_2_10';
-const APP_DISPLAY_VERSION = 'V1.2.10';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_10';
+const APP_VERSION = 'V1_2_11';
+const APP_DISPLAY_VERSION = 'V1.2.11';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_11';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -804,7 +804,7 @@ const DB = {
       const preferences = this.getDailyLearningPreferences();
       const signature = dailyLearningSignature({ date: todayStr(), ...preferences });
       if (saved?.signature !== signature || !Array.isArray(saved.words) || !saved.words.length) return null;
-      // V1.2.10 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
+      // 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
       const normalized = { ...saved, words: saved.words.slice(0, 1) };
       if (saved.words.length !== normalized.words.length) {
         AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(normalized));
@@ -2786,7 +2786,7 @@ Views.home = {
       }
       else queueMicrotask(() => this.loadDailyVocabulary(false));
     } else {
-      // Database mode preserves the V1.2.10 behavior and does not spend AI quota automatically.
+      // 單字庫模式沿用既有流程，不會自動消耗 AI 配額。
       const cached = DB.getTodaySentenceAny();
       if (cached) this.displaySentence(cached);
     }

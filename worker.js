@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 
-const SERVICE_VERSION = 'V1.2.10';
+const SERVICE_VERSION = 'V1.2.11';
 const MAX_DUE_PER_RUN = 25;
 const formatterCache = new Map();
 

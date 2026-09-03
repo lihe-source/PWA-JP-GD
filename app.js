@@ -1,24 +1,24 @@
-import { AppStorage } from './storage.js?v=V1_2_11';
-import { BackupSchema } from './backup-schema.js?v=V1_2_11';
-import { VersionManager } from './version-manager.js?v=V1_2_11';
-import { TrendChart } from './chart-renderer.js?v=V1_2_11';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_11';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_11';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_11';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_11';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_11';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_11';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_11';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_11';
+import { AppStorage } from './storage.js?v=V1_2_12';
+import { BackupSchema } from './backup-schema.js?v=V1_2_12';
+import { VersionManager } from './version-manager.js?v=V1_2_12';
+import { TrendChart } from './chart-renderer.js?v=V1_2_12';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_12';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_12';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_12';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_12';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_12';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_12';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_12';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_12';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_11
-// V1.2.11：五十音手寫逐幀合併與增量繪製效能優化
+// 日本語練習 PWA - app.js V1_2_12
+// V1.2.12：五十音手寫批次路徑與練習期間雲端同步隔離
 // ===========================
 
-const APP_VERSION = 'V1_2_11';
-const APP_DISPLAY_VERSION = 'V1.2.11';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_11';
+const APP_VERSION = 'V1_2_12';
+const APP_DISPLAY_VERSION = 'V1.2.12';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_12';
 const canActivateAppUpdate = () => {
   if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
   const aiAskInput = document.querySelector('.aiask-textarea');
@@ -2321,14 +2321,23 @@ const GDrive = {
     clearTimeout(this._streakSyncTimer);
     this._streakSyncTimer = null;
     if (!navigator.onLine || !this.hasRememberedSession() || !DB.getGDriveClientId()) return;
-    this._streakSyncTimer = setTimeout(() => {
+    const runWhenPracticeIsIdle = () => {
+      // A Drive sync downloads, merges and serializes handwriting history. On
+      // iPhone/iPad this can briefly occupy the main thread just as the user
+      // starts the next character. Keep the local save immediate, but defer the
+      // cloud work until the handwriting/reading input surface is gone.
+      if (document.querySelector('.kana-writing-canvas, #kana-reading-answer')) {
+        this._streakSyncTimer = setTimeout(runWhenPracticeIsIdle, 2500);
+        return;
+      }
       this._streakSyncTimer = null;
       void this.syncStudyStreak({ interactive: false }).catch(error => {
         StudyStreak.markPending();
         refreshStudyStreakUI();
         console.warn('[GDrive] Study streak sync deferred.', error.message);
       });
-    }, delay);
+    };
+    this._streakSyncTimer = setTimeout(runWhenPracticeIsIdle, delay);
   },
 
   async upload(options = {}) {
@@ -4040,7 +4049,6 @@ Views.kanaPractice = {
     this.state.results.push({ kana, ...result });
     KanaProgress.recordAttempt(kana, result, this.state.mode);
     recordStudyActivity(STUDY_ACTIVITY_TYPES.KANA_HANDWRITING, `kana:${kana.id}:${Date.now()}`);
-    GDrive.scheduleStudyStreakSync(350);
     const tone = result.score >= 80 ? 'excellent' : result.score >= 60 ? 'good' : 'retry';
     const panel = document.getElementById('kana-score-panel');
     if (panel) panel.innerHTML = `
@@ -4089,6 +4097,7 @@ Views.kanaPractice = {
       </div>`;
     document.getElementById('kana-again-btn')?.addEventListener('click', () => this.renderSetup(container));
     document.getElementById('kana-home-btn')?.addEventListener('click', () => Router.navigate('home'));
+    GDrive.scheduleStudyStreakSync(900);
     resumeAppUpdateWhenSafe();
   }
 };

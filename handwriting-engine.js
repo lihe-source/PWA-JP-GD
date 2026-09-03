@@ -85,11 +85,22 @@ export class HandwritingEngine {
     this.guidePaths = [];
     this.canvasRect = null;
     this.pixelRatio = 1;
-    this.pendingSegments = [];
+    this.drawnPointIndex = 0;
     this.segmentFrame = null;
+    this.resizeFrame = null;
+    this.resizePending = false;
     this.destroyed = false;
     this._bindEvents();
-    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver = new ResizeObserver(() => {
+      // Safari can report visual-viewport changes while a finger/Pencil is
+      // moving. Resizing the backing bitmap then would erase and redraw it in
+      // the middle of the stroke, so postpone that work until pen-up.
+      if (this.pointerId !== null) {
+        this.resizePending = true;
+        return;
+      }
+      this.resize();
+    });
     this.resizeObserver.observe(canvas);
     this.resize();
   }
@@ -102,39 +113,42 @@ export class HandwritingEngine {
       if (event.pointerType === 'pen') this.penRecentlyActiveUntil = Date.now() + 900;
       event.preventDefault();
       this.pointerId = event.pointerId;
-      this.canvas.setPointerCapture?.(event.pointerId);
+      try { this.canvas.setPointerCapture?.(event.pointerId); } catch {}
       this._refreshCanvasRect();
       const point = this._eventPoint(event);
       this.activeStroke = [point];
+      this.drawnPointIndex = 0;
       this.strokes.push(this.activeStroke);
       this.options.onStrokeStart?.(this.strokes.length);
     };
     this._pointerMove = event => {
       if (event.pointerId !== this.pointerId || !this.activeStroke) return;
-      event.preventDefault();
       this._appendPointerSamples(event);
     };
     this._pointerUp = event => {
       if (event.pointerId !== this.pointerId) return;
-      event.preventDefault();
       this._appendPointerSamples(event);
       try { this.canvas.releasePointerCapture?.(event.pointerId); } catch {}
       if (this.activeStroke?.length === 1) {
         const point = this.activeStroke[0];
         const end = { ...point, x: point.x + 0.15, y: point.y + 0.15 };
         this.activeStroke.push(end);
-        this.pendingSegments.push({ before: point, current: end });
       }
-      this._flushPendingSegments();
+      this._flushActiveStrokeSegments();
       this.activeStroke = null;
+      this.drawnPointIndex = 0;
       this.pointerId = null;
       this.options.onStrokeEnd?.(this.strokes.length);
       this.options.onChange?.(this.strokes.length);
+      if (this.resizePending) this._scheduleResize();
     };
     this.canvas.addEventListener('pointerdown', this._pointerDown, { passive: false });
-    this.canvas.addEventListener('pointermove', this._pointerMove, { passive: false });
-    this.canvas.addEventListener('pointerup', this._pointerUp, { passive: false });
-    this.canvas.addEventListener('pointercancel', this._pointerUp, { passive: false });
+    // `touch-action:none` already prevents scrolling. Passive move/up listeners
+    // let WebKit dispatch Pencil/touch samples without waiting for JS to decide
+    // whether it will cancel the browser gesture.
+    this.canvas.addEventListener('pointermove', this._pointerMove, { passive: true });
+    this.canvas.addEventListener('pointerup', this._pointerUp, { passive: true });
+    this.canvas.addEventListener('pointercancel', this._pointerUp, { passive: true });
   }
 
   _refreshCanvasRect() {
@@ -159,12 +173,13 @@ export class HandwritingEngine {
     let added = false;
     for (const item of samples) {
       const point = this._eventPoint(item);
-      const previous = this.activeStroke.at(-1);
+      const previous = this.activeStroke[this.activeStroke.length - 1];
       // 0.22 viewBox units is roughly one CSS pixel on the supported phone/iPad
       // layouts. It removes duplicate touch samples without changing scoring data.
-      if (previous && distance(previous, point) < 0.22) continue;
+      const deltaX = previous ? previous.x - point.x : 0;
+      const deltaY = previous ? previous.y - point.y : 0;
+      if (previous && deltaX * deltaX + deltaY * deltaY < 0.0484) continue;
       this.activeStroke.push(point);
-      if (previous) this.pendingSegments.push({ before: previous, current: point });
       added = true;
     }
     if (added) this._scheduleSegmentRender();
@@ -174,7 +189,7 @@ export class HandwritingEngine {
     if (this.segmentFrame !== null || this.destroyed) return;
     this.segmentFrame = requestAnimationFrame(() => {
       this.segmentFrame = null;
-      this._flushPendingSegments();
+      this._flushActiveStrokeSegments();
     });
   }
 
@@ -183,27 +198,62 @@ export class HandwritingEngine {
     this.segmentFrame = null;
   }
 
-  _flushPendingSegments() {
-    this._cancelSegmentRender();
-    if (!this.pendingSegments.length || !this.context || !this.canvas.width || !this.canvas.height) {
-      this.pendingSegments.length = 0;
-      return;
+  _lineWidth(before, current) {
+    const raw = 2.6 + clamp((before.pressure + current.pressure) / 2, 0.15, 1) * 2.1;
+    // Quarter-unit buckets retain visible Pencil pressure while avoiding a new
+    // Canvas stroke call for every tiny pressure fluctuation.
+    return Math.round(raw * 4) / 4;
+  }
+
+  _drawStrokeRange(context, points, startIndex = 1) {
+    if (!points || startIndex >= points.length) return;
+    let runWidth = this._lineWidth(points[startIndex - 1], points[startIndex]);
+    let runStart = startIndex;
+    context.beginPath();
+    context.moveTo(points[startIndex - 1].x, points[startIndex - 1].y);
+    for (let index = startIndex; index < points.length; index++) {
+      const width = this._lineWidth(points[index - 1], points[index]);
+      if (index > runStart && Math.abs(width - runWidth) >= 0.5) {
+        context.lineWidth = runWidth;
+        context.stroke();
+        context.beginPath();
+        context.moveTo(points[index - 1].x, points[index - 1].y);
+        runWidth = width;
+        runStart = index;
+      }
+      context.lineTo(points[index].x, points[index].y);
     }
-    const segments = this.pendingSegments.splice(0);
+    context.lineWidth = runWidth;
+    context.stroke();
+  }
+
+  _flushActiveStrokeSegments() {
+    this._cancelSegmentRender();
+    const stroke = this.activeStroke;
+    const startIndex = Math.max(1, this.drawnPointIndex + 1);
+    if (!stroke || startIndex >= stroke.length || !this.context || !this.canvas.width || !this.canvas.height) return;
     const context = this.context;
     context.save();
     context.setTransform(this.canvas.width / VIEWBOX_SIZE, 0, 0, this.canvas.height / VIEWBOX_SIZE, 0, 0);
     context.lineCap = 'round';
     context.lineJoin = 'round';
     context.strokeStyle = '#102a43';
-    for (const { before, current } of segments) {
-      context.beginPath();
-      context.lineWidth = 2.6 + clamp((before.pressure + current.pressure) / 2, 0.15, 1) * 2.1;
-      context.moveTo(before.x, before.y);
-      context.lineTo(current.x, current.y);
-      context.stroke();
-    }
+    this._drawStrokeRange(context, stroke, startIndex);
     context.restore();
+    this.drawnPointIndex = stroke.length - 1;
+  }
+
+  _scheduleResize() {
+    if (this.resizeFrame !== null || this.destroyed) return;
+    this.resizeFrame = requestAnimationFrame(() => {
+      this.resizeFrame = null;
+      if (this.pointerId !== null) {
+        this.resizePending = true;
+        return;
+      }
+      this.resizePending = false;
+      this.resize();
+    });
   }
 
   resize() {
@@ -282,7 +332,6 @@ export class HandwritingEngine {
 
   _render() {
     this._cancelSegmentRender();
-    this.pendingSegments.length = 0;
     const context = this.context;
     if (!context || !this.canvas.width || !this.canvas.height) return;
     const sx = this.canvas.width / VIEWBOX_SIZE;
@@ -337,14 +386,10 @@ export class HandwritingEngine {
     context.strokeStyle = '#102a43';
     for (const stroke of this.strokes) {
       if (stroke.length < 2) continue;
-      for (let index = 1; index < stroke.length; index++) {
-        const before = stroke[index - 1]; const current = stroke[index];
-        context.beginPath();
-        context.lineWidth = 2.6 + clamp((before.pressure + current.pressure) / 2, 0.15, 1) * 2.1;
-        context.moveTo(before.x, before.y); context.lineTo(current.x, current.y); context.stroke();
-      }
+      this._drawStrokeRange(context, stroke, 1);
     }
     context.restore();
+    this.drawnPointIndex = this.activeStroke ? Math.max(0, this.activeStroke.length - 1) : 0;
   }
 
   score() {
@@ -387,7 +432,8 @@ export class HandwritingEngine {
     this.destroyed = true;
     this.stopAnimation();
     this._cancelSegmentRender();
-    this.pendingSegments.length = 0;
+    if (this.resizeFrame !== null) cancelAnimationFrame(this.resizeFrame);
+    this.resizeFrame = null;
     this.resizeObserver?.disconnect();
     this.canvas.removeEventListener('pointerdown', this._pointerDown);
     this.canvas.removeEventListener('pointermove', this._pointerMove);

@@ -25,10 +25,14 @@ class MockCanvas {
     this.height = 150;
     this.context = new MockContext();
     this.listeners = new Map();
+    this.listenerOptions = new Map();
   }
   getContext() { return this.context; }
   getBoundingClientRect() { return { left: 0, top: 0, width: 400, height: 400 }; }
-  addEventListener(type, listener) { this.listeners.set(type, listener); }
+  addEventListener(type, listener, options) {
+    this.listeners.set(type, listener);
+    this.listenerOptions.set(type, options);
+  }
   removeEventListener(type) { this.listeners.delete(type); }
   setPointerCapture() {}
   releasePointerCapture() {}
@@ -57,6 +61,8 @@ test('handwriting batches pointer samples and avoids full-canvas repaint while d
 
   assert.equal(canvas.width, 800, 'Retina canvas is capped at 2x instead of 3x');
   const paintsBeforeWriting = canvas.context.fullPaints;
+  const strokesBeforeWriting = canvas.context.segmentPaints;
+  assert.equal(canvas.listenerOptions.get('pointermove')?.passive, true);
   const baseEvent = {
     pointerId: 7, pointerType: 'touch', pressure: 0.5, timeStamp: 1,
     clientX: 10, clientY: 10, preventDefault() {}
@@ -73,7 +79,8 @@ test('handwriting batches pointer samples and avoids full-canvas repaint while d
   assert.equal(canvas.context.fullPaints, paintsBeforeWriting, 'pointer movement does not clear the canvas');
   for (const callback of [...frames.values()]) callback();
   frames.clear();
-  assert.ok(canvas.context.segmentPaints > 0, 'new line segments are rendered incrementally');
+  assert.equal(canvas.context.segmentPaints - strokesBeforeWriting, 1,
+    'many touch samples are painted as one batched Canvas path');
   assert.equal(canvas.context.fullPaints, paintsBeforeWriting);
 
   canvas.emit('pointerup', { ...baseEvent, clientX: 90, clientY: 72, timeStamp: 50 });

@@ -4,17 +4,17 @@ import { readFile } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-test('all public app surfaces use Japanese V1.2.11', async () => {
+test('all public app surfaces use Japanese V1.2.12', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_2_11'/);
-  assert.match(html, /app\.js\?v=V1_2_11/);
-  assert.match(sw, /Japanese-PWA-V1_2_11/);
+  assert.match(app, /APP_VERSION = 'V1_2_12'/);
+  assert.match(html, /app\.js\?v=V1_2_12/);
+  assert.match(sw, /Japanese-PWA-V1_2_12/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.2\.11/);
-  assert.equal(JSON.parse(pkg).version, '1.2.11');
+  assert.match(JSON.parse(manifest).name, /V1\.2\.12/);
+  assert.equal(JSON.parse(pkg).version, '1.2.12');
 });
 
 test('kana reading keeps one input focused and uses audible iOS playback feedback', async () => {
@@ -52,7 +52,7 @@ test('all six practice modes share the compact setup layout', async () => {
   assert.match(style, /\.reading-practice-page \.reading-rule-grid \{ grid-template-columns: repeat\(4/);
 });
 
-test('V1.2.11 keeps Apple subscription repair and provider errors', async () => {
+test('V1.2.12 keeps Apple subscription repair and provider errors', async () => {
   const [manager, worker] = await Promise.all([text('reminder-manager.js'), text('worker.js')]);
   assert.match(manager, /forceRenew/);
   assert.match(manager, /SUBSCRIPTION_INVALID/);
@@ -147,6 +147,20 @@ test('blue Japanese theme and iPad handwriting layout are present', async () => 
   assert.match(app, /Apple Pencil/);
 });
 
+test('handwriting keeps rendering and Drive synchronization off the critical input path', async () => {
+  const [app, engine] = await Promise.all([text('app.js'), text('handwriting-engine.js')]);
+  assert.match(engine, /addEventListener\('pointermove',[\s\S]{0,80}passive: true/);
+  assert.match(engine, /_drawStrokeRange\(context, stroke, startIndex\)/);
+  assert.match(engine, /drawnPointIndex/);
+  assert.doesNotMatch(engine, /pendingSegments/);
+  assert.match(engine, /resizePending/);
+  assert.match(app, /document\.querySelector\('\.kana-writing-canvas, #kana-reading-answer'\)/);
+  assert.match(app, /setTimeout\(runWhenPracticeIsIdle, 2500\)/);
+  const handwritingBlock = app.slice(app.indexOf('Views.kanaPractice ='), app.indexOf('Views.kanaReadingPractice ='));
+  assert.doesNotMatch(handwritingBlock, /recordStudyActivity[\s\S]{0,180}scheduleStudyStreakSync\(350\)/);
+  assert.match(handwritingBlock, /renderResult\(container\)[\s\S]{0,2600}scheduleStudyStreakSync\(900\)/);
+});
+
 test('all six completed practice paths qualify as study activity', async () => {
   const app = await text('app.js');
   for (const activity of ['WORD_QUIZ', 'KANA_HANDWRITING', 'KANA_READING', 'READING_QUIZ', 'ESSAY_REVIEW', 'AI_ASK']) {
@@ -154,7 +168,7 @@ test('all six completed practice paths qualify as study activity', async () => {
   }
 });
 
-test('V1.2.11 adds kana-to-romaji practice under handwriting with statistics', async () => {
+test('V1.2.12 adds kana-to-romaji practice under handwriting with statistics', async () => {
   const [app, style, module, backup] = await Promise.all([
     text('app.js'), text('style.css'), text('kana-reading.js'), text('backup-schema.js')
   ]);
@@ -170,11 +184,11 @@ test('V1.2.11 adds kana-to-romaji practice under handwriting with statistics', a
   assert.match(backup, /kanaReadingHistory/);
 });
 
-test('V1.2.11 recommends one daily word and stores its sentence practice', async () => {
+test('V1.2.12 recommends one daily word and stores its sentence practice', async () => {
   const [app, style, module, sw] = await Promise.all([
     text('app.js'), text('style.css'), text('daily-learning.js'), text('sw.js')
   ]);
-  assert.match(app, /daily-learning\.js\?v=V1_2_11/);
+  assert.match(app, /daily-learning\.js\?v=V1_2_12/);
   assert.match(app, /id="daily-learning-source-select"/);
   assert.match(app, /data-learning-row=/);
   assert.match(app, /generateDailyVocabulary/);
@@ -187,7 +201,7 @@ test('V1.2.11 recommends one daily word and stores its sentence practice', async
   assert.match(module, /kanaToRomaji/);
   assert.match(module, /readingMatchesRows/);
   assert.match(style, /\.daily-vocab-grid/);
-  assert.match(sw, /daily-learning\.js\?v=V1_2_11/);
+  assert.match(sw, /daily-learning\.js\?v=V1_2_12/);
 });
 
 test('backup and Drive sync include study days, handwriting and practice choices', async () => {

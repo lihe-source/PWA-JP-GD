@@ -1,11 +1,11 @@
 {
   "name": "pwa-japanese-gd",
-  "version": "1.2.12",
+  "version": "1.2.13",
   "private": true,
   "type": "module",
   "description": "日文語彙、閱讀、寫作、AI 與五十音手寫練習 PWA",
   "scripts": {
-    "check": "node --check app.js && node --check storage.js && node --check backup-schema.js && node --check study-streak.js && node --check japanese-learning.js && node --check daily-learning.js && node --check kana-reading.js && node --check kana-data.js && node --check kana-strokes.js && node --check handwriting-engine.js && node --check reminder-manager.js && node --check push-config.js && node --check sw.js && node --check worker.js",
+    "check": "node --check app.js && node --check storage.js && node --check backup-schema.js && node --check study-streak.js && node --check japanese-learning.js && node --check daily-learning.js && node --check kana-reading.js && node --check kana-data.js && node --check kana-strokes.js && node --check handwriting-engine.js && node --check reminder-manager.js && node --check push-config.js && node --check sw.js && node --check worker.js && node --check version-manager.js && node --check learning-sync.js && node --check practice-lifecycle.js && node --check storage-status-ui.js",
     "test": "node --test test-*.mjs",
     "worker:dev": "wrangler dev --test-scheduled",
     "worker:deploy": "wrangler deploy",

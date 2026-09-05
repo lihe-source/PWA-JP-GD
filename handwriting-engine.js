@@ -78,6 +78,8 @@ export class HandwritingEngine {
     this.strokes = [];
     this.activeStroke = null;
     this.pointerId = null;
+    this.activePointerType = '';
+    this.fullRenderPending = false;
     this.penRecentlyActiveUntil = 0;
     this.reveal = false;
     this.animationStroke = -1;
@@ -109,10 +111,18 @@ export class HandwritingEngine {
     this._pointerDown = event => {
       if (this.destroyed || !this.kana) return;
       if (event.pointerType === 'touch' && Date.now() < this.penRecentlyActiveUntil) return;
+      if (event.pointerType === 'pen' && this.activePointerType === 'touch') this._finishStroke(null, true, true);
       if (this.pointerId !== null) return;
-      if (event.pointerType === 'pen') this.penRecentlyActiveUntil = Date.now() + 900;
+      if (event.pointerType === 'mouse' && event.button !== undefined && event.button !== 0) return;
+      if (event.pointerType === 'pen') this.penRecentlyActiveUntil = Date.now() + 1200;
+      if (this.animationTimer || this.animationStroke >= 0) {
+        this.stopAnimation();
+        this.animationStroke = -1;
+        this.fullRenderPending = true;
+      }
       event.preventDefault();
       this.pointerId = event.pointerId;
+      this.activePointerType = event.pointerType;
       try { this.canvas.setPointerCapture?.(event.pointerId); } catch {}
       this._refreshCanvasRect();
       const point = this._eventPoint(event);
@@ -123,24 +133,19 @@ export class HandwritingEngine {
     };
     this._pointerMove = event => {
       if (event.pointerId !== this.pointerId || !this.activeStroke) return;
+      if (this.activePointerType === 'pen') this.penRecentlyActiveUntil = Date.now() + 1200;
       this._appendPointerSamples(event);
     };
     this._pointerUp = event => {
       if (event.pointerId !== this.pointerId) return;
-      this._appendPointerSamples(event);
-      try { this.canvas.releasePointerCapture?.(event.pointerId); } catch {}
-      if (this.activeStroke?.length === 1) {
-        const point = this.activeStroke[0];
-        const end = { ...point, x: point.x + 0.15, y: point.y + 0.15 };
-        this.activeStroke.push(end);
-      }
-      this._flushActiveStrokeSegments();
-      this.activeStroke = null;
-      this.drawnPointIndex = 0;
-      this.pointerId = null;
-      this.options.onStrokeEnd?.(this.strokes.length);
-      this.options.onChange?.(this.strokes.length);
-      if (this.resizePending) this._scheduleResize();
+      this._finishStroke(event);
+    };
+    this._pointerCancel = event => {
+      if (event.pointerId === this.pointerId) this._finishStroke(null, true);
+    };
+    this._interrupt = () => this._finishStroke(null, true);
+    this._visibilityChange = () => {
+      if (globalThis.document?.visibilityState === 'hidden') this._interrupt();
     };
     this.canvas.addEventListener('pointerdown', this._pointerDown, { passive: false });
     // `touch-action:none` already prevents scrolling. Passive move/up listeners
@@ -148,7 +153,38 @@ export class HandwritingEngine {
     // whether it will cancel the browser gesture.
     this.canvas.addEventListener('pointermove', this._pointerMove, { passive: true });
     this.canvas.addEventListener('pointerup', this._pointerUp, { passive: true });
-    this.canvas.addEventListener('pointercancel', this._pointerUp, { passive: true });
+    this.canvas.addEventListener('pointercancel', this._pointerCancel, { passive: true });
+    this.canvas.addEventListener('lostpointercapture', this._pointerCancel, { passive: true });
+    globalThis.window?.addEventListener?.('blur', this._interrupt);
+    globalThis.window?.addEventListener?.('pagehide', this._interrupt);
+    globalThis.document?.addEventListener?.('visibilitychange', this._visibilityChange);
+  }
+
+  _finishStroke(event, interrupted = false, discard = false) {
+    if (this.pointerId === null) return;
+    const pointerId = this.pointerId;
+    if (event) this._appendPointerSamples(event);
+    if (this.activePointerType === 'pen') this.penRecentlyActiveUntil = Date.now() + 1200;
+    if (!interrupted && this.activeStroke?.length === 1) {
+      const point = this.activeStroke[0];
+      this.activeStroke.push({ ...point, x: point.x + 0.15, y: point.y + 0.15 });
+    }
+    if (discard || (interrupted && this.activeStroke?.length === 1)) {
+      this.strokes = this.strokes.filter(stroke => stroke !== this.activeStroke);
+      this.fullRenderPending = true;
+    } else this._flushActiveStrokeSegments();
+    this._cancelSegmentRender();
+    this.activeStroke = null;
+    this.drawnPointIndex = 0;
+    this.pointerId = null;
+    this.activePointerType = '';
+    // Reset state before releasing capture: WebKit may dispatch the loss event
+    // immediately. A cancellation never contributes a synthetic (0, 0) point.
+    try { this.canvas.releasePointerCapture?.(pointerId); } catch {}
+    this.options.onStrokeEnd?.(this.strokes.length);
+    this.options.onChange?.(this.strokes.length);
+    if (this.resizePending) this._scheduleResize();
+    else if (this.fullRenderPending) this._render();
   }
 
   _refreshCanvasRect() {
@@ -174,6 +210,7 @@ export class HandwritingEngine {
     for (const item of samples) {
       const point = this._eventPoint(item);
       const previous = this.activeStroke[this.activeStroke.length - 1];
+      if (previous && point.time < previous.time) continue;
       // 0.22 viewBox units is roughly one CSS pixel on the supported phone/iPad
       // layouts. It removes duplicate touch samples without changing scoring data.
       const deltaX = previous ? previous.x - point.x : 0;
@@ -258,6 +295,7 @@ export class HandwritingEngine {
 
   resize() {
     if (this.destroyed) return;
+    if (this.pointerId !== null) { this.resizePending = true; return; }
     const rect = this._refreshCanvasRect();
     if (!rect.width || !rect.height) return;
     // A 3x full-size square canvas is expensive on iPhone and brings no useful
@@ -266,7 +304,10 @@ export class HandwritingEngine {
     const ratio = clamp(Math.min(window.devicePixelRatio || 1, 2, edgeLimitRatio), 1, 2);
     const width = Math.max(1, Math.round(rect.width * ratio));
     const height = Math.max(1, Math.round(rect.height * ratio));
-    if (this.canvas.width === width && this.canvas.height === height) return;
+    if (this.canvas.width === width && this.canvas.height === height) {
+      if (this.fullRenderPending) this._render();
+      return;
+    }
     this.pixelRatio = ratio;
     this.canvas.width = width;
     this.canvas.height = height;
@@ -274,7 +315,9 @@ export class HandwritingEngine {
   }
 
   setKana(kana) {
+    this._interrupt();
     this.stopAnimation();
+    this.animationStroke = -1;
     this.kana = kana || null;
     this.guidePaths = (this.kana?.strokes || []).map(pathData => {
       try { return new Path2D(pathData); } catch { return null; }
@@ -289,6 +332,9 @@ export class HandwritingEngine {
   }
 
   clear() {
+    this._interrupt();
+    this.stopAnimation();
+    this.animationStroke = -1;
     this.strokes = [];
     this.activeStroke = null;
     this.pointerId = null;
@@ -298,6 +344,7 @@ export class HandwritingEngine {
   }
 
   undo() {
+    this._interrupt();
     if (!this.strokes.length) return;
     this.strokes.pop();
     this.reveal = false;
@@ -311,7 +358,7 @@ export class HandwritingEngine {
   }
 
   animateGuide() {
-    if (!this.kana?.strokes?.length) return;
+    if (!this.kana?.strokes?.length || this.pointerId !== null) return;
     this.stopAnimation();
     this.animationStroke = 0;
     this._render();
@@ -331,6 +378,8 @@ export class HandwritingEngine {
   }
 
   _render() {
+    if (this.pointerId !== null) { this.fullRenderPending = true; return; }
+    this.fullRenderPending = false;
     this._cancelSegmentRender();
     const context = this.context;
     if (!context || !this.canvas.width || !this.canvas.height) return;
@@ -393,12 +442,15 @@ export class HandwritingEngine {
   }
 
   score() {
+    this._interrupt();
+    this.stopAnimation();
+    this.animationStroke = -1;
     const reference = (this.kana?.strokes || []).map(path => sampleSvgPath(path));
     const user = this.strokes.filter(stroke => stroke.length >= 2).map(stroke => resample(stroke));
     const expectedStrokeCount = reference.length;
     const strokeCount = user.length;
     if (!expectedStrokeCount || !strokeCount) {
-      return { score: 0, strokeCount, expectedStrokeCount, shape: 0, order: 0, direction: 0, endpoints: 0, balance: 0 };
+      return { score: 0, strokeCount, expectedStrokeCount, shape: 0, strokeCountScore: 0, order: 0, direction: 0, endpoints: 0, balance: 0 };
     }
 
     const matched = Math.min(reference.length, user.length);
@@ -425,10 +477,12 @@ export class HandwritingEngine {
     const score = clamp(shape + order + direction + endpoints + balance, 0, 100);
     this.reveal = true;
     this._render();
-    return { score, strokeCount, expectedStrokeCount, shape, order, direction, endpoints, balance };
+    // `order` remains a legacy API alias, not a claim of stroke-order recognition.
+    return { score, strokeCount, expectedStrokeCount, shape, strokeCountScore: order, order, direction, endpoints, balance };
   }
 
   destroy() {
+    this._interrupt();
     this.destroyed = true;
     this.stopAnimation();
     this._cancelSegmentRender();
@@ -438,6 +492,10 @@ export class HandwritingEngine {
     this.canvas.removeEventListener('pointerdown', this._pointerDown);
     this.canvas.removeEventListener('pointermove', this._pointerMove);
     this.canvas.removeEventListener('pointerup', this._pointerUp);
-    this.canvas.removeEventListener('pointercancel', this._pointerUp);
+    this.canvas.removeEventListener('pointercancel', this._pointerCancel);
+    this.canvas.removeEventListener('lostpointercapture', this._pointerCancel);
+    globalThis.window?.removeEventListener?.('blur', this._interrupt);
+    globalThis.window?.removeEventListener?.('pagehide', this._interrupt);
+    globalThis.document?.removeEventListener?.('visibilitychange', this._visibilityChange);
   }
 }

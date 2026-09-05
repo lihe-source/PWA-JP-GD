@@ -14,7 +14,7 @@ test('Japanese defaults and separate push deployment are packaged', async () => 
   assert.match(wrangler, /name = "japanese-daily-reminder"/);
   assert.match(wrangler, /PWA-JP-GD/);
   assert.match(wrangler, /crons = \["\* \* \* \* \*"\]/);
-  assert.match(worker, /SERVICE_VERSION = 'V1\.2\.12'/);
+  assert.match(worker, /SERVICE_VERSION = 'V1\.2\.13'/);
   assert.match(worker, /Japanese Daily Reminder/);
   assert.match(worker, /SELECT 1 FROM japanese_reminders/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminders/);
@@ -32,4 +32,24 @@ test('Japanese data uses an isolated IndexedDB and storage prefix', async () => 
   assert.match(storage, /LOCAL_PREFIX = 'pwa_japanese:'/);
   assert.match(storage, /LEGACY_ENGLISH_DB = 'pwa_vocabulary_v7'/);
   assert.doesNotMatch(storage, /indexedDB\.deleteDatabase/);
+});
+
+test('every frontend module dependency uses this release and is precached for offline launch', async () => {
+  const version = JSON.parse(await text('version.json'));
+  const shellSource = (await text('sw.js')).match(/const APP_SHELL = \[([\s\S]*?)\];/)[1];
+  const shell = new Set([...shellSource.matchAll(/'([^']+)'/g)].map(match => match[1]));
+  const entries = await readdir(new URL('.', import.meta.url));
+  for (const entry of entries.filter(name => name.endsWith('.js'))) {
+    const source = await text(entry);
+    for (const match of source.matchAll(/\b(?:from\s*|import\s*)['"](\.\/[^'"\n]+)['"]/g)) {
+      const reference = match[1];
+      const url = new URL(reference, 'https://example.test/PWA-JP-GD/');
+      assert.equal(url.searchParams.get('v'), version.version, `${entry}: outdated module ${reference}`);
+      assert.ok(shell.has(reference), `${entry}: missing offline cache entry ${reference}`);
+    }
+  }
+  for (const reference of shell) {
+    if (reference === './') continue;
+    assert.ok(entries.includes(reference.replace(/^\.\//, '').split('?')[0]), `missing cached file ${reference}`);
+  }
 });

@@ -9,8 +9,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="日文練習">
   <meta name="theme-color" content="#1565c0">
-  <title>日本語練習 V1.2.12</title>
-  <link rel="manifest" href="manifest.json?v=V1_2_12">
+  <title>日本語練習 V1.2.13</title>
+  <link rel="manifest" href="manifest.json?v=V1_2_13">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,11 +19,15 @@
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <script src="jszip.min.js?v=3_10_1"></script>
   <script src="https://accounts.google.com/gsi/client" async defer data-gis="1"></script>
-  <link rel="stylesheet" href="style.css?v=V1_2_12">
+  <link rel="stylesheet" href="style.css?v=V1_2_13">
 </head>
 <body>
   <div id="offline-banner" class="offline-banner" role="status" aria-live="polite" hidden>目前為離線模式，雲端與 AI 功能暫時不可用</div>
   <div id="app">
+    <section id="storage-warning" class="storage-warning" role="alert" hidden>
+      <p>資料尚未儲存，請勿關閉程式。請重試或先匯出救援備份。</p>
+      <div><button type="button" data-storage-action="retry">重試儲存</button><button type="button" data-storage-action="export">匯出救援備份</button></div>
+    </section>
     <div id="view-container"></div>
     <nav id="bottom-nav">
       <button class="nav-btn active" data-view="home">
@@ -60,6 +64,6 @@
       <div id="modal-content"></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=V1_2_12"></script>
+  <script type="module" src="app.js?v=V1_2_13"></script>
 </body>
 </html>

@@ -1,3 +1,13 @@
+.storage-warning[hidden] { display: none; }
+.storage-warning { flex: 0 0 auto; padding: 8px 12px; background: #fff3f3; color: #8d2424; border-bottom: 1px solid #dba9ae; font-size: 14px; }
+.storage-warning p { margin: 0 0 6px; }
+.storage-warning > div, .storage-status-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.storage-warning button, .storage-status-actions button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card-bg); color: var(--primary); font: inherit; font-size: 16px; cursor: pointer; }
+.storage-status-card p { margin: 8px 0; overflow-wrap: anywhere; }
+.storage-status-card [data-state="error"] { color: var(--danger); }
+.storage-status-actions > button { flex: 1 1 130px; }
+#storage-operation-message:empty { display: none; }
+
 :root {
   --primary: #1565c0;
   --primary-light: #42a5f5;

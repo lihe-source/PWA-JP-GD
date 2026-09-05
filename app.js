@@ -1,29 +1,32 @@
-import { AppStorage } from './storage.js?v=V1_2_12';
-import { BackupSchema } from './backup-schema.js?v=V1_2_12';
-import { VersionManager } from './version-manager.js?v=V1_2_12';
-import { TrendChart } from './chart-renderer.js?v=V1_2_12';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_12';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_12';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_12';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_12';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_12';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_12';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_12';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_12';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_2_13';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_2_13';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_2_13';
+let StorageUI = null;
+import { AppStorage } from './storage.js?v=V1_2_13';
+import { BackupSchema } from './backup-schema.js?v=V1_2_13';
+import { VersionManager } from './version-manager.js?v=V1_2_13';
+import { TrendChart } from './chart-renderer.js?v=V1_2_13';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_13';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_13';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_13';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_13';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_13';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_13';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_13';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_13';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_12
-// V1.2.12：五十音手寫批次路徑與練習期間雲端同步隔離
+// 日本語練習 PWA - app.js V1_2_13
+// V1.2.13：五十音手寫批次路徑與練習期間雲端同步隔離
 // ===========================
 
-const APP_VERSION = 'V1_2_12';
-const APP_DISPLAY_VERSION = 'V1.2.12';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_12';
-const canActivateAppUpdate = () => {
-  if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading, .kana-writing-canvas')) return false;
-  const aiAskInput = document.querySelector('.aiask-textarea');
-  return !String(aiAskInput?.value || '').trim();
-};
+const APP_VERSION = 'V1_2_13';
+const APP_DISPLAY_VERSION = 'V1.2.13';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_13';
+const canActivateAppUpdate = () => canUpdateApp({
+  document, router: Router, storage: AppStorage,
+  cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
+});
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
@@ -37,7 +40,7 @@ const resumeAppUpdateWhenSafe = () => {
   void AppStorage.flush().then(() => {
     void AppUpdater.activateWaitingIfSafe();
     void AppUpdater.reloadIfSafe();
-  });
+  }).catch(() => {});
 };
 
 // ===== Web Audio Sound Effects =====
@@ -2176,20 +2179,34 @@ const GDrive = {
     ].join('・');
   },
 
-  async _listStudyStreakFiles() {
-    const q = `name='${this.STUDY_STREAK_FILE}' and mimeType='application/json' and trashed=false`;
-    const params = new URLSearchParams({ q, fields: 'files(id,name,createdTime,modifiedTime)', orderBy: 'modifiedTime desc', pageSize: '20' });
-    const response = await this._fetch('https://www.googleapis.com/drive/v3/files?' + params, {
-      headers: { Authorization: 'Bearer ' + this._token }
-    });
-    if (!response.ok) {
-      if (response.status === 401) this._clearTokenOnly();
-      throw new Error('STREAK_LIST_FAILED: ' + response.status);
-    }
-    return (await response.json()).files || [];
+  _studyStateName() {
+    return `japanese_learning_state_${this._getDeviceId().replace(/[^a-zA-Z0-9_-]/g, '')}.json`;
   },
 
-  async _downloadStudyStreakFile(fileId) {
+  async _listStudyStreakFiles() {
+    const folderId = DB.getGDriveFolderId();
+    let q = `(name='${this.STUDY_STREAK_FILE}' or name contains 'japanese_learning_state_') and mimeType='application/json' and trashed=false`;
+    if (folderId) q += ` and '${escapeDriveQuery(folderId)}' in parents`;
+    const files = [];
+    let pageToken = '';
+    do {
+      const params = new URLSearchParams({ q, fields: 'nextPageToken,files(id,name,createdTime,modifiedTime)', orderBy: 'modifiedTime desc', pageSize: '100' });
+      if (pageToken) params.set('pageToken', pageToken);
+      const response = await this._fetch('https://www.googleapis.com/drive/v3/files?' + params, {
+        headers: { Authorization: 'Bearer ' + this._token }
+      });
+      if (!response.ok) {
+        if (response.status === 401) this._clearTokenOnly();
+        throw new Error('STREAK_LIST_FAILED: ' + response.status);
+      }
+      const data = await response.json();
+      files.push(...(data.files || []));
+      pageToken = data.nextPageToken || '';
+    } while (pageToken);
+    return files;
+  },
+
+  async _downloadStudyStreakFile(fileId, ready = async () => {}) {
     const response = await this._fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
       headers: { Authorization: 'Bearer ' + this._token }
     });
@@ -2197,12 +2214,14 @@ const GDrive = {
       if (response.status === 401) this._clearTokenOnly();
       throw new Error('STREAK_DOWNLOAD_FAILED: ' + response.status);
     }
-    const data = await response.json();
+    const raw = await response.text();
+    await ready();
+    const data = JSON.parse(raw);
     if (!data || data.dataType !== 'japanese-learning-state' || !Array.isArray(data.studyDays)) throw new Error('STREAK_FILE_INVALID');
     return data;
   },
 
-  _buildStudyStreakPayload(studyDays, handwritingHistory = KanaProgress.getHistory()) {
+  _buildStudyStreakPayload(studyDays, handwritingHistory = KanaProgress.getHistory(), kanaReadingHistory = KanaReadingProgress.getHistory()) {
     return {
       dataType: 'japanese-learning-state',
       schemaVersion: 1,
@@ -2213,7 +2232,8 @@ const GDrive = {
       updatedAt: new Date().toISOString(),
       studyDays: mergeStudyDays(studyDays),
       handwritingHistory: mergeHandwritingHistory(handwritingHistory),
-      kanaProgress: buildKanaProgress(handwritingHistory)
+      kanaProgress: buildKanaProgress(handwritingHistory),
+      kanaReadingHistory
     };
   },
 
@@ -2221,7 +2241,7 @@ const GDrive = {
     const boundary = 'streak_boundary_' + Date.now();
     const folderId = DB.getGDriveFolderId();
     const metadata = {
-      name: this.STUDY_STREAK_FILE,
+      name: this._studyStateName(),
       mimeType: 'application/json',
       description: 'Japanese PWA cross-device learning state',
       appProperties: { dataType: 'japanese-learning-state' },
@@ -2255,19 +2275,13 @@ const GDrive = {
     return response.json();
   },
 
-  async _readStudyStreakFiles(files) {
-    const days = [];
-    const handwriting = [];
-    const results = await Promise.allSettled(files.map(file => this._downloadStudyStreakFile(file.id)));
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        days.push(...result.value.studyDays);
-        handwriting.push(...(result.value.handwritingHistory || []));
-      } else {
-        console.warn('[GDrive] Ignored unreadable streak file.', files[index]?.id, result.reason?.message || result.reason);
-      }
-    });
-    return { studyDays: mergeStudyDays(days), handwritingHistory: mergeHandwritingHistory(handwriting) };
+  async _readStudyStreakFiles(files, ready = async () => {}) {
+    const results = await Promise.allSettled(files.map(file => this._downloadStudyStreakFile(file.id, ready)));
+    if (results.some(result => result.status === 'rejected')) {
+      throw new Error('部分雲端學習資料暫時無法讀取，已保留原資料，請稍後重試。');
+    }
+    await ready();
+    return mergeLearningStates(...results.map(result => result.value));
   },
 
   async syncStudyStreak(options = {}) {
@@ -2275,46 +2289,51 @@ const GDrive = {
     this._streakSyncPromise = (async () => {
       this._progress(options, '確認 Google 授權…', 10);
       await this.ensureToken(options);
-      let merged = StudyStreak.getDays();
-      let mergedHandwriting = KanaProgress.getHistory();
-      this._progress(options, '讀取跨裝置練習資料…', 30);
-      let files = await this._listStudyStreakFiles();
-
-      // Two union/write/read passes close the normal race where two devices add
-      // different dates at nearly the same time. No side ever overwrites a date
-      // that exists on the other side.
-      for (let pass = 0; pass < 2; pass++) {
-        this._progress(options, pass === 0 ? '合併練習天數…' : '確認雲端資料一致…', pass === 0 ? 45 : 75);
-        const cloudState = await this._readStudyStreakFiles(files);
-        merged = mergeStudyDays(merged, cloudState.studyDays);
-        mergedHandwriting = mergeHandwritingHistory(mergedHandwriting, cloudState.handwritingHistory);
-        const payload = this._buildStudyStreakPayload(merged, mergedHandwriting);
-        if (!files.length) {
-          const created = await this._createStudyStreakFile(payload);
-          files = [{ id: created.id, name: this.STUDY_STREAK_FILE }];
-        } else {
-          await Promise.all(files.map(file => this._updateStudyStreakFile(file.id, payload)));
+      const account = this.getUserEmail();
+      const folder = DB.getGDriveFolderId();
+      const clientId = DB.getGDriveClientId();
+      let ownFile = null;
+      const ready = async () => {
+        while (isPracticeActive(document, Router) || this._restoreInProgress) await new Promise(resolve => setTimeout(resolve, 500));
+        if (!this.hasRememberedSession() || this.getUserEmail() !== account ||
+            DB.getGDriveFolderId() !== folder || DB.getGDriveClientId() !== clientId) {
+          throw new Error('帳戶或資料夾已變更，已停止本次同步。');
         }
-        const verifiedFiles = await this._listStudyStreakFiles();
-        const verifiedState = await this._readStudyStreakFiles(verifiedFiles);
-        const verifiedMerge = mergeStudyDays(merged, verifiedState.studyDays);
-        const verifiedHandwriting = mergeHandwritingHistory(mergedHandwriting, verifiedState.handwritingHistory);
-        files = verifiedFiles;
-        if (JSON.stringify(verifiedMerge) === JSON.stringify(merged) && JSON.stringify(verifiedHandwriting) === JSON.stringify(mergedHandwriting)) break;
-        merged = verifiedMerge;
-        mergedHandwriting = verifiedHandwriting;
-      }
-
-      StudyStreak.replace(merged, { markPending: false });
-      KanaProgress.saveHistory(mergedHandwriting);
-      const syncedAt = new Date().toISOString();
-      StudyStreak.markSynced(syncedAt);
+      };
+      const result = await syncLearningState({
+        ready,
+        readLocal: () => ({ studyDays: StudyStreak.getDays(), handwritingHistory: KanaProgress.getHistory(), kanaReadingHistory: KanaReadingProgress.getHistory() }),
+        writeLocal: state => {
+          StudyStreak.merge(state.studyDays, { markPending: true });
+          KanaProgress.mergeRemote(state.handwritingHistory);
+          KanaReadingProgress.mergeRemote(state.kanaReadingHistory);
+        },
+        readRemote: async () => {
+          this._progress(options, '讀取跨裝置學習資料…', 30);
+          const files = await this._listStudyStreakFiles();
+          ownFile = files.find(file => file.name === this._studyStateName()) || null;
+          return this._readStudyStreakFiles(files, ready);
+        },
+        writeRemote: async state => {
+          this._progress(options, '保存合併後的學習資料…', 65);
+          const payload = this._buildStudyStreakPayload(state.studyDays, state.handwritingHistory, state.kanaReadingHistory);
+          // Each device publishes its own file. Concurrent devices cannot
+          // overwrite each other's answers; legacy shared files remain readable.
+          if (ownFile) await this._updateStudyStreakFile(ownFile.id, payload);
+          else ownFile = await this._createStudyStreakFile(payload);
+        },
+        flush: () => AppStorage.flush(),
+        markPending: () => StudyStreak.markPending(),
+        markSynced: at => StudyStreak.markSynced(at)
+      });
       refreshStudyStreakUI();
-      this._progress(options, '練習天數同步完成', 100);
-      return { studyDays: merged, handwritingHistory: mergedHandwriting, summary: StudyStreak.getSummary(), syncedAt };
+      this._progress(options, result.pending ? '新答案已保留，等待下次同步' : '學習資料同步完成', result.pending ? 90 : 100);
+      if (result.pending) this.scheduleStudyStreakSync(1200);
+      return { ...result, summary: StudyStreak.getSummary() };
     })();
     try { return await this._streakSyncPromise; }
-    finally { this._streakSyncPromise = null; }
+    catch (error) { StudyStreak.markPending(); throw error; }
+    finally { this._streakSyncPromise = null; resumeAppUpdateWhenSafe(); }
   },
 
   scheduleStudyStreakSync(delay = 1200) {
@@ -2341,10 +2360,14 @@ const GDrive = {
   },
 
   async upload(options = {}) {
+    if (this._uploadInProgress) throw new Error('備份正在上傳，請稍候。');
+    this._uploadInProgress = true;
+    try {
     this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
     this._progress(options, '整理本機備份資料…', 30);
     await new Promise(resolve => requestAnimationFrame(() => resolve()));
+    await AppStorage.flush();
     const data     = this._buildPayload();
     const folderId = DB.getGDriveFolderId();
     const ts       = new Date().toISOString().replace(/[:.]/g, '-');
@@ -2381,11 +2404,13 @@ const GDrive = {
     }
     const now = new Date().toLocaleString('zh-TW');
     DB.setGDriveLastSync(now);
+    await AppStorage.flush();
     this._progress(options, '備份上傳完成', 100);
     // The full backup already contains study days. Keep the separate live-state
     // union in the background so it never blocks the user's upload button.
     this.scheduleStudyStreakSync(250);
     return now;
+    } finally { this._uploadInProgress = false; resumeAppUpdateWhenSafe(); }
   },
 
   async listBackups(options = {}) {
@@ -2419,7 +2444,9 @@ const GDrive = {
       if (r.status === 401) { this._clearTokenOnly(); throw new Error('TOKEN_EXPIRED'); }
       throw new Error('DOWNLOAD_FAILED: ' + r.status);
     }
-    const data = await r.json();
+    const raw = await r.text();
+    while (isPracticeActive(document, Router)) await new Promise(resolve => setTimeout(resolve, 500));
+    const data = JSON.parse(raw);
     const validation = BackupSchema.validate(data);
     if (!validation.valid) throw new Error('BACKUP_INVALID_' + validation.reason);
     this._progress(options, '備份下載完成', 100);
@@ -2449,17 +2476,28 @@ const GDrive = {
       return { status: 'safety_blocked', ...comparison, file: latestFile };
     }
 
-    await AppStorage.createRecoverySnapshot(localPayload, 'before-auto-cloud-restore');
-    const syncedAt = this.applyDownload(cloudData, 'overwrite', { skipSnapshot: true });
+    if (isPracticeActive(document, Router) || this._streakSyncPromise) return { status: 'skipped', ...comparison, file: latestFile };
+    const latestComparison = this._comparePayloads(this._buildPayload(), cloudData);
+    if (!latestComparison.cloudIsStrictSuperset) return { status: 'conflict', ...latestComparison, file: latestFile };
+    const syncedAt = await this.applyDownload(cloudData, 'overwrite', { expectedCollections: JSON.stringify(this._buildCollections()) });
     return { status: 'restored', syncedAt, ...comparison, file: latestFile };
   },
 
-  applyDownload(data, mode, options = {}) {
+  async applyDownload(data, mode, options = {}) {
+    if (this._restoreInProgress) throw new Error('已有還原作業進行中，請稍候。');
+    if (this._streakSyncPromise) throw new Error('學習資料正在同步，請完成後再還原。');
     const validation = BackupSchema.validate(data);
     if (!validation.valid) throw new Error('BACKUP_INVALID_' + validation.reason);
+    this._restoreInProgress = true;
+    try {
     const normalized = validation.collections;
     if (!options.skipSnapshot) {
-      AppStorage.createRecoverySnapshot(this._buildPayload(), 'before-manual-cloud-restore').catch(() => {});
+      const snapshot = await AppStorage.createRecoverySnapshot(this._buildPayload(), 'before-manual-cloud-restore');
+      if (!snapshot && mode === 'overwrite') throw new Error('無法建立復原點，已停止覆蓋。請先匯出救援備份。');
+    }
+    if (isPracticeActive(document, Router)) throw new Error('請完成練習後再還原備份。');
+    if (options.expectedCollections && JSON.stringify(this._buildCollections()) !== options.expectedCollections) {
+      throw new Error('等待還原期間本機資料已變更，已停止覆蓋，請重新比較。');
     }
     data = normalized;
     if (mode === 'overwrite') {
@@ -2529,15 +2567,22 @@ const GDrive = {
       StudyStreak.merge(data.studyDays || [], { markPending: true });
     }
     const now = new Date().toLocaleString('zh-TW');
+    await AppStorage.flush();
     DB.setGDriveLastSync(now);
+    await AppStorage.flush();
     refreshStudyStreakUI();
     this.scheduleStudyStreakSync(300);
     return now;
+    } finally { this._restoreInProgress = false; resumeAppUpdateWhenSafe(); }
   }
 };
 
 // ===== UTILITIES =====
-function showToast(msg, duration = 2200) {
+async function showToast(msg, duration = 2200) {
+  if (/已儲存|已還原|已保存/.test(msg)) {
+    try { await AppStorage.flush(); }
+    catch { msg = '資料尚未儲存成功，請重試或先匯出救援備份。'; duration = 4500; }
+  }
   let t = document.getElementById('toast');
   if (!t) { t = document.createElement('div'); t.id='toast'; t.setAttribute('role','status'); t.setAttribute('aria-live','polite'); document.body.appendChild(t); }
   t.textContent = msg; t.classList.add('show');
@@ -3333,7 +3378,7 @@ Views.practice = {
     const ghost = this._ghost;
     if (!wrap || !ghost) return;
 
-    const wordParts = String(word.english || '').split(/\s+/).filter(Boolean);
+    const wordParts = String(word.english || '').split(/\s+/).map(part => this._norm(part)).filter(Boolean);
     const totalLetters = Array.from(this._norm(word.english)).length;
     const GAP = 4;
     const PADDING = 48;
@@ -4000,7 +4045,7 @@ Views.kanaPractice = {
           </main>
         </div>
         <section class="kana-score-panel" id="kana-score-panel" aria-live="polite">
-          <div class="kana-score-placeholder">完成後點選「評分」，系統會顯示筆形與筆順建議。</div>
+          <div class="kana-score-placeholder">完成後點選「評分」，查看筆形與畫數參考；筆順請對照示範動畫。</div>
         </section>
         <div class="kana-session-actions"><button class="btn-primary" id="kana-score-btn">評分</button></div>
       </div>`;
@@ -4056,12 +4101,12 @@ Views.kanaPractice = {
         <div class="kana-score-total"><strong>${result.score}</strong><span>分</span></div>
         <div class="kana-score-details">
           <div><span>筆形</span><b>${result.shape}/40</b></div>
-          <div><span>筆順</span><b>${result.order}/25</b></div>
+          <div><span>畫數</span><b>${result.strokeCountScore}/25</b></div>
           <div><span>方向</span><b>${result.direction}/15</b></div>
           <div><span>起收筆</span><b>${result.endpoints}/10</b></div>
           <div><span>配置</span><b>${result.balance}/10</b></div>
         </div>
-        <p>${result.score >= 80 ? '字形與筆順掌握得很好！' : result.score >= 60 ? '已接近標準，請對照淡藍色筆畫再練一次。' : '建議播放筆順動畫，留意起筆位置與筆畫順序。'}</p>
+        <p>${result.score >= 80 ? '字形與畫數表現良好！筆順請再對照示範確認。' : result.score >= 60 ? '已接近標準，請對照淡藍色筆畫再練一次。' : '建議播放筆順動畫，留意起筆位置與筆畫順序。'}</p>
       </div>`;
     const isLast = this.state.index + 1 >= this.state.items.length;
     button.textContent = isLast ? '查看練習結果' : '下一個假名';
@@ -6730,6 +6775,18 @@ Views.settings = {
       <div class="section-header"><h1 class="section-title">設定</h1></div>
       <div class="settings-wrap">
 
+        <section class="settings-card storage-status-card" aria-label="資料保存狀態">
+          <strong>資料保存</strong>
+          <p data-storage-summary role="status" aria-live="polite"></p>
+          <div class="storage-status-actions">
+            <button type="button" data-storage-action="retry">重試儲存</button>
+            <button type="button" data-storage-action="export">匯出救援備份</button>
+            <button type="button" data-storage-action="import">匯入救援備份</button>
+          </div>
+          <input type="file" id="storage-recovery-file" accept=".json,application/json" hidden>
+          <p id="storage-operation-message" role="status" aria-live="polite"></p>
+        </section>
+
         <!-- ★ 1. Google Drive 同步狀態（最上方） -->
         <div class="settings-section-label" style="margin-top:0">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -7130,7 +7187,7 @@ Views.settings = {
             </div>
             <div class="kana-row-summary" id="daily-learning-row-summary">目前選擇：${escapeHTML(selectedLearningRowLabel(dailyLearningPreferences.rows))}</div>
           </div>
-          <div class="settings-tip" style="margin-bottom:0">「單字庫」保留原本從資料庫抽字並生成例句的方式；「依等級學習」每天依 JLPT 等級與所選五十音行推薦 5 個單字，包含假名、羅馬拼音、詞性及中文。</div>
+          <div class="settings-tip" style="margin-bottom:0">「單字庫」保留原本從資料庫抽字並生成例句的方式；「依等級學習」每天依 JLPT 等級與所選五十音行推薦 1 個單字，包含假名、羅馬拼音、詞性及中文。</div>
         </div>
 
         <!-- 8. Gemini API 金鑰設定 -->
@@ -7675,6 +7732,7 @@ Views.settings = {
     };
     const driveProgress = ({ message, percent }) => setDriveOperation(message, percent, percent >= 100 ? 'done' : 'busy');
 
+    StorageUI?.render();
     // ── Google Drive 設定儲存 ──
     document.getElementById('gd-save-cfg-btn')?.addEventListener('click', () => {
       const cid = document.getElementById('gd-client-id-input').value.trim();
@@ -7813,11 +7871,16 @@ Views.settings = {
                 const title = document.querySelector('#modal-content .modal-title');
                 if (title) title.textContent = '正在還原備份…';
                 await new Promise(resolve => requestAnimationFrame(() => resolve()));
-                GDrive.applyDownload(data, mode);
-                await AppStorage.flush();
-                Modal.hide();
-                showToast('✓ 備份已還原至本機');
-                this.render(container);
+                try {
+                  await GDrive.applyDownload(data, mode);
+                  Modal.hide();
+                  showToast('✓ 備份已還原至本機');
+                  this.render(container);
+                } catch (error) {
+                  if (title) title.textContent = '還原未完成';
+                  showToast(error.message, 4500);
+                  buttons.forEach(button => { button.disabled = false; });
+                }
               };
               document.getElementById('gd-dl-overwrite').addEventListener('click', () => apply('overwrite'));
               document.getElementById('gd-dl-merge').addEventListener('click',     () => apply('merge'));
@@ -7864,13 +7927,19 @@ Views.settings = {
         <button class="modal-btn-cancel" id="recovery-close" style="width:100%;margin-top:10px">取消</button>`);
       document.getElementById('recovery-close')?.addEventListener('click', () => Modal.hide());
       document.querySelectorAll('.local-recovery-item').forEach(button => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', async () => {
           const item = snapshots.find(snapshot => snapshot.id === button.dataset.snapshotId);
           if (!item) return;
-          GDrive.applyDownload(item.payload, 'overwrite');
-          Modal.hide();
-          showToast('✓ 已還原本機復原點');
-          this.render(container);
+          button.disabled = true;
+          try {
+            await GDrive.applyDownload(item.payload, 'overwrite');
+            Modal.hide();
+            showToast('✓ 已還原本機復原點');
+            this.render(container);
+          } catch (error) {
+            showToast(error.message, 4500);
+            button.disabled = false;
+          }
         });
       });
     });
@@ -7910,6 +7979,16 @@ Views.settings = {
 // ===========================
 document.addEventListener('DOMContentLoaded', async () => {
   await AppStorage.init();
+  StorageUI = mountStorageStatus({
+    storage: AppStorage,
+    cloudState: () => StudyStreak.getSyncState(),
+    exportPayload: () => GDrive._buildPayload(),
+    restorePayload: async payload => {
+      await GDrive.applyDownload(payload, 'merge');
+      await AppStorage.flush();
+    },
+    onSafe: resumeAppUpdateWhenSafe
+  });
   StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true });
   // Service Worker registration may touch the network on iOS. It must not delay
   // the first render or make app entry look like it is waiting for Google login.
@@ -8039,7 +8118,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (document.visibilityState === 'hidden') {
       Views.practice?._persistPendingSession?.();
       Views.practice?._flushWrongCounts?.();
-      AppStorage.flush();
+      void AppStorage.flush().catch(() => {});
     }
   });
 });

@@ -156,13 +156,13 @@ export function computeStudyStreak(days, { now = new Date(), timeZone = getCurre
   };
 }
 
-function migrationEvent(type, date, suffix = '') {
-  const normalizedDate = dateKeyFor(date);
+function migrationEvent(type, date, suffix = '', timeZone = getCurrentTimeZone()) {
+  const normalizedDate = dateKeyFor(date, timeZone);
   if (!normalizedDate) return null;
   const stamp = `${normalizedDate}T12:00:00.000Z`;
   return {
     date: normalizedDate,
-    timezone: getCurrentTimeZone(),
+    timezone: timeZone,
     activities: [type],
     eventIds: [`legacy:${type}:${normalizedDate}${suffix ? `:${suffix}` : ''}`],
     sessionCount: 1,
@@ -171,37 +171,37 @@ function migrationEvent(type, date, suffix = '') {
   };
 }
 
-export function deriveStudyDays({ history = [], readingQuizHistory = [], essayHistory = [], aiAskHistory = [], handwritingHistory = [], kanaReadingHistory = [] } = {}) {
+export function deriveStudyDays({ history = [], readingQuizHistory = [], essayHistory = [], aiAskHistory = [], handwritingHistory = [], kanaReadingHistory = [] } = {}, { timeZone = getCurrentTimeZone() } = {}) {
   const derived = [];
   safeArray(history).forEach((entry, index) => {
-    const day = migrationEvent(STUDY_ACTIVITY_TYPES.WORD_QUIZ, entry?.date, String(entry?.id || index));
+    const day = migrationEvent(STUDY_ACTIVITY_TYPES.WORD_QUIZ, entry?.date, String(entry?.id || index), timeZone);
     if (day && Number(entry?.total || 0) > 0) derived.push(day);
   });
   safeArray(readingQuizHistory).forEach((group, groupIndex) => {
     safeArray(group?.sessions).forEach((session, index) => {
-      const day = migrationEvent(STUDY_ACTIVITY_TYPES.READING_QUIZ, group?.date || session?.ts, String(session?.id || session?.ts || `${groupIndex}-${index}`));
+      const day = migrationEvent(STUDY_ACTIVITY_TYPES.READING_QUIZ, group?.date || session?.ts, String(session?.id || session?.ts || `${groupIndex}-${index}`), timeZone);
       if (day) derived.push(day);
     });
   });
   safeArray(essayHistory).forEach((group, groupIndex) => {
     safeArray(group?.sessions).forEach((session, index) => {
-      const day = migrationEvent(STUDY_ACTIVITY_TYPES.ESSAY_REVIEW, group?.date || session?.ts, String(session?.id || session?.ts || `${groupIndex}-${index}`));
+      const day = migrationEvent(STUDY_ACTIVITY_TYPES.ESSAY_REVIEW, group?.date || session?.ts, String(session?.id || session?.ts || `${groupIndex}-${index}`), timeZone);
       if (day) derived.push(day);
     });
   });
   safeArray(aiAskHistory).forEach((entry, index) => {
     const suffix = `${entry?.id || 'entry'}-${entry?.ts || index}`;
-    const day = migrationEvent(STUDY_ACTIVITY_TYPES.AI_ASK, entry?.ts || entry?.date, suffix);
+    const day = migrationEvent(STUDY_ACTIVITY_TYPES.AI_ASK, entry?.ts || entry?.date, suffix, timeZone);
     if (day) derived.push(day);
   });
   safeArray(handwritingHistory).forEach((entry, index) => {
     const suffix = `${entry?.id || 'kana'}-${entry?.ts || index}`;
-    const day = migrationEvent(STUDY_ACTIVITY_TYPES.KANA_HANDWRITING, entry?.ts || entry?.date, suffix);
+    const day = migrationEvent(STUDY_ACTIVITY_TYPES.KANA_HANDWRITING, entry?.ts || entry?.date, suffix, timeZone);
     if (day) derived.push(day);
   });
   safeArray(kanaReadingHistory).forEach((entry, index) => {
     const suffix = `${entry?.id || 'kana-reading'}-${entry?.ts || index}`;
-    const day = migrationEvent(STUDY_ACTIVITY_TYPES.KANA_READING, entry?.ts || entry?.date, suffix);
+    const day = migrationEvent(STUDY_ACTIVITY_TYPES.KANA_READING, entry?.ts || entry?.date, suffix, timeZone);
     if (day) derived.push(day);
   });
   return mergeStudyDays(derived);

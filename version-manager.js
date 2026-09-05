@@ -35,8 +35,8 @@ export class VersionManager {
   }
 
   async _flushStorage() {
-    try { await this.storage?.flush?.(); }
-    catch {}
+    try { await this.storage?.flush?.(); return true; }
+    catch { return false; }
   }
 
   _watchInstalling(worker) {
@@ -49,7 +49,7 @@ export class VersionManager {
 
   async activateWaitingIfSafe(worker = this.registration?.waiting) {
     if (!worker || !this._isSafeToActivate()) return false;
-    await this._flushStorage();
+    if (!(await this._flushStorage())) return false;
     if (!this._isSafeToActivate()) return false;
     worker.postMessage({ type: 'SKIP_WAITING' });
     return true;
@@ -57,7 +57,7 @@ export class VersionManager {
 
   async reloadIfSafe() {
     if (!this.reloadPending || this.reloadTriggered || !this._isSafeToActivate()) return false;
-    await this._flushStorage();
+    if (!(await this._flushStorage())) return false;
     if (!this._isSafeToActivate()) return false;
     this.reloadPending = false;
     this.reloadTriggered = true;
@@ -118,7 +118,7 @@ export class VersionManager {
   async applyUpdate() {
     if (!('serviceWorker' in navigator)) {
       if (!this._isSafeToActivate()) return false;
-      await this._flushStorage();
+      if (!(await this._flushStorage())) return false;
       if (!this._isSafeToActivate()) return false;
       await this.clearAppCaches();
       if (!this._isSafeToActivate()) return false;
@@ -128,7 +128,7 @@ export class VersionManager {
     const reg = this.registration || await navigator.serviceWorker.getRegistration('./') || await this.register();
     if (!reg) {
       if (!this._isSafeToActivate()) return false;
-      await this._flushStorage();
+      if (!(await this._flushStorage())) return false;
       if (!this._isSafeToActivate()) return false;
       await this.clearAppCaches();
       if (!this._isSafeToActivate()) return false;
@@ -154,7 +154,7 @@ export class VersionManager {
     if (reg.active) return false;
 
     if (!this._isSafeToActivate()) return false;
-    await this._flushStorage();
+    if (!(await this._flushStorage())) return false;
     if (!this._isSafeToActivate()) return false;
     await this.clearAppCaches();
     if (!this._isSafeToActivate()) return false;

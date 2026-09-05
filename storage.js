@@ -12,6 +12,7 @@ const INDEXED_KEYS = new Set([
   'essayHistory',
   'aiAskHistory',
   'handwritingHistory',
+  'kanaReadingHistory',
   'studyActivityDays',
   'sentenceLog',
   'importedSentences',
@@ -20,12 +21,17 @@ const INDEXED_KEYS = new Set([
   'geminiApiKey'
 ]);
 
-class StorageBridge {
+export class StorageBridge {
   constructor() {
     this.cache = new Map();
     this.db = null;
     this.ready = false;
     this.pending = new Set();
+    this.failures = new Map();
+    this.revisions = new Map();
+    this.deletedKeys = new Set();
+    this.revision = 0;
+    this.statusQueued = false;
     this.fallback = false;
 
     try {
@@ -60,8 +66,8 @@ class StorageBridge {
       this._localRemove('gdriveToken');
       this._localRemove('gdriveExpiry');
       try { sessionStorage.removeItem('gdriveToken'); sessionStorage.removeItem('gdriveExpiry'); } catch {}
-      this._localSet('storageSchemaVersion', '1');
-      this._localSet('storageMigratedAt', new Date().toISOString());
+      this.setItem('storageSchemaVersion', '1');
+      this.setItem('storageMigratedAt', new Date().toISOString());
       this.ready = true;
       return this.getStatus();
     } catch (error) {
@@ -76,11 +82,15 @@ class StorageBridge {
     return {
       ready: this.ready,
       mode: this.db && !this.fallback ? 'indexeddb' : 'localstorage-fallback',
-      schemaVersion: 1
+      schemaVersion: 1,
+      saveState: this.failures.size ? 'error' : this.pending.size ? 'saving' : 'saved',
+      failedKeys: [...this.failures.keys()],
+      pendingWrites: this.pending.size
     };
   }
 
   getItem(key) {
+    if (this.deletedKeys.has(key)) return null;
     if (this.cache.has(key)) return this.cache.get(key);
     const value = this._localGet(key);
     if (value !== null) this.cache.set(key, value);
@@ -90,41 +100,84 @@ class StorageBridge {
   setItem(key, value) {
     const stringValue = String(value);
     this.cache.set(key, stringValue);
-    if (INDEXED_KEYS.has(key) && this.db && !this.fallback) {
-      this._queue(this._putRecord(key, stringValue));
-      this._localRemove(key);
-      return;
-    }
-    this._localSet(key, stringValue);
+    this.deletedKeys.delete(key);
+    this._persist(key, stringValue);
   }
 
   removeItem(key) {
     this.cache.delete(key);
-    this._localRemove(key);
+    this.deletedKeys.add(key);
+    this._persist(key, null);
+  }
+
+  _persist(key, value) {
+    const revision = ++this.revision;
+    this.revisions.set(key, revision);
     if (INDEXED_KEYS.has(key) && this.db && !this.fallback) {
-      this._queue(this._deleteRecord(key));
+      const write = value === null ? this._deleteRecord(key) : this._putRecord(key, value);
+      this._queue(write, key, revision, () => {
+        if (value === null) localStorage.removeItem(LOCAL_PREFIX + key);
+        else this._localRemove(key);
+      });
+    } else {
+      try {
+        if (value === null) localStorage.removeItem(LOCAL_PREFIX + key);
+        else this._localSet(key, value);
+        this.failures.delete(key);
+      } catch (error) {
+        this.failures.set(key, error);
+      }
+      this._notifyStatus();
     }
   }
 
+  _notifyStatus() {
+    if (this.statusQueued) return;
+    this.statusQueued = true;
+    queueMicrotask(() => {
+      this.statusQueued = false;
+      if (typeof globalThis.window?.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+        window.dispatchEvent(new CustomEvent('app-storage-status', { detail: this.getStatus() }));
+      }
+    });
+  }
+
   clear() {
-    this.cache.clear();
+    const keys = new Set([...this.cache.keys(), ...INDEXED_KEYS]);
     try {
-      const keys = [];
       for (let index = 0; index < localStorage.length; index++) {
         const key = localStorage.key(index);
-        if (key?.startsWith(LOCAL_PREFIX)) keys.push(key);
+        if (key?.startsWith(LOCAL_PREFIX)) keys.add(key.slice(LOCAL_PREFIX.length));
       }
-      keys.forEach(key => localStorage.removeItem(key));
     } catch {}
+    keys.forEach(key => this.removeItem(key));
     if (this.db && !this.fallback) {
-      const tx = this.db.transaction([KV_STORE, SNAPSHOT_STORE], 'readwrite');
-      tx.objectStore(KV_STORE).clear();
-      tx.objectStore(SNAPSHOT_STORE).clear();
+      this._queue(new Promise((resolve, reject) => {
+        const tx = this.db.transaction(SNAPSHOT_STORE, 'readwrite');
+        tx.objectStore(SNAPSHOT_STORE).clear();
+        tx.oncomplete = resolve;
+        tx.onerror = tx.onabort = () => reject(tx.error);
+      }), 'recoverySnapshots', 0);
     }
   }
 
   async flush() {
-    await Promise.allSettled([...this.pending]);
+    while (this.pending.size) await Promise.all([...this.pending]);
+    if (this.failures.size) {
+      const error = new Error('資料尚未完整儲存，請重試或先匯出備份，暫勿關閉程式。');
+      error.code = 'STORAGE_WRITE_FAILED';
+      error.failedKeys = [...this.failures.keys()];
+      throw error;
+    }
+  }
+
+  async retryFailedWrites() {
+    for (const key of [...this.failures.keys()]) {
+      if (key === 'recoverySnapshots') continue;
+      this._persist(key, this.deletedKeys.has(key) ? null : this.cache.get(key));
+    }
+    await this.flush();
+    return this.getStatus();
   }
 
   async createRecoverySnapshot(payload, reason = 'manual') {
@@ -157,9 +210,22 @@ class StorageBridge {
     });
   }
 
-  _queue(promise) {
-    this.pending.add(promise);
-    promise.finally(() => this.pending.delete(promise));
+  _queue(promise, key, revision, onSuccess) {
+    const current = () => key === 'recoverySnapshots' || this.revisions.get(key) === revision;
+    // Handle the rejection here so fire-and-forget callers never lose an error
+    // or create an unhandled rejected .finally() promise. flush() reports it.
+    const tracked = Promise.resolve(promise).then(() => {
+      if (!current()) return;
+      onSuccess?.();
+      this.failures.delete(key);
+    }).catch(error => {
+      if (current()) this.failures.set(key, error);
+    }).finally(() => {
+      this.pending.delete(tracked);
+      this._notifyStatus();
+    });
+    this.pending.add(tracked);
+    this._notifyStatus();
   }
 
   _open() {
@@ -207,7 +273,7 @@ class StorageBridge {
         if (key) this.setItem('geminiApiKey', key);
       } catch {}
     }
-    this._localSet('compatibleSettingsChecked', '1');
+    this.setItem('compatibleSettingsChecked', '1');
   }
 
   _getRecord(key) {
@@ -257,7 +323,7 @@ class StorageBridge {
   }
 
   _localSet(key, value) {
-    try { localStorage.setItem(LOCAL_PREFIX + key, value); } catch {}
+    localStorage.setItem(LOCAL_PREFIX + key, value);
   }
 
   _localRemove(key) {

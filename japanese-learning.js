@@ -31,7 +31,7 @@ export function toKatakana(value) {
 export function normalizeJapaneseAnswer(value, { kanaOnly = false } = {}) {
   let normalized = String(value || '')
     .normalize('NFKC')
-    .replace(/[\s　・、。,.!?！？「」『』（）()\-ー]/g, '')
+    .replace(/[\s　・、。,.!?！？「」『』（）()\-]/g, '')
     .trim();
   if (kanaOnly) normalized = toHiragana(normalized);
   return normalized;

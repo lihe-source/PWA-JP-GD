@@ -85,7 +85,7 @@ test('histories migrate all six qualifying activity types', () => {
     aiAskHistory: [{ id: 'a1', ts: Date.parse('2026-08-04T05:00:00.000Z') }],
     handwritingHistory: [{ id: 'h1', character: 'あ', ts: Date.parse('2026-08-05T05:00:00.000Z') }],
     kanaReadingHistory: [{ id: 'k1', character: 'ア', ts: Date.parse('2026-08-06T05:00:00.000Z') }]
-  });
+  }, { timeZone: 'Asia/Taipei' });
   assert.equal(migrated.length, 6);
   assert.deepEqual(migrated.flatMap(day => day.activities).sort(), ['ai_ask', 'essay_review', 'kana_handwriting', 'kana_reading', 'reading_quiz', 'word_quiz']);
 });

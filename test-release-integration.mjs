@@ -4,17 +4,17 @@ import { readFile } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-test('all public app surfaces use Japanese V1.2.13', async () => {
+test('all public app surfaces use Japanese V1.2.14', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_2_13'/);
-  assert.match(html, /app\.js\?v=V1_2_13/);
-  assert.match(sw, /Japanese-PWA-V1_2_13/);
+  assert.match(app, /APP_VERSION = 'V1_2_14'/);
+  assert.match(html, /app\.js\?v=V1_2_14/);
+  assert.match(sw, /Japanese-PWA-V1_2_14/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.2\.13/);
-  assert.equal(JSON.parse(pkg).version, '1.2.13');
+  assert.match(JSON.parse(manifest).name, /V1\.2\.14/);
+  assert.equal(JSON.parse(pkg).version, '1.2.14');
 });
 
 test('kana reading keeps one input focused and uses audible iOS playback feedback', async () => {
@@ -52,7 +52,7 @@ test('all six practice modes share the compact setup layout', async () => {
   assert.match(style, /\.reading-practice-page \.reading-rule-grid \{ grid-template-columns: repeat\(4/);
 });
 
-test('V1.2.13 keeps Apple subscription repair and provider errors', async () => {
+test('V1.2.14 keeps Apple subscription repair and provider errors', async () => {
   const [manager, worker] = await Promise.all([text('reminder-manager.js'), text('worker.js')]);
   assert.match(manager, /forceRenew/);
   assert.match(manager, /SUBSCRIPTION_INVALID/);
@@ -168,7 +168,7 @@ test('all six completed practice paths qualify as study activity', async () => {
   }
 });
 
-test('V1.2.13 adds kana-to-romaji practice under handwriting with statistics', async () => {
+test('V1.2.14 adds kana-to-romaji practice under handwriting with statistics', async () => {
   const [app, style, module, backup] = await Promise.all([
     text('app.js'), text('style.css'), text('kana-reading.js'), text('backup-schema.js')
   ]);
@@ -184,11 +184,11 @@ test('V1.2.13 adds kana-to-romaji practice under handwriting with statistics', a
   assert.match(backup, /kanaReadingHistory/);
 });
 
-test('V1.2.13 recommends one daily word and stores its sentence practice', async () => {
+test('V1.2.14 recommends one daily word and stores its sentence practice', async () => {
   const [app, style, module, sw] = await Promise.all([
     text('app.js'), text('style.css'), text('daily-learning.js'), text('sw.js')
   ]);
-  assert.match(app, /daily-learning\.js\?v=V1_2_13/);
+  assert.match(app, /daily-learning\.js\?v=V1_2_14/);
   assert.match(app, /id="daily-learning-source-select"/);
   assert.match(app, /data-learning-row=/);
   assert.match(app, /generateDailyVocabulary/);
@@ -201,7 +201,20 @@ test('V1.2.13 recommends one daily word and stores its sentence practice', async
   assert.match(module, /kanaToRomaji/);
   assert.match(module, /readingMatchesRows/);
   assert.match(style, /\.daily-vocab-grid/);
-  assert.match(sw, /daily-learning\.js\?v=V1_2_13/);
+  assert.match(sw, /daily-learning\.js\?v=V1_2_14/);
+});
+
+test('data save controls are the final settings section', async () => {
+  const app = await text('app.js');
+  const settingsStart = app.indexOf('Views.settings = {');
+  const settingsEnd = app.indexOf('// ===========================\n// INIT', settingsStart);
+  const settings = app.slice(settingsStart, settingsEnd);
+  const storage = settings.indexOf('<!-- 資料保存（設定頁最下方） -->');
+  const sound = settings.indexOf('<!-- 8. 音效測試 -->');
+  const closingSpacer = settings.indexOf('<div style="height:12px"></div>', storage);
+  assert.ok(storage > sound, '資料保存應位於音效測試之後');
+  assert.ok(closingSpacer > storage, '資料保存後只能保留底部安全間距');
+  assert.equal((settings.match(/aria-label="資料保存狀態"/g) || []).length, 1);
 });
 
 test('backup and Drive sync include study days, handwriting and practice choices', async () => {

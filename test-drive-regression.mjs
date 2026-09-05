@@ -13,7 +13,7 @@ function makeDrive() {
   const writes = [];
   const ctx = {
     URLSearchParams, Response, mergeLearningStates, escapeDriveQuery, normalizeJapaneseWord,
-    APP_DISPLAY_VERSION: 'V1.2.13', isPracticeActive: () => false, document: {}, Router: {},
+    APP_DISPLAY_VERSION: 'V1.2.14', isPracticeActive: () => false, document: {}, Router: {},
     resumeAppUpdateWhenSafe() {}, refreshStudyStreakUI() {},
     DB: { getGDriveFolderId: () => "folder'one", setGDriveLastSync(value) { writes.push(['synced', value]); } },
     StudyStreak: { replace(value) { writes.push(['days', value]); } },

@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_2_13';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_2_13';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_2_13';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_2_14';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_2_14';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_2_14';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_2_13';
-import { BackupSchema } from './backup-schema.js?v=V1_2_13';
-import { VersionManager } from './version-manager.js?v=V1_2_13';
-import { TrendChart } from './chart-renderer.js?v=V1_2_13';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_13';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_13';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_13';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_13';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_13';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_13';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_13';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_13';
+import { AppStorage } from './storage.js?v=V1_2_14';
+import { BackupSchema } from './backup-schema.js?v=V1_2_14';
+import { VersionManager } from './version-manager.js?v=V1_2_14';
+import { TrendChart } from './chart-renderer.js?v=V1_2_14';
+import { PUSH_CONFIG } from './push-config.js?v=V1_2_14';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_14';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_14';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_14';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_14';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_14';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_14';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_14';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_13
-// V1.2.13：五十音手寫批次路徑與練習期間雲端同步隔離
+// 日本語練習 PWA - app.js V1_2_14
+// V1.2.14：設定頁資料保存區塊移至頁面最下方
 // ===========================
 
-const APP_VERSION = 'V1_2_13';
-const APP_DISPLAY_VERSION = 'V1.2.13';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_13';
+const APP_VERSION = 'V1_2_14';
+const APP_DISPLAY_VERSION = 'V1.2.14';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_14';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -6775,18 +6775,6 @@ Views.settings = {
       <div class="section-header"><h1 class="section-title">設定</h1></div>
       <div class="settings-wrap">
 
-        <section class="settings-card storage-status-card" aria-label="資料保存狀態">
-          <strong>資料保存</strong>
-          <p data-storage-summary role="status" aria-live="polite"></p>
-          <div class="storage-status-actions">
-            <button type="button" data-storage-action="retry">重試儲存</button>
-            <button type="button" data-storage-action="export">匯出救援備份</button>
-            <button type="button" data-storage-action="import">匯入救援備份</button>
-          </div>
-          <input type="file" id="storage-recovery-file" accept=".json,application/json" hidden>
-          <p id="storage-operation-message" role="status" aria-live="polite"></p>
-        </section>
-
         <!-- ★ 1. Google Drive 同步狀態（最上方） -->
         <div class="settings-section-label" style="margin-top:0">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -7275,7 +7263,7 @@ Views.settings = {
           <div id="update-status" style="font-size:12px;color:var(--text-muted);min-height:16px"></div>
         </div>
 
-        <!-- 8. 音效測試（設定頁最下方） -->
+        <!-- 8. 音效測試 -->
         <div class="settings-section-label" style="margin-top:16px">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
           音效測試
@@ -7291,6 +7279,19 @@ Views.settings = {
           </div>
           <div class="settings-tip sound-test-tip">請先將 iPhone 的媒體音量調高，再逐一點擊測試。iOS 會自動切換為 playback 音訊工作階段，避免靜音模式關閉學習提示音。</div>
         </div>
+
+        <!-- 資料保存（設定頁最下方） -->
+        <section class="settings-card storage-status-card" aria-label="資料保存狀態" style="margin-top:16px">
+          <strong>資料保存</strong>
+          <p data-storage-summary role="status" aria-live="polite"></p>
+          <div class="storage-status-actions">
+            <button type="button" data-storage-action="retry">重試儲存</button>
+            <button type="button" data-storage-action="export">匯出救援備份</button>
+            <button type="button" data-storage-action="import">匯入救援備份</button>
+          </div>
+          <input type="file" id="storage-recovery-file" accept=".json,application/json" hidden>
+          <p id="storage-operation-message" role="status" aria-live="polite"></p>
+        </section>
 
         <div style="height:12px"></div>
       </div>

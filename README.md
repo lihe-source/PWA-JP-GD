@@ -1,10 +1,10 @@
-# PWA Japanese GD V1.2.13
+# PWA Japanese GD V1.2.14
 
 以繁體中文操作的日文學習 PWA，可直接部署到 GitHub Pages。保留原英文版的語彙、測驗、閱讀、寫作、Gemini AI、統計、Google Drive 備份、連續練習天數與每日 Web Push 提醒，並新增適合 iPad Air 11 吋與 Apple Pencil 的五十音手寫練習。
 
 ZIP 內只有一個同名資料夾，所有程式檔案都在該資料夾同一層；上傳內部檔案到 GitHub Repository 根目錄即可。
 
-既有使用者請先閱讀 `UPDATE_V1_2_13.md`。本版重點為同步資料保護、儲存錯誤處理、手寫中斷恢復、長音判定及安全更新；詳細驗證範圍見 `QA_V1_2_13.md`。
+既有使用者請先閱讀 `UPDATE_V1_2_14.md`。本版將「資料保存」移到設定頁最下方，原有的同步、救援備份與安全更新功能維持不變；詳細驗證範圍見 `QA_V1_2_14.md`。
 
 ## 主要功能
 
@@ -58,7 +58,7 @@ OAuth Client ID 可以與英文版共用，因兩個 GitHub Pages 專案位於�
 6. 依 `SETUP_PUSH_NOTIFICATIONS.md` 部署 Cloudflare Worker，才能在 PWA 關閉後於指定時間通知。
 7. iPhone／iPad 以 Safari 開啟網站，加入主畫面後再從圖示啟動。
 
-手機上傳的逐步畫面路徑請見 `MOBILE_UPLOAD_GUIDE.md`；系統架構與資料隔離請見 `ARCHITECTURE_V1_2_13.md`；本版變更請見 `CHANGELOG_V1_2_13.md`。
+手機上傳的逐步畫面路徑請見 `MOBILE_UPLOAD_GUIDE.md`；系統架構與資料隔離請見 `ARCHITECTURE_V1_2_13.md`；本版變更請見 `CHANGELOG_V1_2_14.md`。
 
 ## 重要檔案
 

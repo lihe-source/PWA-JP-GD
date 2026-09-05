@@ -192,7 +192,7 @@ test('updates require durable storage and no running cloud operation', () => {
 test('failed flush prevents worker activation and reload; retry succeeds when safe', async () => {
   let fail = true, messages = 0, reloads = 0;
   globalThis.location = { reload() { reloads++; } };
-  const updater = new VersionManager({ currentVersion: 'V1_2_13', storage: { async flush() { if (fail) throw new Error('quota'); } } });
+  const updater = new VersionManager({ currentVersion: 'V1_2_14', storage: { async flush() { if (fail) throw new Error('quota'); } } });
   updater.registration = { waiting: { postMessage() { messages++; } } };
   updater.reloadPending = true;
   assert.equal(await updater.activateWaitingIfSafe(), false);
@@ -206,7 +206,7 @@ test('failed flush prevents worker activation and reload; retry succeeds when sa
 
 test('starting a practice while flush is pending cancels activation', async () => {
   let active = false, activated = false;
-  const updater = new VersionManager({ currentVersion: 'V1_2_13', canActivate: () => !active, storage: { async flush() { active = true; } } });
+  const updater = new VersionManager({ currentVersion: 'V1_2_14', canActivate: () => !active, storage: { async flush() { active = true; } } });
   assert.equal(await updater.activateWaitingIfSafe({ postMessage() { activated = true; } }), false);
   assert.equal(activated, false);
 });

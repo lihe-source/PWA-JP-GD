@@ -1,4 +1,4 @@
-# 日文練習架構 · V1.3.0
+# 日文練習架構 · V1.3.1
 
 ## 部署結構
 
@@ -42,6 +42,7 @@ GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google D
 
 ### 手寫操作
 
+- App 外框以 fixed + inset: 0 貼齊視窗，不混用 100dvh；頂部安全區僅由 App padding 處理。手機導覽 height／flex-basis 均為 auto，底部安全區只進入導覽 padding 一次，view-container 保留 flex: 1 與 min-height: 0。離線提示仍使用既有頂部預留空間。
 - iPhone：session 為固定可用高度的 flex 容器；header 與 action 為不可壓縮列，只有 session-body 可捲動。評分前後使用同一操作列，不切換 sticky／floating 定位。
 - iPad：data-layout=tablet 且寬度至少 760px 時，session 使用 grid；reference 在左上，score 在左下，canvas 在右側，action 在右下。
 - 畫布外層為 size container，內部寬高同為 min(100cqw,100cqh)，維持實際正方形，不以 object-fit 製造視覺與輸入座標的差異。
@@ -66,7 +67,7 @@ GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google D
 
 ## 更新與相容性
 
-使用新 V1_3_0 版本參數與獨立快取名稱；sw.js 仍完整預載前端依賴。開啟時檢查 version.json；先保存資料，再於非練習／非雲端作業狀態啟用及重載。設定頁保留目前版本、最新版本與手動檢查。
+使用新 V1_3_1 版本參數與獨立快取名稱；sw.js 仍完整預載前端依賴。開啟時檢查 version.json；先保存資料，再於非練習／非雲端作業狀態啟用及重載。設定頁保留目前版本、最新版本與手動檢查。
 
 Cloudflare 只更新 SERVICE_VERSION，API 與資料表不變。舊 Worker 可繼續服務；不用 db:init，不用換 VAPID。README 包含完整部署與排除方式。
 

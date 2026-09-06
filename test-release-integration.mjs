@@ -4,6 +4,19 @@ import { readFile } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
+test('viewport shell and navigation reserve only their intrinsic height and one bottom inset', async () => {
+  const style = await text('style.css');
+  const design = style.slice(style.indexOf('/* ===== V1.3.1 藍墨'));
+  assert.match(design, /#app \{ position: fixed; inset: 0; height: auto; min-height: 0; \}/);
+  const nav = design.match(/#bottom-nav\s*\{([^}]+)\}/)[1];
+  assert.match(nav, /flex: 0 0 auto/);
+  assert.match(nav, /height: auto; min-height: 0/);
+  assert.equal((nav.match(/var\(--safe-bottom\)/g) || []).length, 1);
+  assert.doesNotMatch(nav, /var\(--nav-height\)/);
+  assert.match(design, /#view-container \{ min-height: 0; padding-bottom: 16px/);
+  assert.match(design, /@media \(min-width: 900px\)[\s\S]*#bottom-nav \{ position: fixed/);
+});
+
 test('blue ink home uses real history, recommendation and both kana shortcuts', async () => {
   const [app, html] = await Promise.all([text('app.js'), text('index.html')]);
   assert.match(app, /StudyStreak\.getDays\(\)\.map\(day => day\.date\)/);
@@ -18,17 +31,17 @@ test('blue ink home uses real history, recommendation and both kana shortcuts', 
   assert.doesNotMatch(html, /user-scalable=no/);
 });
 
-test('all public app surfaces use Japanese V1.3.0', async () => {
+test('all public app surfaces use Japanese V1.3.1', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_3_0'/);
-  assert.match(html, /app\.js\?v=V1_3_0/);
-  assert.match(sw, /Japanese-PWA-V1_3_0/);
+  assert.match(app, /APP_VERSION = 'V1_3_1'/);
+  assert.match(html, /app\.js\?v=V1_3_1/);
+  assert.match(sw, /Japanese-PWA-V1_3_1/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.3\.0/);
-  assert.equal(JSON.parse(pkg).version, '1.3.0');
+  assert.match(JSON.parse(manifest).name, /V1\.3\.1/);
+  assert.equal(JSON.parse(pkg).version, '1.3.1');
 });
 
 test('kana reading keeps one input focused and uses audible iOS playback feedback', async () => {
@@ -66,7 +79,7 @@ test('all six practice modes share the compact setup layout', async () => {
   assert.match(style, /\.reading-practice-page \.reading-rule-grid \{ grid-template-columns: repeat\(4/);
 });
 
-test('V1.3.0 keeps Apple subscription repair and provider errors', async () => {
+test('V1.3.1 keeps Apple subscription repair and provider errors', async () => {
   const [manager, worker] = await Promise.all([text('reminder-manager.js'), text('worker.js')]);
   assert.match(manager, /forceRenew/);
   assert.match(manager, /SUBSCRIPTION_INVALID/);
@@ -142,7 +155,7 @@ test('every handwriting question automatically speaks its kana with replay suppo
 
 test('iPhone action has its own reserved row before and after scoring', async () => {
   const [app, style] = await Promise.all([text('app.js'), text('style.css')]);
-  const design = style.slice(style.indexOf('/* ===== V1.3.0 藍墨'));
+  const design = style.slice(style.indexOf('/* ===== V1.3.1 藍墨'));
   assert.match(design, /\.kana-session-body\s*\{[^}]*min-height: 0;[^}]*overflow: auto/);
   assert.match(design, /\.kana-session\[data-layout="phone"\] \.kana-session-actions\.is-scored\s*\{\s*position: static; flex: 0 0 auto/);
   assert.doesNotMatch(design, /position:\s*sticky/);
@@ -188,7 +201,7 @@ test('all six completed practice paths qualify as study activity', async () => {
   }
 });
 
-test('V1.3.0 adds kana-to-romaji practice under handwriting with statistics', async () => {
+test('V1.3.1 adds kana-to-romaji practice under handwriting with statistics', async () => {
   const [app, style, module, backup] = await Promise.all([
     text('app.js'), text('style.css'), text('kana-reading.js'), text('backup-schema.js')
   ]);
@@ -204,11 +217,11 @@ test('V1.3.0 adds kana-to-romaji practice under handwriting with statistics', as
   assert.match(backup, /kanaReadingHistory/);
 });
 
-test('V1.3.0 recommends one daily word and stores its sentence practice', async () => {
+test('V1.3.1 recommends one daily word and stores its sentence practice', async () => {
   const [app, style, module, sw] = await Promise.all([
     text('app.js'), text('style.css'), text('daily-learning.js'), text('sw.js')
   ]);
-  assert.match(app, /daily-learning\.js\?v=V1_3_0/);
+  assert.match(app, /daily-learning\.js\?v=V1_3_1/);
   assert.match(app, /id="daily-learning-source-select"/);
   assert.match(app, /data-learning-row=/);
   assert.match(app, /generateDailyVocabulary/);
@@ -221,7 +234,7 @@ test('V1.3.0 recommends one daily word and stores its sentence practice', async 
   assert.match(module, /kanaToRomaji/);
   assert.match(module, /readingMatchesRows/);
   assert.match(style, /\.daily-vocab-grid/);
-  assert.match(sw, /daily-learning\.js\?v=V1_3_0/);
+  assert.match(sw, /daily-learning\.js\?v=V1_3_1/);
 });
 
 test('data save controls are the final settings section', async () => {

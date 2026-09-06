@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_0';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_0';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_0';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_1';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_1';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_1';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_3_0';
-import { BackupSchema } from './backup-schema.js?v=V1_3_0';
-import { VersionManager } from './version-manager.js?v=V1_3_0';
-import { TrendChart } from './chart-renderer.js?v=V1_3_0';
-import { PUSH_CONFIG } from './push-config.js?v=V1_3_0';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_0';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_0';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_0';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_0';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_0';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_0';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_0';
+import { AppStorage } from './storage.js?v=V1_3_1';
+import { BackupSchema } from './backup-schema.js?v=V1_3_1';
+import { VersionManager } from './version-manager.js?v=V1_3_1';
+import { TrendChart } from './chart-renderer.js?v=V1_3_1';
+import { PUSH_CONFIG } from './push-config.js?v=V1_3_1';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_1';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_1';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_1';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_1';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_1';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_1';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_1';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_3_0
-// V1.3.0：藍墨 UI、獨立手寫操作列、精簡扁平化交付
+// 日本語練習 PWA - app.js V1_3_1
+// V1.3.1：藍墨 UI、獨立手寫操作列、精簡扁平化交付
 // ===========================
 
-const APP_VERSION = 'V1_3_0';
-const APP_DISPLAY_VERSION = 'V1.3.0';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_0';
+const APP_VERSION = 'V1_3_1';
+const APP_DISPLAY_VERSION = 'V1.3.1';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_1';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -2773,7 +2773,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_0" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_1" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">

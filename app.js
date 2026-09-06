@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_2_14';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_2_14';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_2_14';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_0';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_0';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_0';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_2_14';
-import { BackupSchema } from './backup-schema.js?v=V1_2_14';
-import { VersionManager } from './version-manager.js?v=V1_2_14';
-import { TrendChart } from './chart-renderer.js?v=V1_2_14';
-import { PUSH_CONFIG } from './push-config.js?v=V1_2_14';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_2_14';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V1_2_14';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_2_14';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_2_14';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_2_14';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_2_14';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_2_14';
+import { AppStorage } from './storage.js?v=V1_3_0';
+import { BackupSchema } from './backup-schema.js?v=V1_3_0';
+import { VersionManager } from './version-manager.js?v=V1_3_0';
+import { TrendChart } from './chart-renderer.js?v=V1_3_0';
+import { PUSH_CONFIG } from './push-config.js?v=V1_3_0';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_0';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_0';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_0';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_0';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_0';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_0';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_0';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_2_14
-// V1.2.14：設定頁資料保存區塊移至頁面最下方
+// 日本語練習 PWA - app.js V1_3_0
+// V1.3.0：藍墨 UI、獨立手寫操作列、精簡扁平化交付
 // ===========================
 
-const APP_VERSION = 'V1_2_14';
-const APP_DISPLAY_VERSION = 'V1.2.14';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_2_14';
+const APP_VERSION = 'V1_3_0';
+const APP_DISPLAY_VERSION = 'V1.3.0';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_0';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -1224,6 +1224,18 @@ function refreshStudyStreakUI() {
   if (todayState) {
     todayState.textContent = summary.practicedToday ? '今天已完成練習' : '今天尚未完成練習';
     todayState.classList.toggle('is-complete', summary.practicedToday);
+  }
+  const week = document.getElementById('study-week');
+  if (week) {
+    const practiced = new Set(StudyStreak.getDays().map(day => day.date));
+    const today = new Date();
+    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (today.getDay() + 6) % 7, 12);
+    week.innerHTML = ['一', '二', '三', '四', '五', '六', '日'].map((label, index) => {
+      const day = new Date(monday); day.setDate(monday.getDate() + index);
+      const key = dateKeyFor(day);
+      const done = practiced.has(key);
+      return `<div class="study-week-day ${done ? 'is-done' : ''}" ${key === dateKeyFor(today) ? 'aria-current="date"' : ''} aria-label="${key} ${done ? '已練習' : '未練習'}"><span>${label}</span><b aria-hidden="true">${done ? '✓' : ''}</b></div>`;
+    }).join('');
   }
   const syncState = document.getElementById('study-streak-sync-status');
   if (syncState) {
@@ -2729,8 +2741,9 @@ const Router = {
   },
   _doNavigate(view, params) {
     if (this.currentView === 'practice') Views.practice?.cleanupQuiz?.();
+    if (this.currentView === 'kanaReadingPractice' || document.getElementById('kana-reading-answer')) Views.kanaReadingPractice?.cleanup?.();
     if (this.currentView === 'kanaPractice' || this.handwritingActive || document.documentElement.classList.contains('kana-view-active')) Views.kanaPractice?.cleanup?.();
-    const activeNavView = ['practice', 'kanaPractice', 'essay', 'readingQuiz', 'aiAsk'].includes(view) ? 'practice' : view;
+    const activeNavView = ['practice', 'kanaPractice', 'kanaReadingPractice', 'essay', 'readingQuiz', 'aiAsk'].includes(view) ? 'practice' : view;
     document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === activeNavView));
     this.currentView = view;
     const container = document.getElementById('view-container');
@@ -2759,13 +2772,17 @@ Views.home = {
     const levelLearning = dailyPreferences.source === DAILY_LEARNING_SOURCES.LEVEL;
     container.innerHTML = `
       <div id="home-view">
+        <header class="home-brand">
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_0" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
+        </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
           <div class="study-streak-heading">
             <div class="study-streak-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2s1 4-2 6c-2 1-3-1-3-1s-4 4-2 9a6 6 0 0 0 12 0c1-4-2-7-5-8 1-2 0-4 0-6z"/><path d="M10 17c0 1.1.9 2 2 2s2-.9 2-2c0-1-.7-1.7-1.5-2.3-.1.8-.6 1.3-1.2 1.5-.5.1-.9-.2-1.1-.6-.1.4-.2.9-.2 1.4z"/></svg>
             </div>
             <div>
-              <div class="study-streak-title" id="study-streak-title">累積練習天數</div>
+              <div class="study-streak-title" id="study-streak-title">每天一點，持續進步</div>
               <div class="study-streak-today ${streak.practicedToday ? 'is-complete' : ''}" id="streak-today-state">${streak.practicedToday ? '今天已完成練習' : '今天尚未完成練習'}</div>
             </div>
             <div class="study-streak-total"><strong id="streak-total-days">${streak.totalDays}</strong><span>累積天數</span></div>
@@ -2777,10 +2794,11 @@ Views.home = {
             </div>
             <div class="study-streak-divider" aria-hidden="true"></div>
             <div class="study-streak-metric">
-              <span>歷史最久練習天數</span>
+              <span>歷史最長紀錄</span>
               <strong><b id="streak-longest-days">${streak.longest}</b> 天</strong>
             </div>
           </div>
+          <div class="study-week" id="study-week" role="group" aria-label="本週練習紀錄"></div>
         </section>
         <div class="home-hero" id="hero-card">
           <div class="hero-label">
@@ -2795,6 +2813,7 @@ Views.home = {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
         </div>
+        <div class="home-primary-action"><button type="button" class="btn-primary" data-nav="practice">開始今日練習 <span aria-hidden="true">›</span></button></div>
         <div class="home-menu-grid">
           <div class="menu-card" data-nav="practice">
             <div class="menu-icon" style="background:#e3f2fd"><svg viewBox="0 0 24 24" fill="none" stroke="#1565c0" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
@@ -2803,6 +2822,10 @@ Views.home = {
           <div class="menu-card" data-nav="kanaPractice">
             <div class="menu-icon" style="background:#e8eafc;color:#3949ab;font-size:25px;font-weight:800">あ</div>
             <div><div class="menu-card-title">五十音手寫</div><div class="menu-card-sub">平假名・片假名・Apple Pencil</div></div>
+          </div>
+          <div class="menu-card" data-nav="kanaReadingPractice">
+            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">abc</div>
+            <div><div class="menu-card-title">五十音讀音</div><div class="menu-card-sub">看假名・輸入羅馬音</div></div>
           </div>
           <div class="menu-card" data-nav="database">
             <div class="menu-icon" style="background:#e8f0ff"><svg viewBox="0 0 24 24" fill="none" stroke="#3366cc" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
@@ -2827,10 +2850,19 @@ Views.home = {
         <div style="height:8px"></div>
       </div>
     `;
-    container.querySelectorAll('[data-nav]').forEach(el => el.addEventListener('click', () => {
-      const target = el.dataset.nav;
-      Router.navigate(target, target === 'practice' ? { restoreLast: true } : {});
-    }));
+    container.querySelectorAll('[data-nav]').forEach(el => {
+      const navigate = () => {
+        const target = el.dataset.nav;
+        Router.navigate(target, target === 'practice' ? { restoreLast: true } : {});
+      };
+      el.addEventListener('click', navigate);
+      if (el.tagName !== 'BUTTON') {
+        el.setAttribute('role', 'button'); el.tabIndex = 0;
+        el.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); navigate(); }
+        });
+      }
+    });
     document.getElementById('hero-refresh').addEventListener('click', () => this.loadHero(true));
     if (levelLearning) {
       const cached = DB.getTodayDailyVocabulary();
@@ -2907,9 +2939,18 @@ Views.home = {
         `).join('')}
       </div>
       <div class="daily-vocab-foot">JLPT ${escapeHTML(data.level || DB.getJlptLevel())}・${escapeHTML(selectedLearningRowLabel(data.rows || ['all']))}・每日一詞</div>
+      <div class="daily-sentence-preview" id="daily-sentence-preview" data-word="${escapeAttr(words[0]?.word || '')}"></div>
       <div class="daily-vocab-sentence-status" id="daily-vocab-sentence-status" role="status" aria-live="polite">正在同步至每日例句…</div>`;
     heroContent.querySelectorAll('[data-daily-speak]').forEach(button => {
       button.addEventListener('click', () => TTS.speakKana(button.dataset.dailySpeak, 0.72, { immediate: true }));
+    });
+  },
+  displayRecommendedSentence(entry) {
+    const preview = document.getElementById('daily-sentence-preview');
+    if (!preview || preview.dataset.word !== entry.wordEn) return;
+    preview.innerHTML = `<p lang="ja">${escapeHTML(entry.en)}</p><p class="daily-sentence-zh">${escapeHTML(entry.zh)}</p><button type="button" class="btn-secondary" id="daily-open-log">例句練習 <span aria-hidden="true">›</span></button>`;
+    preview.querySelector('button')?.addEventListener('click', () => {
+      document.querySelector('.sentence-log-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   },
   async ensureDailyVocabularySentence(data) {
@@ -2922,6 +2963,7 @@ Views.home = {
     if (existing) {
       DB.saveTodaySentence(existing);
       if (status) status.textContent = '已儲存至今日例句練習';
+      this.displayRecommendedSentence(existing);
       return existing;
     }
     if (status) status.textContent = '正在建立並儲存今日例句…';
@@ -2950,6 +2992,7 @@ Views.home = {
       DB.saveSentenceToLog(entry);
       this.renderSentenceLog();
       if (status) status.textContent = '已儲存至今日例句練習';
+      this.displayRecommendedSentence(entry);
       return entry;
     } catch (error) {
       if (status) status.textContent = '推薦詞已保存；例句建立失敗，可點右上角重試';
@@ -4022,6 +4065,7 @@ Views.kanaPractice = {
           <div class="kana-session-progress"><span>五十音手寫 ${this.state.index + 1} / ${total}</span><div><i style="width:${progress}%"></i></div></div>
           <span class="kana-mode-badge">${({trace:'描紅',copy:'臨摹',recall:'默寫'})[this.state.mode]}</span>
         </header>
+        <div class="kana-session-body">
         <div class="kana-workspace">
           <aside class="kana-reference-card">
             <span class="kana-script-label">${kana.scriptLabel}・${kana.rowLabel}</span>
@@ -4036,7 +4080,7 @@ Views.kanaPractice = {
           </aside>
           <main class="kana-canvas-card">
             <div class="kana-canvas-caption"><span id="kana-stroke-live">請開始書寫</span><span>分數為本機輔助判定</span></div>
-            <canvas class="kana-writing-canvas" id="kana-writing-canvas" aria-label="${kana.character} 手寫區"></canvas>
+            <div class="kana-canvas-stage"><canvas class="kana-writing-canvas" id="kana-writing-canvas" aria-label="${kana.character} 手寫區"></canvas></div>
             <div class="kana-canvas-tools">
               <button type="button" id="kana-undo-btn">↶ 復原</button>
               <button type="button" id="kana-clear-btn">清除</button>
@@ -4047,6 +4091,7 @@ Views.kanaPractice = {
         <section class="kana-score-panel" id="kana-score-panel" aria-live="polite">
           <div class="kana-score-placeholder">完成後點選「評分」，查看筆形與畫數參考；筆順請對照示範動畫。</div>
         </section>
+        </div>
         <div class="kana-session-actions"><button class="btn-primary" id="kana-score-btn">評分</button></div>
       </div>`;
 

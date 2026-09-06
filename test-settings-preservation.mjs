@@ -14,7 +14,7 @@ test('Japanese defaults and separate push deployment are packaged', async () => 
   assert.match(wrangler, /name = "japanese-daily-reminder"/);
   assert.match(wrangler, /PWA-JP-GD/);
   assert.match(wrangler, /crons = \["\* \* \* \* \*"\]/);
-  assert.match(worker, /SERVICE_VERSION = 'V1\.2\.14'/);
+  assert.match(worker, /SERVICE_VERSION = 'V1\.3\.0'/);
   assert.match(worker, /Japanese Daily Reminder/);
   assert.match(worker, /SELECT 1 FROM japanese_reminders/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminders/);
@@ -24,6 +24,21 @@ test('Japanese defaults and separate push deployment are packaged', async () => 
 test('the GitHub release directory is completely flat', async () => {
   const entries = await readdir(new URL('.', import.meta.url), { withFileTypes: true });
   assert.deepEqual(entries.filter(entry => entry.isDirectory()).map(entry => entry.name), []);
+  assert.equal(entries.length, 46, 'review deployment inventory before adding a file');
+  for (const doc of ['README.md', 'ARCHITECTURE.md', 'CHANGELOG.md']) assert.ok(entries.some(entry => entry.name === doc));
+  assert.ok(!entries.some(entry => /^(ARCHITECTURE_V|CHANGELOG_V|QA_V|UPDATE_V|icon-source|indexl\.html)/.test(entry.name)));
+});
+
+test('new install icons are opaque square PNGs and versioned in the manifest', async () => {
+  const manifest = JSON.parse(await text('manifest.json'));
+  for (const size of [192, 512]) {
+    const png = await readFile(new URL(`./icon-${size}.png`, import.meta.url));
+    assert.equal(png.subarray(1,4).toString(), 'PNG');
+    assert.equal(png.readUInt32BE(16), size);
+    assert.equal(png.readUInt32BE(20), size);
+    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_3_0`));
+  }
+  assert.match(await text('THIRD_PARTY_NOTICES.md'), /icons.*add a blue|icons add a blue/);
 });
 
 test('Japanese data uses an isolated IndexedDB and storage prefix', async () => {

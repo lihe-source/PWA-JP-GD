@@ -1,87 +1,126 @@
-# PWA Japanese GD V1.2.14
+# 日文練習 · 藍墨 V1.3.0
 
-以繁體中文操作的日文學習 PWA，可直接部署到 GitHub Pages。保留原英文版的語彙、測驗、閱讀、寫作、Gemini AI、統計、Google Drive 備份、連續練習天數與每日 Web Push 提醒，並新增適合 iPad Air 11 吋與 Apple Pencil 的五十音手寫練習。
+GitHub Pages： https://lihe-source.github.io/PWA-JP-GD/
 
-ZIP 內只有一個同名資料夾，所有程式檔案都在該資料夾同一層；上傳內部檔案到 GitHub Repository 根目錄即可。
+本版以 V1.2.14 為基底，實作已確認的藍墨 UI 與新「あ」書本圖示。完整功能保留；沒有變更資料庫名稱、備份 Schema、Google OAuth、Drive 資料夾或通知後端設定。
 
-既有使用者請先閱讀 `UPDATE_V1_2_14.md`。本版將「資料保存」移到設定頁最下方，原有的同步、救援備份與安全更新功能維持不變；詳細驗證範圍見 `QA_V1_2_14.md`。
+## 這次更新
 
-## 主要功能
+- 首頁：品牌列、連續／歷史最長天數、真實本週紀錄、每日推薦與例句，以及手寫／讀音捷徑。
+- 例句與天數使用實際資料，不含提案圖的範例數字。未設定 Gemini 或沒有紀錄時會顯示說明。
+- 所有練習模式共用緊湊選單、霧藍選取狀態與統一按鈕。
+- iPhone 手寫：上方題目、可捲動內容、獨立的評分／下一題操作列；操作列不蓋住畫布或成績。
+- iPad 寬版：左側範例與評分，右側正方形畫布與操作列。以視窗寬度適應橫豎向及分割畫面；更多設定仍可手動指定版面。
+- 預設保留正常縮放、16px 輸入文字與至少 44px 主要觸控目標。畫布區維持手寫手勢，其他區域可捲動。
+- 「資料保存」仍位於設定頁最下方。
+- 46 個同層檔案；說明固定為 README.md、ARCHITECTURE.md、CHANGELOG.md。
 
-- 日文語彙庫：日文、假名讀音、羅馬拼音、詞性、繁體中文與 JLPT 等級。
-- 每日推薦學習：可在設定選擇「單字庫」或「依等級學習」；後者依 JLPT N5～N1 與複選五十音行，每日只推薦 1 個單字。
-- 推薦內容完整顯示日文表記、假名、羅馬拼音、詞性與繁體中文，並提供單字發音；系統也會自動為推薦詞建立例句並加入「每日例句記錄」。
-- 語彙練習：依日文表記、假名與中文進行測驗與複習。
-- 五十音手寫：平假名 46 字、片假名 46 字，共 92 字。
-- 五十音讀音：顯示平假名或片假名，輸入羅馬拼音作答；支援假名類型、五十音行複選、重複次數與獨立正確率統計。
-- 五十音讀音回饋：答對、答錯與練習結束使用和單字拼寫相同的音效；在支援的環境嘗試使用 `playback` 音訊工作階段，實際播放仍受裝置音量、音訊輸出與瀏覽器限制影響。
-- 五十音鍵盤常駐：按鍵盤換行／下一個鍵即送出目前答案，顯示短暫回饋後自動換題；整段練習沿用同一輸入框，不再關閉鍵盤或要求上下捲動點擊「下一題」。
-- 選項記憶：保留上次練習模式、題數、出題順序、假名類型、五十音行、重複次數、書寫模式與版面選擇。
-- 五十音行複選：可依進度同時選取多個行別；「全部行」可一鍵重設。
-- 重複加深印象：每個已選假名可重複 1、2、3、5 或 10 次，再以平衡隨機方式排題；例如あ行 5 字 × 5 次＝25 題，而且相同假名不會連續出現。
-- 精簡單頁設定：手機上將常用設定集中在一個畫面內，版面與弱項優先等進階選項預設收合，減少開始前的捲動距離。
-- 統一緊湊練習頁：單字拼寫、五十音手寫、五十音讀音、文章撰寫、閱讀測驗與 AI 詢問都採同一套單一卡片、四欄摘要與細分隔選項；iPhone 可一次看到更多設定，iPad 則自動運用寬版空間。
-- 手寫模式：描寫、臨摹、默寫；提供筆順動畫、格線、復原、清除與提示。
-- 低延遲手寫：Apple Pencil／觸控取樣以畫面更新頻率合併，多個取樣點批次繪成一條 Canvas 路徑；限制過大的 Retina 畫布、延後筆畫中的尺寸重建並快取畫布座標。
-- 練習效能隔離：每題先更新暫存並排入本機寫入；Google Drive 背景回應的 JSON 解析、合併及寫回會等待練習結束，減少對書寫的干擾。失敗的寫入會明確提示。
-- 手寫自動發音：第一題及每次切換「下一個假名」時，立即以裝置內建日文語音播放該假名；可在更多設定關閉，並保留手動重聽按鈕。
-- 裝置版面：自動辨識 iPhone／iPad，也可手動切換；iPhone 書寫時將「評分」停在導覽列上方，評分後則依序顯示完整評分卡與下一步按鈕。
-- 本機輔助評分：比較筆畫數、形狀、方向、端點與版面位置；不需上傳筆跡。
-- 閱讀測驗、文章寫作與 AI 問答：依 JLPT N5～N1 調整內容。
-- 首頁學習天數：目前連續、歷史最久與累積練習天數。
-- 同一 Google 帳號跨裝置同步練習日、五十音手寫及讀音紀錄。請各裝置一併更新。
-- 完整 JSON、各項 CSV 與一鍵 ZIP 備份／還原。
-- iPhone、iPad 與桌面 PWA 每日定時推播提醒。
-- iPhone 推播訂閱自動修復：Apple 回傳失效狀態時會重新訂閱並重送一次。
-- 快速雲端操作：首頁先顯示、Google 元件預載、登入後背景同步，備份與還原提供階段進度及逾時保護。
-- 帳號恢復：記住帳號並直接進入主畫面；授權失效時 Google 仍可能要求使用者操作，學習功能不以成功登入為前提。
+## 從 V1.2.14 更新：手機操作
 
-## 已預設的 Google 設定
+1. 在舊程式「設定」先完成上傳備份；也建議匯出救援備份，保存在裝置。
+2. 下載並解壓本 ZIP。開啟與 ZIP 同名的外層資料夾，裡面是 46 個檔案。
+3. 到 https://github.com/lihe-source/PWA-JP-GD ，使用 **Add file → Upload files** 上傳這 46 個檔案，覆寫同名檔案。不要把外層資料夾整個上傳，index.html 必須仍在 Repository 根目錄。
+4. Commit 到原本的 main。維持 **Settings → Pages → Deploy from a branch → main → /(root)**。
+5. GitHub Pages 部署完成後開啟 PWA。設定頁會顯示目前版本、最新版本和檢查更新按鈕；開啟程式也會檢查更新。
+6. 練習中、備份中或本機寫入未完成時，新版不會強制重載；作業結束且資料保存成功後才套用。
+7. 確認目前版本為 V1.3.0。本版不必重新初始化 D1，也不必重新產生 VAPID Keys。
 
-| 項目 | 預設值 |
+上傳新版不會自動刪除 GitHub 已有的舊檔。下方列出的舊文件及原始圖可在確認更新正常後做一次性清理。不要刪除不在清單中的程式、設定或授權檔。
+
+### 一次性清理舊檔
+
+可刪除 `ARCHITECTURE_V*.md`、`CHANGELOG_V*.md`、`QA_V*.md`、`UPDATE_V*.md`，以及 `CURRENT_SETTINGS_INCLUDED.md`、`MOBILE_UPLOAD_GUIDE.md`、`SETUP_PUSH_NOTIFICATIONS.md`、`icon-source-1024.png`、誤植的 `indexl.html`。
+
+新版的三個固定文件已承接現行架構、部署與更新說明。旧版本仍可從 Git commit 紀錄查閱。若在 Codespaces 操作，先執行 `git status` 確認沒有尚未保存的工作，再依上述明確檔名刪除，檢查 diff 後提交。不要刪除整個 Repository 或先清空再上傳。
+
+系統可能沿用已安裝 PWA 的舊圖示；即使圖示尚未刷新，只要設定顯示 V1.3.0 就是新版。不要為更新圖示直接刪除 PWA 或網站資料。必要重裝前先備份並確認可以還原；重装後每台裝置須重新檢查通知訂閱。
+
+## 已保留設定
+
+| 項目 | 內容 |
 |---|---|
 | OAuth Client ID | `171837667604-mtcf91qudt6ff79u382v37rjqpp7l51q.apps.googleusercontent.com` |
-| 日文版 Drive 資料夾 ID | `1kAtVOK2qqhK0BY9vmp8Sm4NhQaWMJYeb` |
-| 初始程度 | JLPT N5 |
+| Drive 資料夾 ID | `1kAtVOK2qqhK0BY9vmp8Sm4NhQaWMJYeb` |
+| OAuth JavaScript 來源 | `https://lihe-source.github.io`，不加路徑 |
+| Worker | `japanese-daily-reminder` |
+| Worker URL | `https://japanese-daily-reminder.rexchre.workers.dev` |
+| D1 | 沿用 wrangler.toml 的 vocabulary-reminders Binding；日文表 japanese_reminders |
+| Cron | `* * * * *` |
+| 學習偏好 | 原使用者的等級、來源、行別、次數、模式均不重設 |
 
-OAuth Client ID 可以與英文版共用，因兩個 GitHub Pages 專案位於相同來源 `https://lihe-source.github.io`。Gemini API Key 也可使用同一把，但基於安全考量不會寫入 ZIP；請在設定頁貼上。若同一瀏覽器可讀取既有英文版儲存空間，程式會在首次啟動嘗試帶入相容的 Gemini Key、模型與 OAuth Client ID。
+API Key、VAPID 私密金鑰、Cloudflare Token 及 Google access token 不包含在 ZIP。不要把這些內容 commit 到 GitHub。Google 首次授權、工作階段失效或撤銷授權時仍可能要求操作；自動登入不是繞過 Google 的授權機制。
 
-英文與日文學習資料不會混用：日文版使用獨立 IndexedDB、獨立本機鍵名前綴、獨立 Drive 資料夾及獨立備份檔名。
+## Cloudflare（原本通知正常者不用重設）
 
-## 快速部署
-
-1. 解壓 ZIP，將所有檔案直接上傳至 `lihe-source/PWA-JP-GD` 的 `main` 分支根目錄。
-2. GitHub Repository 開啟 **Settings → Pages**。
-3. Source 選 **Deploy from a branch**，Branch 選 `main`，Folder 選 `/(root)`。
-4. 部署完成後開啟：`https://lihe-source.github.io/PWA-JP-GD/`。
-5. Google Cloud OAuth 的「已授權的 JavaScript 來源」確認已有 `https://lihe-source.github.io`；來源不可加 Repository 路徑。
-6. 依 `SETUP_PUSH_NOTIFICATIONS.md` 部署 Cloudflare Worker，才能在 PWA 關閉後於指定時間通知。
-7. iPhone／iPad 以 Safari 開啟網站，加入主畫面後再從圖示啟動。
-
-手機上傳的逐步畫面路徑請見 `MOBILE_UPLOAD_GUIDE.md`；系統架構與資料隔離請見 `ARCHITECTURE_V1_2_13.md`；本版變更請見 `CHANGELOG_V1_2_14.md`。
-
-## 重要檔案
-
-| 檔案 | 用途 |
-|---|---|
-| `index.html`、`app.js`、`style.css` | PWA 介面與學習功能 |
-| `kana-data.js`、`kana-strokes.js` | 五十音資料與標準筆畫 |
-| `kana-reading.js` | 五十音羅馬拼音判定、常用別名、作答記錄與正確率統計 |
-| `handwriting-engine.js` | iPad／Apple Pencil 手寫畫布及本機評分 |
-| `japanese-learning.js` | 日文正規化、預設設定與手寫進度 |
-| `daily-learning.js` | JLPT／五十音行設定、AI 結果驗證、假名轉羅馬拼音與每日快取簽章 |
-| `storage.js`、`backup-schema.js` | 隔離儲存與完整備份 Schema |
-| `sw.js`、`manifest.json`、Icon | 安裝、離線快取與系統通知 |
-| `worker.js`、`schema.sql`、`wrangler.toml` | Cloudflare 定時推播後端 |
-
-## 本機驗證
-
-需要 Node.js 20 或更新版本：
+本次 Worker 只有版本標示變更；現有 V1.2.14 Worker 可繼續配合 V1.3.0 前端使用。要同步 Worker 顯示版本時，在專案根目錄執行：
 
 ```bash
-npm install
+npm ci
+npm run worker:deploy
+```
+
+首次建立此服務才執行以下流程：
+
+```bash
+npm ci
+npx wrangler login
+npm run db:init
+npm run worker:deploy
+```
+
+確認登入的 Cloudflare 帳號具有 wrangler.toml 所列 D1 的權限，才執行遠端資料庫命令。schema.sql 只建立日文資料表與索引，不删除資料。如果既有 D1 不屬於該帳號，先確認正確帳號或自行建立新的 D1，再修改綁定；不要覆蓋仍在使用的資料庫設定。
+
+### 三個 Secrets
+
+保留原來成對的 VAPID Keys；不要因 UI 升級而重新產生。首次設定才執行：
+
+```bash
+npx wrangler secret put VAPID_PUBLIC_KEY
+npx wrangler secret put VAPID_PRIVATE_KEY
+npx wrangler secret put VAPID_SUBJECT
+npm run worker:deploy
+```
+
+SUBJECT 使用 `mailto:你的Email`。找不到原始 private key 才使用 `npm run vapid:generate` 產生新的一對；換 Keys 後每台裝置都需要重新啟用訂閱。
+
+若 `wrangler login` 顯示 localhost:8976 被占用，在原先的登入終端機按 Ctrl+C 結束舊登入再重試；Codespaces 是遠端環境，回呼位置需正確轉送。不要把舊 OAuth 連結反覆重開，也不要公開 Token。
+
+### 通知排除順序
+
+1. Worker 根網址的 `configured` 和 `checks`。若資料庫項目 false，檢查 D1 綁定與資料表；若 VAPID 項目 false，檢查对应 Secrets，公開和私密 Key 必須成對。
+2. `APP_URL` 應為完整日文 Pages 網址；`ALLOWED_ORIGINS` 為 `https://lihe-source.github.io`。
+3. iPhone／iPad 從 Safari 加入主畫面，再從 PWA 設定啟用通知；各裝置各自授權與訂閱。
+4. Apple 測試失敗時，先檢查 Worker 紀錄的 HTTP 狀態與 `providerReason`，不要把所有錯誤當成網路問題。既有失效訂閱重建及一次重試機制保留。
+5. 測試成功但排程未顯示時，再檢查 Cron、裝置時區、下次提醒、通知權限和專注模式。
+
+```bash
+npx wrangler secret list
+npx wrangler tail japanese-daily-reminder --format pretty
+```
+
+請不要公開完整推播 endpoint、Keys 或包含私人資料的紀錄。本版沿用原本的每日時間提醒規則，不新增「今日未練習才通知」條件。Web Push 仍須系統／網路傳遞，無法保證精準秒級到達。
+
+## 資料、備份與更新保護
+
+- 日文仍使用獨立的 `pwa_japanese_v1` IndexedDB 與 `pwa_japanese:` 前綴。
+- 不刪除使用者資料，不改 Schema 1；可讀取相容的舊日文備份。
+- 手寫筆跡取樣、繪圖批次、讀音鍵盤與音效維持原來流程。
+- 六種練習模式、每日一詞及例句紀錄、統計與跨裝置練習天數均保留。
+- 完整備份涵蓋學習偏好與紀錄，通知訂閱仍是每台裝置獨立設定。
+- 自動更新保留等待儲存和練習結束的保護。
+
+## 開發檢查
+
+需要 Node.js 20 或更新版本；前端不用編譯，直接上傳即可。Cloudflare 部署才需要安裝套件。
+
+```bash
+npm ci
 npm run check
 npm test
 ```
 
-請勿將 Gemini Key、VAPID Private Key 或 Cloudflare API Token 放入 GitHub Repository。
+本次交付執行本機語法與回歸檢查；不等同於 iPhone／iPad 真機、Google 授權、實際 Drive 寫入或 Apple Push 端到端測試。圖像提案中的評分展示以現有實際欄位「筆形／畫數／方向／起收筆／配置」落實；評分只是本機輔助，不宣稱能辨識筆順。
+
+部署後驗收：首頁資料正確、六種模式可切換、手寫可連續畫筆／評分／下一题、讀音 Enter 可送出與換題、設定資料保存仍在最下方、備份還原正常、各裝置測試通知成功、版本顯示 V1.3.0。
+
+技術架構見 ARCHITECTURE.md，變更歷程見 CHANGELOG.md。JSZip、KanjiVG 與 icon 授權見三份授權文件。

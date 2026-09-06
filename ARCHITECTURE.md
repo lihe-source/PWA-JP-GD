@@ -1,4 +1,4 @@
-# 日文練習架構 · V1.3.1
+# 日文練習架構 · V1.3.2
 
 ## 部署結構
 
@@ -42,7 +42,8 @@ GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google D
 
 ### 手寫操作
 
-- App 外框以 fixed + inset: 0 貼齊視窗，不混用 100dvh；頂部安全區僅由 App padding 處理。手機導覽 height／flex-basis 均為 auto，底部安全區只進入導覽 padding 一次，view-container 保留 flex: 1 與 min-height: 0。離線提示仍使用既有頂部預留空間。
+- 根元素是唯一的高度來源：一般瀏覽器為 100dvh（100% fallback）；standalone／fullscreen 為 100vh。body 與 App 沿用 100%，App 為 normal-flow 的 relative 容器，不用 fixed／inset 定義高度。頂部安全區僅由 App padding 處理。
+- 手機導覽 height／flex-basis 均為 auto，底部內距為 max(4px, safe-area-inset-bottom)，不額外疊加；view-container 保留 flex: 1 與 min-height: 0。離線提示仍使用既有頂部預留空間。寬版側導覽 absolute 定位於同一 App 外框。
 - iPhone：session 為固定可用高度的 flex 容器；header 與 action 為不可壓縮列，只有 session-body 可捲動。評分前後使用同一操作列，不切換 sticky／floating 定位。
 - iPad：data-layout=tablet 且寬度至少 760px 時，session 使用 grid；reference 在左上，score 在左下，canvas 在右側，action 在右下。
 - 畫布外層為 size container，內部寬高同為 min(100cqw,100cqh)，維持實際正方形，不以 object-fit 製造視覺與輸入座標的差異。
@@ -67,11 +68,13 @@ GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google D
 
 ## 更新與相容性
 
-使用新 V1_3_1 版本參數與獨立快取名稱；sw.js 仍完整預載前端依賴。開啟時檢查 version.json；先保存資料，再於非練習／非雲端作業狀態啟用及重載。設定頁保留目前版本、最新版本與手動檢查。
+使用新 V1_3_2 版本參數與獨立快取名稱；sw.js 仍完整預載前端依賴。開啟時檢查 version.json；先保存資料，再於非練習／非雲端作業狀態啟用及重載。設定頁保留目前版本、最新版本與手動檢查。V1.3.2 未改變此更新流程。
 
 Cloudflare 只更新 SERVICE_VERSION，API 與資料表不變。舊 Worker 可繼續服務；不用 db:init，不用換 VAPID。README 包含完整部署與排除方式。
 
 ## 測試邊界
+
+用戶回傳 V1.3.1 截圖已排除該畫面仍在 V1.3.0 的可能。截圖中導覽列下方的淡藍色條與 WebKit 已回報的 standalone 高度／fixed 定位問題相符，但沒有裝置 runtime 量測，故不宣稱已確認特定 WebKit bug。參考原始問題回報：https://bugs.webkit.org/show_bug.cgi?id=237961 、https://bugs.webkit.org/show_bug.cgi?id=254868 。本次採同一正常文件流高度的相容性修正，不增加偵測螢幕型號、負位移或重設儲存的補丁。
 
 保留 10 份測試檔，檢查資料合併、備份、輸入效能、出題、讀音、版本與配置；V1.3 調整版面契約測試。靜態斷言不取代 Safari／iPad 真機排版、Pencil 行為、Google OAuth、Drive 或推播端到端測試。未改的外部服務仍須以原部署帳號驗收。
 

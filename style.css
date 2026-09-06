@@ -3937,13 +3937,13 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.3.2 藍墨: one shared visual system ===== */
+/* ===== V1.3.3 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
   --bg: #f3f7fc; --card-bg: #fff; --text: #16324f; --text-muted: #5b708b;
   --border: #d9e4f3; --correct: #2463d5; --danger: #ba3544; --wrong: #ba3544;
-  --radius: 16px; --radius-sm: 10px; --nav-height: 68px;
+  --radius: 16px; --radius-sm: 10px; --nav-height: 64px;
   --shadow: 0 6px 24px rgba(22,50,79,.045); --shadow-sm: 0 2px 12px rgba(22,50,79,.025);
 }
 html, body { font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans', 'Hiragino Sans', 'PingFang TC', 'Microsoft JhengHei', sans-serif; font-size: 16px; }
@@ -3952,25 +3952,20 @@ button, [role="button"] { touch-action: manipulation; }
 button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
   outline: 3px solid var(--primary); outline-offset: 3px;
 }
-/* One normal-flow viewport owns both content and navigation.
-   iOS standalone can shorten a fixed/inset or dynamic-viewport container by
-   the status-bar height. Use the large viewport in installed mode, without
-   adding guessed screen dimensions or moving controls below the viewport.
-   https://bugs.webkit.org/show_bug.cgi?id=237961
-   https://bugs.webkit.org/show_bug.cgi?id=254868 */
-html { height: 100%; height: 100dvh; }
+/* Match the English app's browser-managed viewport and bottom-anchored nav.
+   index.html intentionally uses the default viewport fit (not cover).
+   Reserve the nav once on the shell, so even non-scrolling handwriting
+   sessions end above it. No screen-height estimates or negative offsets. */
+html { height: 100%; }
 body { position: relative; height: 100%; min-height: 0; }
-@media (display-mode: standalone), (display-mode: fullscreen) {
-  html { height: 100vh; }
-}
-#app { position: relative; inset: auto; height: 100%; min-height: 0; }
+#app { position: relative; inset: auto; height: 100%; min-height: 0; padding-bottom: calc(var(--nav-height) + var(--safe-bottom)); }
 #view-container { min-height: 0; padding-bottom: 16px; scroll-padding-bottom: 24px; }
 #view-container > .view-enter { max-width: 1080px; margin-inline: auto; }
-/* Navigation occupies space instead of covering the document. */
+/* Fixed to the viewport bottom, with matching space reserved on #app. */
 #bottom-nav {
-  position: relative; inset: auto; flex: 0 0 auto;
-  height: auto; min-height: 0;
-  padding: 4px max(8px, env(safe-area-inset-right, 0px)) max(4px, var(--safe-bottom)) max(8px, env(safe-area-inset-left, 0px));
+  position: fixed; inset: auto 0 0; flex: none;
+  height: calc(var(--nav-height) + var(--safe-bottom)); min-height: 0;
+  padding: 6px max(8px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
   box-shadow: none; background: var(--card-bg);
 }
 .nav-btn { min-height: 48px; gap: 3px; justify-content: center; border-radius: 12px; font-family: inherit; }
@@ -4134,7 +4129,7 @@ body { position: relative; height: 100%; min-height: 0; }
   .kana-session[data-layout="tablet"] .kana-session-actions { grid-column: 2; grid-row: 4; border: 0; padding: 0; }
 }
 @media (min-width: 900px) {
-  #app { padding-left: calc(88px + env(safe-area-inset-left,0px)); }
+  #app { padding-left: calc(88px + env(safe-area-inset-left,0px)); padding-bottom: 0; }
   #bottom-nav { position: absolute; left: env(safe-area-inset-left,0px); top: env(safe-area-inset-top,0px); bottom: 0; right: auto; width: 88px; height: auto; padding: 22px 10px; border-top: 0; border-right: 1px solid var(--border); flex-direction: column; gap: 14px; }
   .nav-btn { flex: 0 0 64px; width: 100%; }
   #view-container { padding: 16px 16px 24px; }

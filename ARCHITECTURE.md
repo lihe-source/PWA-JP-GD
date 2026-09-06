@@ -1,4 +1,4 @@
-# 日文練習架構 · V1.3.2
+# 日文練習架構 · V1.3.3
 
 ## 部署結構
 
@@ -42,13 +42,14 @@ GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google D
 
 ### 手寫操作
 
-- 根元素是唯一的高度來源：一般瀏覽器為 100dvh（100% fallback）；standalone／fullscreen 為 100vh。body 與 App 沿用 100%，App 為 normal-flow 的 relative 容器，不用 fixed／inset 定義高度。頂部安全區僅由 App padding 處理。
-- 手機導覽 height／flex-basis 均為 auto，底部內距為 max(4px, safe-area-inset-bottom)，不額外疊加；view-container 保留 flex: 1 與 min-height: 0。離線提示仍使用既有頂部預留空間。寬版側導覽 absolute 定位於同一 App 外框。
+- index.html 沿用英文版的預設 viewport fit（移除 cover，但不移植禁止縮放）。html／body／App 高度為 100%；不使用獨立的 vh／dvh 外框，不猜測 screen.height。App 維持正常文件流。
+- 手機導覽固定在視窗 bottom: 0，height: calc(64px + safe-area-inset-bottom)，上方內距 6px、底部內距 0；預設 viewport 由瀏覽器安排安全邊界，CSS 仍保留 env fallback。
+- App 的 padding-bottom 與導覽 height 使用同一算式，讓手寫的有限高度容器亦預留導覽空間；view-container 只有一般內容內距。寬度 >=900px 時 App 的 padding-bottom 歸零，側導覽仍 absolute 定位於 App。
 - iPhone：session 為固定可用高度的 flex 容器；header 與 action 為不可壓縮列，只有 session-body 可捲動。評分前後使用同一操作列，不切換 sticky／floating 定位。
 - iPad：data-layout=tablet 且寬度至少 760px 時，session 使用 grid；reference 在左上，score 在左下，canvas 在右側，action 在右下。
 - 畫布外層為 size container，內部寬高同為 min(100cqw,100cqh)，維持實際正方形，不以 object-fit 製造視覺與輸入座標的差異。
 - 自動模式沿用既有裝置與尺寸判斷。手動選 iPad 但視窗不足 760px 時，CSS 仍採安全單欄。
-- 導覽在手機是實際佔位的底部列；900px 以上是已預留寬度的側列。
+- 手機導覽由 App padding 預留位置；900px 以上是已預留寬度的側列。
 - 示範動畫、評分、pointer capture、Apple Pencil、取消輸入恢复和 requestAnimationFrame 批次不變；只換視覺與容器。
 
 ### Icon
@@ -68,13 +69,13 @@ GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google D
 
 ## 更新與相容性
 
-使用新 V1_3_2 版本參數與獨立快取名稱；sw.js 仍完整預載前端依賴。開啟時檢查 version.json；先保存資料，再於非練習／非雲端作業狀態啟用及重載。設定頁保留目前版本、最新版本與手動檢查。V1.3.2 未改變此更新流程。
+使用新 V1_3_3 版本參數與獨立快取名稱；sw.js 仍完整預載前端依賴。開啟時檢查 version.json；先保存資料，再於非練習／非雲端作業狀態啟用及重載。設定頁保留目前版本、最新版本與手動檢查。V1.3.3 未改變此更新流程。
 
 Cloudflare 只更新 SERVICE_VERSION，API 與資料表不變。舊 Worker 可繼續服務；不用 db:init，不用換 VAPID。README 包含完整部署與排除方式。
 
 ## 測試邊界
 
-用戶回傳 V1.3.1 截圖已排除該畫面仍在 V1.3.0 的可能。截圖中導覽列下方的淡藍色條與 WebKit 已回報的 standalone 高度／fixed 定位問題相符，但沒有裝置 runtime 量測，故不宣稱已確認特定 WebKit bug。參考原始問題回報：https://bugs.webkit.org/show_bug.cgi?id=237961 、https://bugs.webkit.org/show_bug.cgi?id=254868 。本次採同一正常文件流高度的相容性修正，不增加偵測螢幕型號、負位移或重設儲存的補丁。
+本次以用戶提供的 V1.3.2 與綠色英文版並列截圖為依據：藍色外部留白已消失，但日文版按鈕下方空間仍較多。比對 https://github.com/lihe-source/PWA-Vocabulary-GD 的 index.html／style.css：英文版未指定 viewport-fit=cover，底部採 64px + env safe inset 的 fixed 列。V1.3.3 移植此邊界與導覽幾何設定，保留日文 UI、資料與手寫容器；未取得真機執行時的尺寸，仍須實機驗證。
 
 保留 10 份測試檔，檢查資料合併、備份、輸入效能、出題、讀音、版本與配置；V1.3 調整版面契約測試。靜態斷言不取代 Safari／iPad 真機排版、Pencil 行為、Google OAuth、Drive 或推播端到端測試。未改的外部服務仍須以原部署帳號驗收。
 

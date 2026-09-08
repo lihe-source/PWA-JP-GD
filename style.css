@@ -3937,7 +3937,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.3.3 藍墨: one shared visual system ===== */
+/* ===== V1.3.4 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4083,6 +4083,7 @@ body { position: relative; height: 100%; min-height: 0; }
 #view-container > .view-enter:has(> .kana-session) { height: 100%; }
 .kana-session { height: 100%; min-height: 0; width: 100%; max-width: 1200px; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
 .kana-session-header { flex: 0 0 auto; margin: 0; padding: 0; grid-template-columns: 44px minmax(0,1fr) auto; min-height: 48px; }
+.kana-reading-session > .kana-session-header { grid-template-columns: 44px minmax(0,1fr); }
 .kana-session-progress > span, .kana-mode-badge { font-size: 14px; }
 .kana-back-btn { width: 44px; height: 44px; }
 .kana-session-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior-y: contain; padding-bottom: 8px; scroll-padding-block: 8px; }

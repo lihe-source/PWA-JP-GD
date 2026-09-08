@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_3';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_3';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_3';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_4';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_4';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_4';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_3_3';
-import { BackupSchema } from './backup-schema.js?v=V1_3_3';
-import { VersionManager } from './version-manager.js?v=V1_3_3';
-import { TrendChart } from './chart-renderer.js?v=V1_3_3';
-import { PUSH_CONFIG } from './push-config.js?v=V1_3_3';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_3';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_3';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_3';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_3';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_3';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_3';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_3';
+import { AppStorage } from './storage.js?v=V1_3_4';
+import { BackupSchema } from './backup-schema.js?v=V1_3_4';
+import { VersionManager } from './version-manager.js?v=V1_3_4';
+import { TrendChart } from './chart-renderer.js?v=V1_3_4';
+import { PUSH_CONFIG } from './push-config.js?v=V1_3_4';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_4';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_4';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_4';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_4';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_4';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_4';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_4';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_3_3
-// V1.3.3：藍墨 UI、獨立手寫操作列、精簡扁平化交付
+// 日本語練習 PWA - app.js V1_3_4
+// V1.3.4：藍墨 UI、獨立手寫操作列、精簡扁平化交付
 // ===========================
 
-const APP_VERSION = 'V1_3_3';
-const APP_DISPLAY_VERSION = 'V1.3.3';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_3';
+const APP_VERSION = 'V1_3_4';
+const APP_DISPLAY_VERSION = 'V1.3.4';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_4';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -2773,7 +2773,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_3" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_4" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -4364,10 +4364,8 @@ Views.kanaReadingPractice = {
         <header class="kana-session-header">
           <button class="kana-back-btn" id="kana-reading-exit-btn" type="button" aria-label="離開讀音練習">‹</button>
           <div class="kana-session-progress"><span id="kana-reading-progress-text"></span><div><i id="kana-reading-progress-fill"></i></div></div>
-          <span class="kana-mode-badge" id="kana-reading-script-badge"></span>
         </header>
         <main class="kana-reading-question-card">
-          <span class="kana-reading-row-label" id="kana-reading-row-label"></span>
           <div class="kana-reading-character" id="kana-reading-character"></div>
           <p>輸入羅馬拼音，按鍵盤「下一個／換行」送出並自動換題</p>
           <form class="kana-reading-answer-form" id="kana-reading-answer-form">
@@ -4416,16 +4414,12 @@ Views.kanaReadingPractice = {
     this.state.transitioning = false;
     const progressText = document.getElementById('kana-reading-progress-text');
     const progressFill = document.getElementById('kana-reading-progress-fill');
-    const badge = document.getElementById('kana-reading-script-badge');
-    const rowLabel = document.getElementById('kana-reading-row-label');
     const character = document.getElementById('kana-reading-character');
     const input = document.getElementById('kana-reading-answer');
     const submit = document.getElementById('kana-reading-submit');
     const feedback = document.getElementById('kana-reading-feedback');
     if (progressText) progressText.textContent = `五十音讀音 ${this.state.index + 1} / ${total}`;
     if (progressFill) progressFill.style.width = `${progress}%`;
-    if (badge) badge.textContent = kana.scriptLabel;
-    if (rowLabel) rowLabel.textContent = `${kana.scriptLabel}・${kana.rowLabel}`;
     if (character) {
       character.textContent = kana.character;
       character.setAttribute('aria-label', `題目 ${kana.character}`);

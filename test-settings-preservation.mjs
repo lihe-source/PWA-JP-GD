@@ -14,7 +14,7 @@ test('Japanese defaults and separate push deployment are packaged', async () => 
   assert.match(wrangler, /name = "japanese-daily-reminder"/);
   assert.match(wrangler, /PWA-JP-GD/);
   assert.match(wrangler, /crons = \["\* \* \* \* \*"\]/);
-  assert.match(worker, /SERVICE_VERSION = 'V1\.3\.3'/);
+  assert.match(worker, /SERVICE_VERSION = 'V1\.3\.4'/);
   assert.match(worker, /Japanese Daily Reminder/);
   assert.match(worker, /SELECT 1 FROM japanese_reminders/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminders/);
@@ -36,7 +36,7 @@ test('new install icons are opaque square PNGs and versioned in the manifest', a
     assert.equal(png.subarray(1,4).toString(), 'PNG');
     assert.equal(png.readUInt32BE(16), size);
     assert.equal(png.readUInt32BE(20), size);
-    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_3_3`));
+    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_3_4`));
   }
   assert.match(await text('THIRD_PARTY_NOTICES.md'), /icons.*add a blue|icons add a blue/);
 });

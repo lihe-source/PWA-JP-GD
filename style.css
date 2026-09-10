@@ -3937,7 +3937,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.3.4 藍墨: one shared visual system ===== */
+/* ===== V1.3.5 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;

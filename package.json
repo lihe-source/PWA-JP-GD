@@ -1,6 +1,6 @@
 {
   "name": "pwa-japanese-gd",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "private": true,
   "type": "module",
   "description": "日文語彙、閱讀、寫作、AI 與五十音手寫練習 PWA",

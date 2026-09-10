@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_4';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_4';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_4';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_5';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_5';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_5';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_3_4';
-import { BackupSchema } from './backup-schema.js?v=V1_3_4';
-import { VersionManager } from './version-manager.js?v=V1_3_4';
-import { TrendChart } from './chart-renderer.js?v=V1_3_4';
-import { PUSH_CONFIG } from './push-config.js?v=V1_3_4';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_4';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_4';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_4';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_4';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_4';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_4';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_4';
+import { AppStorage } from './storage.js?v=V1_3_5';
+import { BackupSchema } from './backup-schema.js?v=V1_3_5';
+import { VersionManager } from './version-manager.js?v=V1_3_5';
+import { TrendChart } from './chart-renderer.js?v=V1_3_5';
+import { PUSH_CONFIG } from './push-config.js?v=V1_3_5';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_5';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_5';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_5';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_5';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_5';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_5';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_5';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_3_4
-// V1.3.4：藍墨 UI、獨立手寫操作列、精簡扁平化交付
+// 日本語練習 PWA - app.js V1_3_5
+// V1.3.5：完成練習後同步通知抑制、藍墨 UI、精簡扁平化交付
 // ===========================
 
-const APP_VERSION = 'V1_3_4';
-const APP_DISPLAY_VERSION = 'V1.3.4';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_4';
+const APP_VERSION = 'V1_3_5';
+const APP_DISPLAY_VERSION = 'V1.3.5';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_5';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -35,7 +35,10 @@ const AppUpdater = new VersionManager({
   storage: AppStorage,
   canActivate: canActivateAppUpdate
 });
-const DailyReminder = new ReminderManager({ storage: AppStorage, config: PUSH_CONFIG });
+const DailyReminder = new ReminderManager({
+  storage: AppStorage,
+  config: PUSH_CONFIG
+});
 const resumeAppUpdateWhenSafe = () => {
   void AppStorage.flush().then(() => {
     void AppUpdater.activateWaitingIfSafe();
@@ -1247,9 +1250,23 @@ function refreshStudyStreakUI() {
 }
 
 function recordStudyActivity(type, eventId = '') {
-  StudyStreak.recordActivity(type, { eventId: `${getOrCreateJapaneseDeviceId()}:${eventId || Date.now()}` });
+  const recorded = StudyStreak.recordActivity(type, { eventId: `${getOrCreateJapaneseDeviceId()}:${eventId || Date.now()}` });
+  DailyReminder.recordPracticeCompletion({
+    occurredAt: recorded.day?.lastActivityAt || new Date(),
+    activityType: type
+  });
   refreshStudyStreakUI();
   queueMicrotask(() => GDrive.scheduleStudyStreakSync());
+}
+
+function syncDailyReminderFromStudyDays() {
+  const today = dateKeyFor(new Date());
+  const day = StudyStreak.getDays().find(item => item.date === today);
+  if (!day) return false;
+  return DailyReminder.recordPracticeCompletion({
+    occurredAt: day.lastActivityAt || day.firstActivityAt || new Date(),
+    activityType: day.activities?.at(-1) || 'practice'
+  });
 }
 
 // ===== GEMINI API =====
@@ -2339,6 +2356,7 @@ const GDrive = {
         markSynced: at => StudyStreak.markSynced(at)
       });
       refreshStudyStreakUI();
+      syncDailyReminderFromStudyDays();
       this._progress(options, result.pending ? '新答案已保留，等待下次同步' : '學習資料同步完成', result.pending ? 90 : 100);
       if (result.pending) this.scheduleStudyStreakSync(1200);
       return { ...result, summary: StudyStreak.getSummary() };
@@ -2773,7 +2791,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_4" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_5" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -7280,7 +7298,7 @@ Views.settings = {
           </div>
           ${!reminderCapabilities.backendConfigured ? '<div class="reminder-warning">部署完成後，請先在 <code>push-config.js</code> 填入 Worker 網址。</div>' : ''}
           ${reminderCapabilities.needsInstall ? '<div class="reminder-warning">iPhone 必須先從瀏覽器分享選單選擇「加入主畫面」，再由主畫面圖示開啟。</div>' : ''}
-          <div class="settings-tip reminder-tip">設定會綁定這台裝置，不會跟著 Google Drive 備份移轉。PWA 關閉後仍可通知；實際顯示時間可能受網路、專注模式或通知摘要影響。</div>
+          <div class="settings-tip reminder-tip">在提醒時間前完成任一練習，這台裝置當天會自動略過通知；隔天重新判斷。通知訂閱與完成判斷均綁定裝置，不會跟著 Google Drive 備份移轉。PWA 關閉後仍可通知；實際顯示時間可能受網路、專注模式或通知摘要影響。</div>
         </div>
 
         <!-- 版本號 + 檢查更新 -->
@@ -8030,6 +8048,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     onSafe: resumeAppUpdateWhenSafe
   });
   StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true });
+  syncDailyReminderFromStudyDays();
   // Service Worker registration may touch the network on iOS. It must not delay
   // the first render or make app entry look like it is waiting for Google login.
   void AppUpdater.register();
@@ -8047,6 +8066,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
   window.addEventListener('online', () => {
     updateNetworkState();
+    void DailyReminder.syncPracticeCompletion();
     GDrive.scheduleStudyStreakSync(150);
   });
   window.addEventListener('offline', updateNetworkState);

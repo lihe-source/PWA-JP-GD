@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 
-const SERVICE_VERSION = 'V1.3.4';
+const SERVICE_VERSION = 'V1.3.5';
 const MAX_DUE_PER_RUN = 25;
 const formatterCache = new Map();
 
@@ -67,6 +67,10 @@ function isValidTimeZone(value) {
   }
 }
 
+function isValidScopeKey(value) {
+  return /^s1_[A-Za-z0-9_-]{43}$/.test(String(value || ''));
+}
+
 function getFormatter(timeZone) {
   if (!formatterCache.has(timeZone)) {
     formatterCache.set(timeZone, new Intl.DateTimeFormat('en-US', {
@@ -94,6 +98,18 @@ function zonedParts(timestamp, timeZone) {
     minute: values.minute,
     second: values.second
   };
+}
+
+export function localDateKey(timestamp, timeZone) {
+  const parts = zonedParts(timestamp, timeZone);
+  return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
+export function shouldSkipReminder(row, practice, scheduledAt = Number(row?.next_fire_at) || 0) {
+  if (!row || !practice || !scheduledAt) return false;
+  const completedAt = Number(practice.completed_at) || 0;
+  if (!completedAt || completedAt > scheduledAt) return false;
+  return String(practice.practice_date || '') === localDateKey(scheduledAt, row.time_zone);
 }
 
 function plusLocalDays(parts, days) {
@@ -178,6 +194,45 @@ async function findByToken(request, env) {
   return env.DB.prepare('SELECT * FROM japanese_reminders WHERE token_hash = ? LIMIT 1').bind(hash).first();
 }
 
+async function reminderScopeState(row, env) {
+  const mapping = await env.DB.prepare('SELECT scope_key, scheduled_for FROM japanese_reminder_scopes WHERE reminder_id = ? LIMIT 1')
+    .bind(row.id).first();
+  return {
+    scopeKey: isValidScopeKey(mapping?.scope_key) ? mapping.scope_key : `reminder_${row.id}`,
+    scheduledFor: Number(mapping?.scheduled_for) || Number(row.next_fire_at) || 0
+  };
+}
+
+async function reminderScopeKey(row, env) {
+  return (await reminderScopeState(row, env)).scopeKey;
+}
+
+function normalizePractice(value, now = Date.now()) {
+  const completedAt = new Date(value?.occurredAt || '').getTime();
+  if (!Number.isFinite(completedAt)) return null;
+  if (completedAt > now + 5 * 60 * 1000 || completedAt < now - 8 * 24 * 60 * 60 * 1000) return null;
+  return {
+    completedAt,
+    occurredAt: new Date(completedAt).toISOString(),
+    activityType: String(value?.activityType || 'practice').trim().slice(0, 40) || 'practice'
+  };
+}
+
+async function savePracticeCompletion(row, scopeKey, practice, env, now = Date.now()) {
+  if (!practice) return null;
+  const key = isValidScopeKey(scopeKey) ? scopeKey : await reminderScopeKey(row, env);
+  const practiceDate = localDateKey(practice.completedAt, row.time_zone);
+  await env.DB.prepare(`
+    INSERT INTO japanese_practice_days (scope_key, practice_date, completed_at, activity_type, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(scope_key, practice_date) DO UPDATE SET
+      completed_at = MAX(japanese_practice_days.completed_at, excluded.completed_at),
+      activity_type = CASE WHEN excluded.completed_at >= japanese_practice_days.completed_at THEN excluded.activity_type ELSE japanese_practice_days.activity_type END,
+      updated_at = excluded.updated_at
+  `).bind(key, practiceDate, practice.completedAt, practice.activityType, now).run();
+  return { date: practiceDate, occurredAt: practice.occurredAt, activityType: practice.activityType };
+}
+
 function configureWebPush(env) {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY || !env.VAPID_SUBJECT) throw new Error('VAPID_NOT_CONFIGURED');
   webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
@@ -243,6 +298,8 @@ async function handleRegister(request, env) {
   const timeZone = String(input?.timeZone || '');
   const title = String(input?.title || '日本語練習時間到了').trim().slice(0, 80);
   const body = String(input?.body || '每天複習一點點，保持日文學習節奏！').trim().slice(0, 180);
+  const scopeKey = isValidScopeKey(input?.scopeKey) ? String(input.scopeKey) : '';
+  const practice = normalizePractice(input?.practice);
 
   if (!subscription) return jsonResponse(request, env, { error: '推播訂閱資料不完整', code: 'INVALID_SUBSCRIPTION' }, 400);
   if (!isValidTime(reminderTime)) return jsonResponse(request, env, { error: '提醒時間格式錯誤', code: 'INVALID_TIME' }, 400);
@@ -254,6 +311,7 @@ async function handleRegister(request, env) {
   const presentedToken = bearerToken(request);
   let managementToken = '';
   let row = null;
+  let reminderId = '';
 
   if (presentedToken) {
     row = await findByToken(request, env);
@@ -264,6 +322,7 @@ async function handleRegister(request, env) {
   }
 
   if (row) {
+    reminderId = row.id;
     const nextHash = managementToken ? await tokenHash(managementToken) : row.token_hash;
     await env.DB.prepare('DELETE FROM japanese_reminders WHERE endpoint = ? AND id <> ?')
       .bind(subscription.endpoint, row.id).run();
@@ -280,16 +339,29 @@ async function handleRegister(request, env) {
   } else {
     managementToken = randomToken();
     const hash = await tokenHash(managementToken);
+    reminderId = crypto.randomUUID();
     await env.DB.prepare(`
       INSERT INTO japanese_reminders (
         id, token_hash, endpoint, p256dh, auth, reminder_time, time_zone, title, body,
         enabled, next_fire_at, failure_count, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0, ?, ?)
     `).bind(
-      crypto.randomUUID(), hash, subscription.endpoint, subscription.p256dh, subscription.auth,
+      reminderId, hash, subscription.endpoint, subscription.p256dh, subscription.auth,
       reminderTime, timeZone, title, body, nextFireAt, now, now
     ).run();
   }
+
+
+  const effectiveScopeKey = scopeKey || `reminder_${reminderId}`;
+  await env.DB.prepare(`
+    INSERT INTO japanese_reminder_scopes (reminder_id, scope_key, scheduled_for, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(reminder_id) DO UPDATE SET
+      scope_key = excluded.scope_key, scheduled_for = excluded.scheduled_for, updated_at = excluded.updated_at
+  `).bind(reminderId, effectiveScopeKey, nextFireAt, now).run();
+  const savedPractice = practice
+    ? await savePracticeCompletion({ id: reminderId, time_zone: timeZone }, effectiveScopeKey, practice, env, now)
+    : null;
 
   return jsonResponse(request, env, {
     ok: true,
@@ -297,8 +369,28 @@ async function handleRegister(request, env) {
     reminderTime,
     timeZone,
     nextFireAt,
+    ...(savedPractice ? { practice: savedPractice } : {}),
     ...(managementToken ? { managementToken } : {})
   });
+}
+
+async function handleActivity(request, env) {
+  const row = await findByToken(request, env);
+  if (!row) return jsonResponse(request, env, { error: '提醒憑證無效', code: 'AUTH_EXPIRED' }, 401);
+  const input = await parseJson(request);
+  const practice = normalizePractice(input);
+  if (!practice) return jsonResponse(request, env, { error: '練習完成時間格式錯誤', code: 'INVALID_ACTIVITY' }, 400);
+  const currentScope = await reminderScopeKey(row, env);
+  const requestedScope = isValidScopeKey(input?.scopeKey) ? String(input.scopeKey) : currentScope;
+  if (requestedScope !== currentScope) {
+    await env.DB.prepare(`
+      INSERT INTO japanese_reminder_scopes (reminder_id, scope_key, scheduled_for, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(reminder_id) DO UPDATE SET scope_key = excluded.scope_key, updated_at = excluded.updated_at
+    `).bind(row.id, requestedScope, row.next_fire_at, Date.now()).run();
+  }
+  const savedPractice = await savePracticeCompletion(row, requestedScope, practice, env);
+  return jsonResponse(request, env, { ok: true, practice: savedPractice });
 }
 
 async function handleDisable(request, env) {
@@ -351,7 +443,10 @@ async function handleTest(request, env) {
 async function handleDelete(request, env) {
   const row = await findByToken(request, env);
   if (!row) return jsonResponse(request, env, { error: '提醒憑證無效', code: 'AUTH_EXPIRED' }, 401);
-  await env.DB.prepare('DELETE FROM japanese_reminders WHERE id = ?').bind(row.id).run();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM japanese_reminder_scopes WHERE reminder_id = ?').bind(row.id),
+    env.DB.prepare('DELETE FROM japanese_reminders WHERE id = ?').bind(row.id)
+  ]);
   return jsonResponse(request, env, { ok: true });
 }
 
@@ -373,13 +468,39 @@ async function processDueReminders(env, scheduledTime = Date.now()) {
     if (!claim.meta?.changes) continue;
 
     try {
+      const scope = await reminderScopeState(row, env);
+      const scopeKey = scope.scopeKey;
+      const scheduledFor = scope.scheduledFor;
+      const dueDate = localDateKey(scheduledFor, row.time_zone);
+      const practice = await env.DB.prepare(`
+        SELECT practice_date, completed_at FROM japanese_practice_days
+        WHERE scope_key = ? AND practice_date = ? LIMIT 1
+      `).bind(scopeKey, dueDate).first();
+      if (shouldSkipReminder(row, practice, scheduledFor)) {
+        const next = computeNextFireAt(now + 60000, row.reminder_time, row.time_zone);
+        await env.DB.batch([
+          env.DB.prepare(`
+            UPDATE japanese_reminders
+            SET next_fire_at = ?, failure_count = 0, last_error = NULL, updated_at = ?
+            WHERE id = ?
+          `).bind(next, now, row.id),
+          env.DB.prepare('UPDATE japanese_reminder_scopes SET scheduled_for = ?, updated_at = ? WHERE reminder_id = ?')
+            .bind(next, now, row.id)
+        ]);
+        console.info('[WebPush] Daily reminder skipped after completed practice:', row.id, dueDate);
+        continue;
+      }
       await sendPush(row, env, false);
       const next = computeNextFireAt(now + 60000, row.reminder_time, row.time_zone);
-      await env.DB.prepare(`
-        UPDATE japanese_reminders
-        SET next_fire_at = ?, last_sent_at = ?, failure_count = 0, last_error = NULL, updated_at = ?
-        WHERE id = ?
-      `).bind(next, now, now, row.id).run();
+      await env.DB.batch([
+        env.DB.prepare(`
+          UPDATE japanese_reminders
+          SET next_fire_at = ?, last_sent_at = ?, failure_count = 0, last_error = NULL, updated_at = ?
+          WHERE id = ?
+        `).bind(next, now, now, row.id),
+        env.DB.prepare('UPDATE japanese_reminder_scopes SET scheduled_for = ?, updated_at = ? WHERE reminder_id = ?')
+          .bind(next, now, row.id)
+      ]);
     } catch (error) {
       const { status, providerReason } = pushErrorDetails(error);
       if (subscriptionIsInvalid(status, providerReason)) {
@@ -395,9 +516,16 @@ async function processDueReminders(env, scheduledTime = Date.now()) {
         SET next_fire_at = ?, failure_count = ?, last_error = ?, updated_at = ?
         WHERE id = ?
       `).bind(next, failures, String(providerReason || error?.message || 'PUSH_FAILED').slice(0, 300), now, row.id).run();
+      if (failures >= 3) {
+        await env.DB.prepare('UPDATE japanese_reminder_scopes SET scheduled_for = ?, updated_at = ? WHERE reminder_id = ?')
+          .bind(next, now, row.id).run();
+      }
       console.error('[WebPush] Scheduled send failed:', row.id, status, providerReason || error?.message || error);
     }
   }
+
+  await env.DB.prepare('DELETE FROM japanese_practice_days WHERE updated_at < ?')
+    .bind(now - 40 * 24 * 60 * 60 * 1000).run();
 }
 
 async function handleFetch(request, env) {
@@ -412,7 +540,11 @@ async function handleFetch(request, env) {
     let databaseReady = false;
     if (env.DB) {
       try {
-        await env.DB.prepare('SELECT 1 FROM japanese_reminders LIMIT 1').first();
+        await env.DB.batch([
+          env.DB.prepare('SELECT 1 FROM japanese_reminders LIMIT 1'),
+          env.DB.prepare('SELECT 1 FROM japanese_reminder_scopes LIMIT 1'),
+          env.DB.prepare('SELECT 1 FROM japanese_practice_days LIMIT 1')
+        ]);
         databaseReady = true;
       } catch {
         databaseReady = false;
@@ -448,6 +580,7 @@ async function handleFetch(request, env) {
   if (url.pathname === '/api/reminders/disable' && request.method === 'POST') return handleDisable(request, env);
   if (url.pathname === '/api/reminders/status' && request.method === 'GET') return handleStatus(request, env);
   if (url.pathname === '/api/reminders/test' && request.method === 'POST') return handleTest(request, env);
+  if (url.pathname === '/api/reminders/activity' && request.method === 'POST') return handleActivity(request, env);
   return jsonResponse(request, env, { error: 'Not found' }, 404);
 }
 

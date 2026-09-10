@@ -1,12 +1,12 @@
-# 日文練習架構 · V1.3.4
+# 日文練習架構 · V1.3.5
 
-V1.3.4 僅移除五十音讀音答題頁的類型及行別提示 DOM 與填值程式，標題改為兩欄。練習設定、資料模型、手寫提示及已驗證的 V1.3.3 貼底配置不變。
+V1.3.5 在 V1.3.4 基礎上加入「提醒前已完成練習則略過當日通知」。六種練習仍由同一個 `recordStudyActivity()` 寫入正式學習日，並非只靠開啟頁面；前端將完成時間非阻塞地同步至 Worker，Cron 發送前再依提醒時區核對。已驗證的 V1.3.3 貼底配置、五十音讀音隱藏提示與其他學習功能不變。
 
 ## 部署結構
 
 同一層共 46 個檔案：25 個前端執行檔、5 個 Cloudflare／npm 檔、10 個測試檔、3 個授權檔、3 個固定說明檔。ZIP 外層資料夾與 ZIP 同名，但上傳 GitHub 時只上傳該資料夾內的檔案。
 
-GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google Drive 儲存備份與裝置學習狀態；Cloudflare Worker、D1、Cron 負責既有每日推播。此版本只更新介面與版號，不變更這些服務間的資料契約。
+GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google Drive 儲存備份與裝置學習狀態；Cloudflare Worker、D1、Cron 負責每日推播與完成狀態核對。本版新增完成回報 API 及兩個 D1 輔助表，因此更新後須執行 `db:init` 與重新部署 Worker。
 
 | 檔案 | 責任 |
 |---|---|
@@ -25,7 +25,7 @@ GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google D
 | handwriting-engine.js | 取樣、增量批次繪圖、手掌處理與輔助評分 |
 | kana-reading.js | 羅馬音判定、別名與讀音紀錄 |
 | chart-renderer.js | 原有統計圖 |
-| reminder-manager.js / push-config.js | 裝置訂閱、時間、測試、錯誤與自動修復 |
+| reminder-manager.js / push-config.js | 裝置訂閱、時間、完成回報、測試、錯誤與自動修復 |
 | sw.js / version-manager.js / version.json | 離線快取、版本比較、安全啟用 |
 | manifest.json / icon-192.png / icon-512.png | PWA 安裝與品牌 |
 | jszip.min.js | 原有 ZIP 備份 |
@@ -71,9 +71,11 @@ GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google D
 
 ## 更新與相容性
 
-使用新 V1_3_4 版本參數與獨立快取名稱；sw.js 仍完整預載前端依賴。開啟時檢查 version.json；先保存資料，再於非練習／非雲端作業狀態啟用及重載。設定頁保留目前版本、最新版本與手動檢查。V1.3.3 未改變此更新流程。
+使用新 V1_3_5 版本參數與獨立快取名稱；sw.js 仍完整預載前端依賴。開啟時檢查 version.json；先保存資料，再於非練習／非雲端作業狀態啟用及重載。設定頁保留目前版本、最新版本與手動檢查。V1.3.3 未改變此更新流程。
 
-Cloudflare 只更新 SERVICE_VERSION，API 與資料表不變。舊 Worker 可繼續服務；不用 db:init，不用換 VAPID。README 包含完整部署與排除方式。
+Cloudflare 新增 `POST /api/reminders/activity`。`japanese_reminder_scopes` 只保存匿名裝置 scope 與訂閱的對應；`japanese_practice_days` 保存當地日期、完成時間與活動類型。scope 由本機隨機值經 SHA-256 產生，Worker 不接收 Email 或 Google Token。Cron 先鎖定到期提醒，再查詢同 scope、同當地日期且完成時間不晚於原定提醒時間的紀錄；符合時直接排到隔天，不呼叫推播供應商。測試通知不套用此條件。
+
+兩個新表以 `CREATE TABLE IF NOT EXISTS` 建立，不修改或清空 `japanese_reminders`。更新須執行 db:init 和 Worker deploy，但不用換 VAPID、Worker URL、D1 綁定或重新授權通知。離線完成會留在本機並於恢復連線後重試；若裝置直到提醒時間後仍無法連上 Worker，雲端排程無法預先得知該次完成。
 
 ## 測試邊界
 

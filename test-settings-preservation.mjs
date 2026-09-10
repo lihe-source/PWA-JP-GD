@@ -14,19 +14,22 @@ test('Japanese defaults and separate push deployment are packaged', async () => 
   assert.match(wrangler, /name = "japanese-daily-reminder"/);
   assert.match(wrangler, /PWA-JP-GD/);
   assert.match(wrangler, /crons = \["\* \* \* \* \*"\]/);
-  assert.match(worker, /SERVICE_VERSION = 'V1\.3\.4'/);
+  assert.match(worker, /SERVICE_VERSION = 'V1\.3\.5'/);
   assert.match(worker, /Japanese Daily Reminder/);
   assert.match(worker, /SELECT 1 FROM japanese_reminders/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminders/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminder_scopes/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_practice_days/);
   assert.doesNotMatch(schema, /CREATE TABLE IF NOT EXISTS reminders\s*\(/);
 });
 
 test('the GitHub release directory is completely flat', async () => {
   const entries = await readdir(new URL('.', import.meta.url), { withFileTypes: true });
-  assert.deepEqual(entries.filter(entry => entry.isDirectory()).map(entry => entry.name), []);
-  assert.equal(entries.length, 46, 'review deployment inventory before adding a file');
-  for (const doc of ['README.md', 'ARCHITECTURE.md', 'CHANGELOG.md']) assert.ok(entries.some(entry => entry.name === doc));
-  assert.ok(!entries.some(entry => /^(ARCHITECTURE_V|CHANGELOG_V|QA_V|UPDATE_V|icon-source|indexl\.html)/.test(entry.name)));
+  const releaseEntries = entries.filter(entry => entry.name !== 'node_modules');
+  assert.deepEqual(releaseEntries.filter(entry => entry.isDirectory()).map(entry => entry.name), []);
+  assert.equal(releaseEntries.length, 46, 'review deployment inventory before adding a file');
+  for (const doc of ['README.md', 'ARCHITECTURE.md', 'CHANGELOG.md']) assert.ok(releaseEntries.some(entry => entry.name === doc));
+  assert.ok(!releaseEntries.some(entry => /^(ARCHITECTURE_V|CHANGELOG_V|QA_V|UPDATE_V|icon-source|indexl\.html)/.test(entry.name)));
 });
 
 test('new install icons are opaque square PNGs and versioned in the manifest', async () => {
@@ -36,7 +39,7 @@ test('new install icons are opaque square PNGs and versioned in the manifest', a
     assert.equal(png.subarray(1,4).toString(), 'PNG');
     assert.equal(png.readUInt32BE(16), size);
     assert.equal(png.readUInt32BE(20), size);
-    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_3_4`));
+    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_3_5`));
   }
   assert.match(await text('THIRD_PARTY_NOTICES.md'), /icons.*add a blue|icons add a blue/);
 });

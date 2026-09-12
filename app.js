@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_5';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_5';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_5';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_6';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_6';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_6';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_3_5';
-import { BackupSchema } from './backup-schema.js?v=V1_3_5';
-import { VersionManager } from './version-manager.js?v=V1_3_5';
-import { TrendChart } from './chart-renderer.js?v=V1_3_5';
-import { PUSH_CONFIG } from './push-config.js?v=V1_3_5';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_5';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_5';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_5';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_5';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_5';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_5';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_5';
+import { AppStorage } from './storage.js?v=V1_3_6';
+import { BackupSchema } from './backup-schema.js?v=V1_3_6';
+import { VersionManager } from './version-manager.js?v=V1_3_6';
+import { TrendChart } from './chart-renderer.js?v=V1_3_6';
+import { PUSH_CONFIG } from './push-config.js?v=V1_3_6';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_6';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_6';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_6';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_6';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_6';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_6';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_6';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_3_5
-// V1.3.5：完成練習後同步通知抑制、藍墨 UI、精簡扁平化交付
+// 日本語練習 PWA - app.js V1_3_6
+// V1.3.6：完成練習後同步通知抑制、藍墨 UI、精簡扁平化交付
 // ===========================
 
-const APP_VERSION = 'V1_3_5';
-const APP_DISPLAY_VERSION = 'V1.3.5';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_5';
+const APP_VERSION = 'V1_3_6';
+const APP_DISPLAY_VERSION = 'V1.3.6';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_6';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -2791,7 +2791,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_5" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_6" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -4217,7 +4217,7 @@ Views.kanaPractice = {
 Views.kanaReadingPractice = {
   state: {
     script: 'hiragana', rows: ['all'], repeat: 1,
-    items: [], index: 0, results: [], answered: false, transitioning: false
+    items: [], initialTotal: 0, index: 0, results: [], answered: false, transitioning: false
   },
   _advanceTimer: null,
 
@@ -4264,6 +4264,7 @@ Views.kanaReadingPractice = {
     this.state.rows = saved.rows;
     this.state.repeat = saved.repeat;
     this.state.items = [];
+    this.state.initialTotal = 0;
     this.state.index = 0;
     this.state.results = [];
     this.state.answered = false;
@@ -4308,6 +4309,7 @@ Views.kanaReadingPractice = {
               <div class="kana-repeat-summary" id="kana-reading-repeat-summary"></div>
             </div>
           </div>
+          <p class="kana-row-summary">答錯的題目會追加到尾端補練；補練再答錯也會追加，總題數會隨之增加。</p>
           <button class="btn-primary kana-start-btn" id="kana-reading-start-btn">開始讀音練習</button>
         </section>
       </div>`;
@@ -4364,6 +4366,7 @@ Views.kanaReadingPractice = {
       void Sound.unlock();
       const pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
       this.state.items = buildRepeatedKanaPractice(pool, this.state.repeat);
+      this.state.initialTotal = this.state.items.length;
       if (!this.state.items.length) { showToast('此條件沒有可練習的假名'); return; }
       this.state.index = 0;
       this.state.results = [];
@@ -4446,11 +4449,11 @@ Views.kanaReadingPractice = {
       input.value = '';
       input.disabled = false;
       input.setAttribute('aria-label', `輸入 ${kana.character} 的羅馬拼音`);
-      input.setAttribute('enterkeyhint', isLast ? 'done' : 'next');
+      input.setAttribute('enterkeyhint', 'next');
     }
     if (submit) {
       submit.disabled = false;
-      submit.textContent = isLast ? '送出並完成練習' : '送出並下一題';
+      submit.textContent = isLast ? '送出答案（答對後完成）' : '送出並下一題';
     }
     if (feedback) feedback.innerHTML = '';
   },
@@ -4468,21 +4471,27 @@ Views.kanaReadingPractice = {
       this.state.transitioning = true;
       const result = { kana, answer: checked.normalized, correct: checked.correct };
       this.state.results.push(result);
+      if (!checked.correct) this.state.items.push({ ...kana });
+      const updatedTotal = this.state.items.length;
+      const progressText = document.getElementById('kana-reading-progress-text');
+      const progressFill = document.getElementById('kana-reading-progress-fill');
+      if (progressText) progressText.textContent = `五十音讀音 ${this.state.index + 1} / ${updatedTotal}`;
+      if (progressFill) progressFill.style.width = `${Math.round((this.state.index + 1) / updatedTotal * 100)}%`;
       KanaReadingProgress.recordAttempt(kana, checked.normalized, checked.correct);
       void (checked.correct ? Sound.playCorrect() : Sound.playWrong());
       const feedback = document.getElementById('kana-reading-feedback');
       if (feedback) feedback.innerHTML = checked.correct
         ? `<div class="is-correct"><strong>✓ 答對了</strong><span>${escapeHTML(kana.character)} = ${escapeHTML(checked.expected)}</span></div>`
-        : `<div class="is-wrong"><strong>✗ 再加油</strong><span>你的答案：${escapeHTML(checked.normalized)}　正確答案：${escapeHTML(checked.expected)}</span></div>`;
+        : `<div class="is-wrong"><strong>✗ 再加油</strong><span>你的答案：${escapeHTML(checked.normalized)}　正確答案：${escapeHTML(checked.expected)}；已追加至尾端補練（共 ${updatedTotal} 題）</span></div>`;
       if (submit) {
         submit.disabled = true;
-        submit.textContent = this.state.index + 1 >= total ? '正在完成…' : '正在前往下一題…';
+        submit.textContent = this.state.index + 1 >= updatedTotal ? '正在完成…' : '正在前往下一題…';
       }
       // Keep the same input element focused. Replacing or disabling it makes iOS
       // dismiss the keyboard, which forced the learner to tap and scroll each time.
       this._advanceTimer = setTimeout(() => {
         this._advanceTimer = null;
-        if (this.state.index + 1 >= total) {
+        if (this.state.index + 1 >= this.state.items.length) {
           this.renderResult(container);
           return;
         }
@@ -4505,6 +4514,7 @@ Views.kanaReadingPractice = {
       <div class="kana-reading-result-view">
         <div class="kana-result-mark">${score >= 80 ? '上手！' : score >= 60 ? '進步中' : '再練習'}</div>
         <h1>五十音讀音完成</h1>
+        <p>原定 ${this.state.initialTotal} 題 ＋ 錯題補練 ${results.length - this.state.initialTotal} 題 ＝ 完成 ${results.length} 題</p>
         <div class="kana-result-summary"><div><strong>${score}</strong><span>正確率</span></div><div><strong>${correct}/${results.length}</strong><span>答對題數</span></div></div>
         ${wrong.length ? `<section class="kana-reading-wrong-list"><h2>需要加強</h2>${wrong.map(item => `<div><b>${item.kana.character}</b><span>你的答案：${escapeHTML(item.answer)}</span><strong>${escapeHTML(item.kana.romaji)}</strong></div>`).join('')}</section>` : '<div class="kana-reading-perfect">🎉 全部答對！</div>'}
         <button class="btn-primary" id="kana-reading-again">再練一次</button>

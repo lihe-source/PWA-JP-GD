@@ -1,6 +1,6 @@
-import { mergeStudyDays } from './study-streak.js?v=V1_3_5';
-import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_3_5';
-import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_3_5';
+import { mergeStudyDays } from './study-streak.js?v=V1_3_6';
+import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_3_6';
+import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_3_6';
 
 export function mergeLearningStates(...states) {
   return {

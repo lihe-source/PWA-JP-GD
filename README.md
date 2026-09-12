@@ -1,4 +1,10 @@
-# 日文練習 · 藍墨 V1.3.5
+# V1.3.6 本次更新
+
+五十音讀音每答錯一次，尾端追加一次補練，直到追加題也完成答對。原定 25 題、共答錯 3 次，實際完成 28 題。所有作答計入統計。
+
+將本資料夾內檔案上傳 GitHub 專案根目錄並覆蓋同名檔案，等待 Pages 發布，重新開啟 PWA，確認版本 V1.3.6。從已完成部署的 V1.3.5 升級，本次不需重新初始化 D1 或部署 Worker。
+
+# 日文練習 · 藍墨 V1.3.6
 
 GitHub Pages： https://lihe-source.github.io/PWA-JP-GD/
 
@@ -11,7 +17,7 @@ GitHub Pages： https://lihe-source.github.io/PWA-JP-GD/
 - 完成判斷和通知訂閱一樣以裝置為單位；每台裝置只傳送隨機識別的匿名雜湊，不傳 Email 或 Google Token。
 - 測試通知仍會立即發送，不受「今日已完成」影響，方便測試通知本身。
 - 離線完成先留在本機，恢復網路後自動重試；若直到提醒時間後仍無法連上 Worker，雲端排程無法預先知道該次完成。
-- 上傳本包 46 個同層檔案後，確認版本為 V1.3.5。此版須建立兩個 D1 輔助表並重新部署 Worker，但不必更換 VAPID Keys 或重新建立 D1。
+- 上傳本包 46 個同層檔案後，確認版本為 V1.3.6。此版須建立兩個 D1 輔助表並重新部署 Worker，但不必更換 VAPID Keys 或重新建立 D1。
 
 ### 保留已確認的貼底排版
 
@@ -40,7 +46,7 @@ GitHub Pages： https://lihe-source.github.io/PWA-JP-GD/
 4. Commit 到原本的 main。維持 **Settings → Pages → Deploy from a branch → main → /(root)**。
 5. GitHub Pages 部署完成後開啟 PWA。設定頁會顯示目前版本、最新版本和檢查更新按鈕；開啟程式也會檢查更新。
 6. 練習中、備份中或本機寫入未完成時，新版不會強制重載；作業結束且資料保存成功後才套用。
-7. 確認首頁右上角與設定頁目前版本均為 V1.3.5。若仍顯示舊版，回到首頁結束練習／備份後，在設定頁按「檢查更新」及「立即更新」。請勿清除網站資料或移除 PWA，以免影響尚未備份的本機紀錄。
+7. 確認首頁右上角與設定頁目前版本均為 V1.3.6。若仍顯示舊版，回到首頁結束練習／備份後，在設定頁按「檢查更新」及「立即更新」。請勿清除網站資料或移除 PWA，以免影響尚未備份的本機紀錄。
 8. 在 Codespaces 專案根目錄依下方 Cloudflare 步驟執行 `npm run db:init` 及 `npm run worker:deploy`。原 VAPID Secrets 保留，不要重新產生。
 
 上傳新版不會自動刪除 GitHub 已有的舊檔。下方列出的舊文件及原始圖可在確認更新正常後做一次性清理。不要刪除不在清單中的程式、設定或授權檔。
@@ -51,7 +57,7 @@ GitHub Pages： https://lihe-source.github.io/PWA-JP-GD/
 
 新版的三個固定文件已承接現行架構、部署與更新說明。旧版本仍可從 Git commit 紀錄查閱。若在 Codespaces 操作，先執行 `git status` 確認沒有尚未保存的工作，再依上述明確檔名刪除，檢查 diff 後提交。不要刪除整個 Repository 或先清空再上傳。
 
-系統可能沿用已安裝 PWA 的舊圖示；即使圖示尚未刷新，只要設定顯示 V1.3.5 就是新版。不要為更新圖示直接刪除 PWA 或網站資料。必要重裝前先備份並確認可以還原；重装後每台裝置須重新檢查通知訂閱。
+系統可能沿用已安裝 PWA 的舊圖示；即使圖示尚未刷新，只要設定顯示 V1.3.6 就是新版。不要為更新圖示直接刪除 PWA 或網站資料。必要重裝前先備份並確認可以還原；重装後每台裝置須重新檢查通知訂閱。
 
 ## 已保留設定
 
@@ -68,9 +74,9 @@ GitHub Pages： https://lihe-source.github.io/PWA-JP-GD/
 
 API Key、VAPID 私密金鑰、Cloudflare Token 及 Google access token 不包含在 ZIP。不要把這些內容 commit 到 GitHub。Google 首次授權、工作階段失效或撤銷授權時仍可能要求操作；自動登入不是繞過 Google 的授權機制。
 
-## Cloudflare（V1.3.5 必須執行一次）
+## Cloudflare（V1.3.6 必須執行一次）
 
-V1.3.5 新增完成回報 API 與兩個 D1 輔助表。在專案根目錄依序執行：
+V1.3.6 新增完成回報 API 與兩個 D1 輔助表。在專案根目錄依序執行：
 
 ```bash
 npm ci
@@ -78,7 +84,7 @@ npm run db:init
 npm run worker:deploy
 ```
 
-`db:init` 使用 `CREATE TABLE IF NOT EXISTS`，不會清除既有 `japanese_reminders`、訂閱或提醒時間。出現確認時輸入 `Y`。部署後開啟 Worker 根網址，應顯示 `version: V1.3.5`、`configured: true`。
+`db:init` 使用 `CREATE TABLE IF NOT EXISTS`，不會清除既有 `japanese_reminders`、訂閱或提醒時間。出現確認時輸入 `Y`。部署後開啟 Worker 根網址，應顯示 `version: V1.3.6`、`configured: true`。
 
 首次建立此服務才執行以下流程：
 
@@ -142,6 +148,6 @@ npm test
 
 本次交付執行本機語法與回歸檢查；不等同於 iPhone／iPad 真機、Google 授權、實際 Drive 寫入或 Apple Push 端到端測試。圖像提案中的評分展示以現有實際欄位「筆形／畫數／方向／起收筆／配置」落實；評分只是本機輔助，不宣稱能辨識筆順。
 
-部署後驗收：首頁資料正確、六種模式可切換、手寫可連續畫筆／評分／下一題、讀音 Enter 可送出與換題、設定資料保存仍在最下方、備份還原正常、各裝置測試通知成功、版本顯示 V1.3.5。另把提醒暫設為數分鐘後，完成一個練習並確認首頁顯示「今天已完成練習」；時間到後不應收到每日提醒。測試通知仍應立即收到。
+部署後驗收：首頁資料正確、六種模式可切換、手寫可連續畫筆／評分／下一題、讀音 Enter 可送出與換題、設定資料保存仍在最下方、備份還原正常、各裝置測試通知成功、版本顯示 V1.3.6。另把提醒暫設為數分鐘後，完成一個練習並確認首頁顯示「今天已完成練習」；時間到後不應收到每日提醒。測試通知仍應立即收到。
 
 技術架構見 ARCHITECTURE.md，變更歷程見 CHANGELOG.md。JSZip、KanjiVG 與 icon 授權見三份授權文件。

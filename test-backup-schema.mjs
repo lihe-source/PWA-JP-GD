@@ -2,42 +2,80 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BackupSchema } from './backup-schema.js';
 
-const baseCollections = {
-  words: [{ english: 'hello' }],
-  history: [{ date: '2026/08/09', total: 5 }],
-  sentences: [],
-  imported: [],
-  boosted: [],
-  readingQuizHistory: [],
-  essayHistory: [],
-  aiAskHistory: [],
-  studyDays: [{ date: '2026-08-09', activities: ['word_quiz'], eventIds: ['e1'], sessionCount: 1 }]
+const collections = {
+  words: [{ english: '食べる', reading: 'たべる', chinese: '吃' }],
+  history: [{ date: '2026/08/18', total: 5 }],
+  sentences: [], imported: [], boosted: [], readingQuizHistory: [], essayHistory: [], aiAskHistory: [],
+  studyDays: [{ date: '2026-08-18', activities: ['kana_handwriting'], eventIds: ['e1'], sessionCount: 1 }],
+  handwritingHistory: [{ id: 'h1', character: 'あ', score: 88 }],
+  kanaReadingHistory: [{ id: 'kr1', character: 'あ', romaji: 'a', answer: 'a', correct: true }],
+  kanaProgress: [{ key: 'hiragana:あ', bestScore: 88 }],
+  preferences: [{
+    jlptLevel: 'N5',
+    practice: {
+      lastPracticeMode: 'kana',
+      wordPractice: { count: 15, order: 'newest' },
+      kanaPractice: { script: 'both', rows: ['a', 'ka'], mode: 'copy', count: 20, repeat: 5, weakOnly: true, layout: 'auto' }
+    }
+  }]
 };
 
-test('V8 backup includes study days and validates its checksum', () => {
-  const payload = BackupSchema.attach(baseCollections, { appVersion: 'V7.2.1', deviceId: 'test' });
-  assert.equal(payload.schemaVersion, 8);
-  assert.equal(payload.collectionCounts.studyDays, 1);
-  assert.equal(BackupSchema.validate(payload).valid, true);
+const stableStringify = value => {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+};
+const hashString = text => {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index++) { hash ^= text.charCodeAt(index); hash = Math.imul(hash, 0x01000193); }
+  return (`00000000${(hash >>> 0).toString(16)}`).slice(-8);
+};
 
-  payload.studyDays[0].sessionCount = 99;
+test('Japanese backup includes streak, handwriting, kana reading and preferences', () => {
+  const payload = BackupSchema.attach(collections, { appVersion: 'V1.0.0', deviceId: 'test' });
+  assert.equal(payload.product, 'pwa-japanese-gd');
+  assert.equal(payload.schemaVersion, 2);
+  assert.equal(payload.collectionCounts.studyDays, 1);
+  assert.equal(payload.collectionCounts.handwriting, 1);
+  assert.equal(payload.collectionCounts.kanaReading, 1);
+  assert.equal(payload.collectionCounts.preferences, 1);
+  assert.deepEqual(payload.preferences[0].practice.kanaPractice.rows, ['a', 'ka']);
+  assert.equal(payload.preferences[0].practice.kanaPractice.repeat, 5);
+  assert.equal(BackupSchema.validate(payload).valid, true);
+});
+
+test('checksum detects modified handwriting data', () => {
+  const payload = BackupSchema.attach(collections, { appVersion: 'V1.0.0' });
+  payload.handwritingHistory[0].score = 1;
   assert.equal(BackupSchema.validate(payload).reason, 'CHECKSUM_MISMATCH');
 });
 
-test('V7 backup checksum remains accepted and is marked for migration', () => {
-  const legacy = { ...baseCollections };
-  delete legacy.studyDays;
-  legacy.schemaVersion = 7;
-  legacy.payloadChecksum = BackupSchema.legacyChecksum(legacy);
-  const validation = BackupSchema.validate(legacy);
-  assert.equal(validation.valid, true);
-  assert.equal(validation.legacy, true);
-  assert.deepEqual(validation.collections.studyDays, []);
+test('English-product backups cannot overwrite the Japanese data store', () => {
+  const payload = BackupSchema.attach(collections);
+  payload.product = 'pwa-vocabulary-gd';
+  assert.equal(BackupSchema.validate(payload).reason, 'WRONG_PRODUCT');
 });
 
-test('V7/V8 comparisons ignore the missing V7 study-days collection', () => {
-  const legacy = { ...baseCollections, schemaVersion: 7 };
-  delete legacy.studyDays;
-  const current = { ...baseCollections, schemaVersion: 8 };
-  assert.equal(BackupSchema.compare(current, legacy).same, true);
+test('identical Japanese payloads compare as the same', () => {
+  const first = BackupSchema.attach(collections);
+  const second = BackupSchema.attach(collections);
+  assert.equal(BackupSchema.compare(first, second).same, true);
+});
+
+test('schema 1 backups remain valid after kana reading was added', () => {
+  const legacyKeys = [
+    'words', 'history', 'sentences', 'imported', 'boosted', 'readingQuizHistory',
+    'essayHistory', 'aiAskHistory', 'studyDays', 'handwritingHistory', 'kanaProgress', 'preferences'
+  ];
+  const legacy = Object.fromEntries(legacyKeys.map(key => [key, collections[key] || []]));
+  const payload = {
+    ...legacy,
+    product: 'pwa-japanese-gd',
+    schemaVersion: 1,
+    payloadChecksum: hashString(stableStringify(legacy))
+  };
+  const validation = BackupSchema.validate(payload);
+  assert.equal(validation.valid, true);
+  assert.deepEqual(validation.collections.kanaReadingHistory, []);
 });

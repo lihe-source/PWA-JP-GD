@@ -1,64 +1,50 @@
-import { AppStorage } from './storage.js?v=V7_4_2';
-import { BackupSchema } from './backup-schema.js?v=V7_4_2';
-import { VersionManager } from './version-manager.js?v=V7_4_2';
-import { TrendChart } from './chart-renderer.js?v=V7_4_2';
-import { PUSH_CONFIG } from './push-config.js?v=V7_4_2';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V7_4_2';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays } from './study-streak.js?v=V7_4_2';
-import { Tasks } from './task-manager.js?v=V7_4_2';
-import { request as netRequest, readableError } from './network.js?v=V7_4_2';
-import { BackupWorker } from './backup-worker-client.js?v=V7_4_2';
-import { DraftManager } from './draft-manager.js?v=V7_4_2';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_7';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_7';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_7';
+let StorageUI = null;
+import { AppStorage } from './storage.js?v=V1_3_7';
+import { BackupSchema } from './backup-schema.js?v=V1_3_7';
+import { VersionManager } from './version-manager.js?v=V1_3_7';
+import { TrendChart } from './chart-renderer.js?v=V1_3_7';
+import { PUSH_CONFIG } from './push-config.js?v=V1_3_7';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_7';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_7';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_7';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_7';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_7';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_7';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_7';
 
 // ===========================
-// 英文單字複習 PWA - app.js V7_4_2
-// V7.4.2：主畫面零阻塞、Google Drive 無打擾自動續登入與單一步驟授權
+// 日本語練習 PWA - app.js V1_3_7
+// V1.3.7：完成練習後同步通知抑制、藍墨 UI、精簡扁平化交付
 // ===========================
 
-const APP_VERSION = 'V7_4_2';
-const APP_DISPLAY_VERSION = 'V7.4.2';
-const APP_CACHE_VERSION = 'Voc-PWA-V7_4_2';
-const Theme = {
-  get() { return AppStorage.getItem('uiTheme') || 'dark'; },
-  apply(mode = this.get()) {
-    const resolved = mode === 'system'
-      ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-      : mode;
-    document.documentElement.dataset.theme = resolved;
-    document.documentElement.dataset.themeMode = mode;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolved === 'dark' ? '#10231b' : '#1a7a4a');
-  },
-  set(mode) { AppStorage.setItem('uiTheme', mode);this.apply(mode); },
-  init() {
-    this.apply();
-    matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{if(this.get()==='system')this.apply('system');});
-  }
-};
-Theme.init();
-const canActivateAppUpdate = () => {
-  const storageStatus = AppStorage.getStatus();
-  if (Tasks.busy || storageStatus.pending || storageStatus.failed) return false;
-  if (document.querySelector('#quiz-ghost-input, .essay-textarea, .reading-quiz-shell, .reading-loading, .ai-loading')) return false;
-  const aiAskInput = document.querySelector('.aiask-textarea');
-  return !String(aiAskInput?.value || '').trim();
-};
+const APP_VERSION = 'V1_3_7';
+const APP_DISPLAY_VERSION = 'V1.3.7';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_7';
+const canActivateAppUpdate = () => canUpdateApp({
+  document, router: Router, storage: AppStorage,
+  cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
+});
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  cachePrefix: 'Voc-PWA-',
+  cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
   canActivate: canActivateAppUpdate
 });
-const DailyReminder = new ReminderManager({ storage: AppStorage, config: PUSH_CONFIG });
+const DailyReminder = new ReminderManager({
+  storage: AppStorage,
+  config: PUSH_CONFIG
+});
 const resumeAppUpdateWhenSafe = () => {
-  if (Tasks.busy) return;
   void AppStorage.flush().then(() => {
     void AppUpdater.activateWaitingIfSafe();
     void AppUpdater.reloadIfSafe();
   }).catch(() => {});
 };
-Tasks.onChange(resumeAppUpdateWhenSafe);
 
 // ===== Web Audio Sound Effects =====
 // iOS/PWA note: speechSynthesis can interrupt Web Audio.  Keep one low-latency
@@ -70,7 +56,18 @@ const Sound = {
   lastPlayed: '',
   lastPlayedAt: '',
 
+  _configureAudioSession() {
+    // iOS uses an ambient session for Web Audio by default, which is muted by the
+    // Ring/Silent switch. Playback keeps learning feedback audible in an installed PWA.
+    try {
+      if (navigator.audioSession && navigator.audioSession.type !== 'playback') {
+        navigator.audioSession.type = 'playback';
+      }
+    } catch {}
+  },
+
   _getCtx() {
+    this._configureAudioSession();
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) {
       this.lastError = '此瀏覽器不支援 Web Audio API';
@@ -98,6 +95,7 @@ const Sound = {
     return {
       supported,
       state,
+      audioSessionType: navigator.audioSession?.type || 'unavailable',
       lastError: this.lastError,
       lastPlayed: this.lastPlayed,
       lastPlayedAt: this.lastPlayedAt
@@ -108,6 +106,7 @@ const Sound = {
   // audio route without relying on speechSynthesis or an asynchronous timer.
   unlock() {
     try {
+      this._configureAudioSession();
       const ctx = this._getCtx();
       if (!ctx) return Promise.resolve(false);
 
@@ -158,6 +157,7 @@ const Sound = {
   // the oscillator is scheduled immediately inside the user's input event.
   _withCtx(fn, label) {
     try {
+      this._configureAudioSession();
       const ctx = this._getCtx();
       if (!ctx) return Promise.resolve(false);
 
@@ -267,8 +267,8 @@ const Sound = {
 // after iOS speech synthesis or returning to the PWA from the background.
 let lastQuizSoundPrimeAt = 0;
 const primeQuizSound = () => {
-  // Keep the global listeners dormant outside the spelling quiz.
-  if (!document.getElementById('quiz-ghost-input')) return;
+  // Keep the global listeners dormant outside spelling and kana-reading practice.
+  if (!document.querySelector('#quiz-ghost-input, #kana-reading-answer')) return;
   if (Sound.ctx?.state === 'running') return;
   const now = Date.now();
   if (now - lastQuizSoundPrimeAt < 750) return;
@@ -561,7 +561,8 @@ const DB = {
   saveWords(words) { AppStorage.setItem('vocabWords', JSON.stringify(words)); },
   addWord(word) {
     const words = this.getWords();
-    const newWord = { id: Date.now().toString(), english: word.english.trim().toLowerCase(), partOfSpeech: word.partOfSpeech || '', chinese: word.chinese.trim(), phonetic: word.phonetic || '', wrongCount: 0, createdAt: todayStr(), frequencyWeight: 1 };
+    const normalized = normalizeJapaneseWord(word);
+    const newWord = { ...normalized, id: Date.now().toString(), wrongCount: 0, createdAt: todayStr(), frequencyWeight: 1 };
     words.push(newWord); this.saveWords(words); return newWord;
   },
   updateWord(id, data) {
@@ -634,7 +635,7 @@ const DB = {
     history.forEach(h => (h.sessions || []).forEach(s => seen.add(String(s.ts || s.id || '') + '|' + (s.article || '').slice(0, 40))));
     for (let i = 1; i < records.length; i++) {
       const cols = this._parseCSVLine(records[i]);
-      if (cols.length < 6) continue;
+      if (cols.length < 7) continue;
       const date = (cols[0] || '').trim();
       const score = parseInt(cols[1]) || 0;
       const correct = parseInt(cols[2]) || 0;
@@ -777,9 +778,9 @@ const DB = {
   },
   saveModel(m) { AppStorage.setItem('geminiModel', m); },
   // ── Google Drive config ──
-  getGDriveClientId()  { return AppStorage.getItem('gdriveClientId') || ''; },
+  getGDriveClientId()  { return AppStorage.getItem('gdriveClientId') || JAPANESE_DEFAULTS.oauthClientId; },
   setGDriveClientId(v) { AppStorage.setItem('gdriveClientId', v); },
-  getGDriveFolderId()  { return AppStorage.getItem('gdriveFolderId') || ''; },
+  getGDriveFolderId()  { return AppStorage.getItem('gdriveFolderId') || JAPANESE_DEFAULTS.driveFolderId; },
   setGDriveFolderId(v) { AppStorage.setItem('gdriveFolderId', v); },
   getGDriveAutoSync()  { return AppStorage.getItem('gdriveAutoSync') === '1'; },
   setGDriveAutoSync(v) { AppStorage.setItem('gdriveAutoSync', v ? '1' : '0'); },
@@ -789,6 +790,157 @@ const DB = {
   saveBoostedWords(ids) { AppStorage.setItem('boostedWords', JSON.stringify(ids)); },
   getTtsDelay()    { return parseInt(AppStorage.getItem('ttsDelay') || '300'); },
   saveTtsDelay(ms) { AppStorage.setItem('ttsDelay', String(ms)); },
+  getJlptLevel() { return AppStorage.getItem('japaneseJlptLevel') || JAPANESE_DEFAULTS.jlptLevel; },
+  saveJlptLevel(level) { AppStorage.setItem('japaneseJlptLevel', String(level || 'N5').toUpperCase()); },
+  getDailyLearningPreferences() {
+    let saved = {};
+    try { saved = JSON.parse(AppStorage.getItem('dailyLearningPreferencesV1') || '{}') || {}; } catch {}
+    return normalizeDailyLearningPreferences({ ...saved, level: this.getJlptLevel() });
+  },
+  saveDailyLearningPreferences(patch = {}) {
+    const current = this.getDailyLearningPreferences();
+    const normalized = normalizeDailyLearningPreferences({ ...current, ...patch });
+    this.saveJlptLevel(normalized.level);
+    AppStorage.setItem('dailyLearningPreferencesV1', JSON.stringify({ source: normalized.source, rows: normalized.rows }));
+    return normalized;
+  },
+  getTodayDailyVocabulary() {
+    try {
+      const saved = JSON.parse(AppStorage.getItem('todayDailyVocabularyV1') || 'null');
+      const preferences = this.getDailyLearningPreferences();
+      const signature = dailyLearningSignature({ date: todayStr(), ...preferences });
+      if (saved?.signature !== signature || !Array.isArray(saved.words) || !saved.words.length) return null;
+      // 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
+      const normalized = { ...saved, words: saved.words.slice(0, 1) };
+      if (saved.words.length !== normalized.words.length) {
+        AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(normalized));
+      }
+      return normalized;
+    } catch { return null; }
+  },
+  saveTodayDailyVocabulary(words) {
+    const preferences = this.getDailyLearningPreferences();
+    const data = {
+      date: todayStr(),
+      signature: dailyLearningSignature({ date: todayStr(), ...preferences }),
+      source: DAILY_LEARNING_SOURCES.LEVEL,
+      level: preferences.level,
+      rows: preferences.rows,
+      words: Array.isArray(words) ? words.slice(0, 1) : [],
+      generatedAt: new Date().toISOString()
+    };
+    AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(data));
+    return data;
+  },
+  getLastPracticeMode() {
+    const saved = AppStorage.getItem('lastPracticeMode') || 'quiz';
+    return ['quiz', 'kana', 'kanaReading', 'essay', 'reading', 'aiask'].includes(saved) ? saved : 'quiz';
+  },
+  saveLastPracticeMode(mode) {
+    const value = ['quiz', 'kana', 'kanaReading', 'essay', 'reading', 'aiask'].includes(mode) ? mode : 'quiz';
+    AppStorage.setItem('lastPracticeMode', value);
+    return value;
+  },
+  getWordPracticePreferences() {
+    let saved = {};
+    try { saved = JSON.parse(AppStorage.getItem('wordPracticePreferencesV1') || '{}') || {}; } catch {}
+    const count = [5, 10, 15, 20, 25, 30].includes(Number(saved.count)) ? Number(saved.count) : 10;
+    const order = ['newest', 'all'].includes(saved.order) ? saved.order : 'all';
+    return { count, order };
+  },
+  saveWordPracticePreferences(patch = {}) {
+    const current = this.getWordPracticePreferences();
+    const next = { ...current, ...patch };
+    const normalized = {
+      count: [5, 10, 15, 20, 25, 30].includes(Number(next.count)) ? Number(next.count) : current.count,
+      order: ['newest', 'all'].includes(next.order) ? next.order : current.order
+    };
+    AppStorage.setItem('wordPracticePreferencesV1', JSON.stringify(normalized));
+    return normalized;
+  },
+  getKanaPracticePreferences() {
+    let saved = {};
+    try { saved = JSON.parse(AppStorage.getItem('kanaPracticePreferencesV1') || '{}') || {}; } catch {}
+    const validRows = new Set(KANA_ROWS.map(row => row.id));
+    let rows = Array.isArray(saved.rows) ? [...new Set(saved.rows.filter(row => validRows.has(row)))] : [];
+    if (saved.row && validRows.has(saved.row) && !rows.length) rows = [saved.row];
+    if (saved.row === 'all' || saved.rows?.includes?.('all') || !rows.length) rows = ['all'];
+    return {
+      script: ['hiragana', 'katakana', 'both'].includes(saved.script) ? saved.script : 'hiragana',
+      rows,
+      mode: ['trace', 'copy', 'recall'].includes(saved.mode) ? saved.mode : 'trace',
+      count: [0, 5, 10, 20].includes(Number(saved.count)) ? Number(saved.count) : 10,
+      repeat: KANA_REPEAT_OPTIONS.includes(Number(saved.repeat)) ? Number(saved.repeat) : 1,
+      weakOnly: saved.weakOnly === true,
+      layout: ['auto', 'phone', 'tablet'].includes(saved.layout) ? saved.layout : 'auto',
+      inputMode: ['auto', 'pen', 'touch'].includes(saved.inputMode) ? saved.inputMode : 'auto',
+      diagnostics: saved.diagnostics === true,
+      autoSpeak: saved.autoSpeak !== false
+    };
+  },
+  saveKanaPracticePreferences(patch = {}) {
+    const current = this.getKanaPracticePreferences();
+    const next = { ...current, ...patch };
+    const validRows = new Set(KANA_ROWS.map(row => row.id));
+    let rows = Array.isArray(next.rows) ? [...new Set(next.rows.filter(row => validRows.has(row)))] : current.rows;
+    if (next.rows?.includes?.('all') || !rows.length) rows = ['all'];
+    const normalized = {
+      script: ['hiragana', 'katakana', 'both'].includes(next.script) ? next.script : current.script,
+      rows,
+      mode: ['trace', 'copy', 'recall'].includes(next.mode) ? next.mode : current.mode,
+      count: [0, 5, 10, 20].includes(Number(next.count)) ? Number(next.count) : current.count,
+      repeat: KANA_REPEAT_OPTIONS.includes(Number(next.repeat)) ? Number(next.repeat) : current.repeat,
+      weakOnly: next.weakOnly === true,
+      layout: ['auto', 'phone', 'tablet'].includes(next.layout) ? next.layout : current.layout,
+      inputMode: ['auto', 'pen', 'touch'].includes(next.inputMode) ? next.inputMode : current.inputMode,
+      diagnostics: next.diagnostics === true,
+      autoSpeak: next.autoSpeak !== false
+    };
+    AppStorage.setItem('kanaPracticePreferencesV1', JSON.stringify(normalized));
+    return normalized;
+  },
+  getKanaReadingPreferences() {
+    let saved = {};
+    try { saved = JSON.parse(AppStorage.getItem('kanaReadingPreferencesV1') || '{}') || {}; } catch {}
+    const validRows = new Set(KANA_ROWS.map(row => row.id));
+    let rows = Array.isArray(saved.rows) ? [...new Set(saved.rows.filter(row => validRows.has(row)))] : [];
+    if (saved.rows?.includes?.('all') || !rows.length) rows = ['all'];
+    return {
+      script: ['hiragana', 'katakana', 'both'].includes(saved.script) ? saved.script : 'hiragana',
+      rows,
+      repeat: KANA_REPEAT_OPTIONS.includes(Number(saved.repeat)) ? Number(saved.repeat) : 1
+    };
+  },
+  saveKanaReadingPreferences(patch = {}) {
+    const current = this.getKanaReadingPreferences();
+    const next = { ...current, ...patch };
+    const validRows = new Set(KANA_ROWS.map(row => row.id));
+    let rows = Array.isArray(next.rows) ? [...new Set(next.rows.filter(row => validRows.has(row)))] : current.rows;
+    if (next.rows?.includes?.('all') || !rows.length) rows = ['all'];
+    const normalized = {
+      script: ['hiragana', 'katakana', 'both'].includes(next.script) ? next.script : current.script,
+      rows,
+      repeat: KANA_REPEAT_OPTIONS.includes(Number(next.repeat)) ? Number(next.repeat) : current.repeat
+    };
+    AppStorage.setItem('kanaReadingPreferencesV1', JSON.stringify(normalized));
+    return normalized;
+  },
+  getPracticePreferenceBundle() {
+    return {
+      lastPracticeMode: this.getLastPracticeMode(),
+      wordPractice: this.getWordPracticePreferences(),
+      kanaPractice: this.getKanaPracticePreferences(),
+      kanaReading: this.getKanaReadingPreferences(),
+      dailyLearning: this.getDailyLearningPreferences()
+    };
+  },
+  applyPracticePreferenceBundle(bundle = {}) {
+    if (bundle.lastPracticeMode) this.saveLastPracticeMode(bundle.lastPracticeMode);
+    if (bundle.wordPractice) this.saveWordPracticePreferences(bundle.wordPractice);
+    if (bundle.kanaPractice) this.saveKanaPracticePreferences(bundle.kanaPractice);
+    if (bundle.kanaReading) this.saveKanaReadingPreferences(bundle.kanaReading);
+    if (bundle.dailyLearning) this.saveDailyLearningPreferences(bundle.dailyLearning);
+  },
   toggleBoost(id) {
     const b = this.getBoostedWords(); const idx = b.indexOf(id);
     if (idx === -1) b.push(id); else b.splice(idx, 1);
@@ -804,7 +956,15 @@ const DB = {
   getSentenceLog() { try { return JSON.parse(AppStorage.getItem('sentenceLog') || '[]'); } catch { return []; } },
   saveSentenceToLog(entry) {
     const log = this.getSentenceLog();
-    log.unshift({ ...entry, id: Date.now().toString() });
+    if (entry?.source === 'daily-recommendation') {
+      for (let index = log.length - 1; index >= 0; index--) {
+        if (log[index]?.date === entry.date && log[index]?.source === 'daily-recommendation') log.splice(index, 1);
+      }
+    }
+    const key = `${entry?.date || todayStr()}|${entry?.wordEn || ''}`;
+    const duplicateIndex = log.findIndex(item => `${item?.date || ''}|${item?.wordEn || ''}` === key);
+    const previous = duplicateIndex >= 0 ? log.splice(duplicateIndex, 1)[0] : null;
+    log.unshift({ ...previous, ...entry, id: previous?.id || Date.now().toString() });
     if (log.length > 120) log.length = 120;
     AppStorage.setItem('sentenceLog', JSON.stringify(log));
   },
@@ -828,11 +988,12 @@ const DB = {
       const wordPos = (cols[2] || '').trim();
       const wordZh = (cols[3] || '').trim();
       const en = (cols[4] || '').trim();
-      const zh = (cols[5] || '').trim();
+      const reading = (cols[5] || '').trim();
+      const zh = (cols[6] || '').trim();
       if (!date || !wordEn || !en || !zh) continue;
       const key = date + '|' + wordEn;
       if (!existingKeys.has(key)) {
-        existing.unshift({ date, wordEn, wordPos, wordZh, en, zh, id: Date.now().toString() + i, source: 'csv' });
+        existing.unshift({ date, wordEn, wordPos, wordZh, en, reading, zh, id: Date.now().toString() + i, source: 'csv' });
         existingKeys.add(key); added++;
       }
     }
@@ -846,14 +1007,14 @@ const DB = {
       date: e.date, wordEn: e.wordEn, wordPos: e.wordPos||'',
       // wordZh: use stored value, fall back to DB lookup so older entries still highlight
       wordZh: e.wordZh || wordMap[(e.wordEn||'').toLowerCase()] || '',
-      en: e.en, zh: e.zh, source: 'ai'
+      en: e.en, reading: e.reading || '', zh: e.zh, source: 'ai'
     }));
     const imported = this.getImportedSentences();
     const all = [...imported, ...ai];
     // Deduplicate by date+wordEn
     const seen = new Set(); const unique = all.filter(e => { const k = e.date+'|'+e.wordEn; if (seen.has(k)) return false; seen.add(k); return true; });
-    const header = ['date','wordEn','wordPos','wordZh','en','zh'];
-    const rows = unique.map(e => [e.date, e.wordEn, e.wordPos||'', e.wordZh||'', e.en, e.zh].map(v => `"${String(v).replace(/"/g,'""')}"`));
+    const header = ['date','wordJa','wordPos','wordZh','ja','reading','zh'];
+    const rows = unique.map(e => [e.date, e.wordEn, e.wordPos||'', e.wordZh||'', e.en, e.reading||'', e.zh].map(v => `"${String(v).replace(/"/g,'""')}"`));
     return [header.join(','), ...rows.map(r => r.join(','))].join('\n');
   },
   // Combined sentence log for home display
@@ -889,13 +1050,15 @@ const DB = {
   },
   // ── CSV 標頭定義（格式鎖定）──
   CSV_HEADERS: {
-    vocab:     '英文單字,詞性,中文,音標,答錯次數,建立日期,頻率加權',
+    vocab:     '日文語彙,假名讀音,羅馬拼音,詞性,繁體中文,JLPT,答錯次數,建立日期,頻率加權',
     essay:     '日期,使用單字,文章,AI批改,分數,模式,題目',
-    sentences: 'date,wordEn,wordPos,wordZh,en,zh',
+    sentences: 'date,wordJa,wordPos,wordZh,ja,reading,zh',
     stats:     '日期,總題數,正確,錯誤,正確率%',
     reading:   '日期,分數,正確題數,總題數,使用單字,文章,題目結果,時間戳',
     aiask:     'ID,問題,回覆,時間戳',
-    studyDays: STUDY_DAYS_CSV_HEADER
+    studyDays: STUDY_DAYS_CSV_HEADER,
+    handwriting: '日期,假名類型,假名,羅馬拼音,練習模式,分數,實際筆畫數,標準筆畫數,時間戳',
+    kanaReading: '日期,假名類型,行別,假名,正確讀音,使用者答案,是否正確,時間戳'
   },
   // 自動偵測 CSV 類型，回傳 'vocab' | 'sentences' | 'stats' | null
   detectCSVType(text) {
@@ -909,14 +1072,16 @@ const DB = {
     if (clean === this.CSV_HEADERS.essay)      return 'essay';
     if (clean === this.CSV_HEADERS.aiask)      return 'aiask';
     if (clean === this.CSV_HEADERS.studyDays)  return 'studyDays';
+    if (clean === this.CSV_HEADERS.handwriting) return 'handwriting';
+    if (clean === this.CSV_HEADERS.kanaReading) return 'kanaReading';
     return null;
   },
   exportStudyDaysCSV() { return StudyStreak.exportCSV(); },
   importStudyDaysCSV(text) { return StudyStreak.importCSV(text); },
   exportCSV() {
     const words = this.getWords();
-    const header = ['英文單字','詞性','中文','音標','答錯次數','建立日期','頻率加權'];
-    const rows = words.map(w => [w.english, w.partOfSpeech, w.chinese, w.phonetic||'', w.wrongCount||0, w.createdAt||'', w.frequencyWeight||1].map(v => `"${String(v).replace(/"/g,'""')}"`));
+    const header = ['日文語彙','假名讀音','羅馬拼音','詞性','繁體中文','JLPT','答錯次數','建立日期','頻率加權'];
+    const rows = words.map(w => [w.english, w.reading||w.phonetic||'', w.romaji||'', w.partOfSpeech, w.chinese, w.jlpt||'未分級', w.wrongCount||0, w.createdAt||'', w.frequencyWeight||1].map(v => `"${String(v).replace(/"/g,'""')}"`));
     return [header.join(','), ...rows.map(r => r.join(','))].join('\n');
   },
   importCSV(text) {
@@ -928,19 +1093,21 @@ const DB = {
     const words = this.getWords(); let added = 0, skipped = 0;
     for (let i = 1; i < records.length; i++) {
       const cols = this._parseCSVLine(records[i]);
-      if (cols.length < 3) { skipped++; continue; }
-      const english = (cols[0] || '').trim().toLowerCase();
-      const partOfSpeech = (cols[1] || '').trim();
-      const chinese = (cols[2] || '').trim();
+      if (cols.length < 5) { skipped++; continue; }
+      const english = (cols[0] || '').trim();
+      const reading = (cols[1] || '').trim();
+      const romaji = (cols[2] || '').trim();
+      const partOfSpeech = (cols[3] || '').trim();
+      const chinese = (cols[4] || '').trim();
       if (!english || !chinese) { skipped++; continue; }
-      const existing = words.find(w => w.english === english);
+      const existing = words.find(w => normalizeJapaneseAnswer(w.english) === normalizeJapaneseAnswer(english));
       if (existing) {
-        existing.partOfSpeech = partOfSpeech; existing.chinese = chinese;
-        if (cols[3]) existing.phonetic = cols[3];
-        if (cols[4]) existing.wrongCount = parseInt(cols[4]) || 0;
-        if (cols[6]) existing.frequencyWeight = parseInt(cols[6]) || 1;
+        existing.partOfSpeech = partOfSpeech; existing.chinese = chinese; existing.romaji = romaji;
+        existing.phonetic = reading; existing.reading = reading; existing.jlpt = (cols[5] || '未分級').trim();
+        if (cols[6]) existing.wrongCount = parseInt(cols[6]) || 0;
+        if (cols[8]) existing.frequencyWeight = parseInt(cols[8]) || 1;
       } else {
-        words.push({ id: (Date.now() + i).toString(), english, partOfSpeech, chinese, phonetic: (cols[3]||'').trim(), wrongCount: parseInt(cols[4])||0, createdAt: (cols[5]||'').trim()||todayStr(), frequencyWeight: parseInt(cols[6])||1 });
+        words.push(normalizeJapaneseWord({ id: (Date.now() + i).toString(), english, reading, phonetic: reading, romaji, partOfSpeech, chinese, jlpt: (cols[5]||'未分級').trim(), wrongCount: parseInt(cols[6])||0, createdAt: (cols[7]||'').trim()||todayStr(), frequencyWeight: parseInt(cols[8])||1 }));
         added++;
       }
     }
@@ -1019,26 +1186,30 @@ const DB = {
   }
 };
 
-function getOrCreateVocabularyDeviceId() {
-  let id = AppStorage.getItem('vocabDeviceId') || '';
+function getOrCreateJapaneseDeviceId() {
+  let id = AppStorage.getItem('japaneseDeviceId') || '';
   if (!id) {
     id = crypto.randomUUID?.() || `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    AppStorage.setItem('vocabDeviceId', id);
+    AppStorage.setItem('japaneseDeviceId', id);
   }
   return id;
 }
 
 const StudyStreak = new StudyStreakManager({
   storage: AppStorage,
-  getDeviceId: getOrCreateVocabularyDeviceId
+  getDeviceId: getOrCreateJapaneseDeviceId
 });
+const KanaProgress = new KanaProgressManager(AppStorage);
+const KanaReadingProgress = new KanaReadingProgressManager(AppStorage);
 
 function getStudyHistorySources() {
   return {
     history: DB.getHistory(),
     readingQuizHistory: DB.getReadingQuizHistory(),
     essayHistory: DB.getEssayHistory(),
-    aiAskHistory: DB.getAiAskHistory()
+    aiAskHistory: DB.getAiAskHistory(),
+    handwritingHistory: KanaProgress.getHistory(),
+    kanaReadingHistory: KanaReadingProgress.getHistory()
   };
 }
 
@@ -1061,8 +1232,18 @@ function refreshStudyStreakUI() {
     todayState.textContent = summary.practicedToday ? '今天已完成練習' : '今天尚未完成練習';
     todayState.classList.toggle('is-complete', summary.practicedToday);
   }
-  const practicedDates = new Set(StudyStreak.getDays().map(day => day.date));
-  document.querySelectorAll('.streak-day[title]').forEach(day => day.classList.toggle('is-done', practicedDates.has(day.getAttribute('title'))));
+  const week = document.getElementById('study-week');
+  if (week) {
+    const practiced = new Set(StudyStreak.getDays().map(day => day.date));
+    const today = new Date();
+    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (today.getDay() + 6) % 7, 12);
+    week.innerHTML = ['一', '二', '三', '四', '五', '六', '日'].map((label, index) => {
+      const day = new Date(monday); day.setDate(monday.getDate() + index);
+      const key = dateKeyFor(day);
+      const done = practiced.has(key);
+      return `<div class="study-week-day ${done ? 'is-done' : ''}" ${key === dateKeyFor(today) ? 'aria-current="date"' : ''} aria-label="${key} ${done ? '已練習' : '未練習'}"><span>${label}</span><b aria-hidden="true">${done ? '✓' : ''}</b></div>`;
+    }).join('');
+  }
   const syncState = document.getElementById('study-streak-sync-status');
   if (syncState) {
     const state = StudyStreak.getSyncState();
@@ -1073,9 +1254,23 @@ function refreshStudyStreakUI() {
 }
 
 function recordStudyActivity(type, eventId = '') {
-  StudyStreak.recordActivity(type, { eventId: `${getOrCreateVocabularyDeviceId()}:${eventId || Date.now()}` });
+  const recorded = StudyStreak.recordActivity(type, { eventId: `${getOrCreateJapaneseDeviceId()}:${eventId || Date.now()}` });
+  DailyReminder.recordPracticeCompletion({
+    occurredAt: recorded.day?.lastActivityAt || new Date(),
+    activityType: type
+  });
   refreshStudyStreakUI();
   queueMicrotask(() => GDrive.scheduleStudyStreakSync());
+}
+
+function syncDailyReminderFromStudyDays() {
+  const today = dateKeyFor(new Date());
+  const day = StudyStreak.getDays().find(item => item.date === today);
+  if (!day) return false;
+  return DailyReminder.recordPracticeCompletion({
+    occurredAt: day.lastActivityAt || day.firstActivityAt || new Date(),
+    activityType: day.activities?.at(-1) || 'practice'
+  });
 }
 
 // ===== GEMINI API =====
@@ -1119,7 +1314,7 @@ const Gemini = {
       .join('');
   },
 
-  // Robust parser: handles EN:/ZH: labels, bold markers, thinking model artifacts
+  // Robust parser for Japanese sentence generation (JA/KANA/ZH).
   _parse(raw) {
     if (!raw) return null;
     // Strip markdown bold/italic markers and <thinking> blocks
@@ -1127,20 +1322,25 @@ const Gemini = {
       .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
       .replace(/\*+/g, '')
       .trim();
-    // Try EN: / ZH: labels (case-insensitive, handles extra spaces)
-    const enMatch = text.match(/EN:\s*([^\n]+)/i);
+    // Keep the historical `en` property as the stored target-language field.
+    const enMatch = text.match(/(?:JA|JP|Japanese|日文|日本語):\s*([^\n]+)/i);
+    const kanaMatch = text.match(/(?:KANA|Reading|讀音|假名|かな):\s*([^\n]+)/i);
     const zhMatch = text.match(/ZH:\s*([^\n]+)/i);
     if (enMatch && zhMatch) {
       const en = enMatch[1].trim().replace(/^["']|["']$/g, '');
       const zh = zhMatch[1].trim().replace(/^["']|["']$/g, '');
-      if (en && zh) return { en, zh };
+      const reading = kanaMatch?.[1]?.trim().replace(/^["']|["']$/g, '') || '';
+      if (en && zh) return { en, zh, reading };
     }
-    // Fallback: take first two non-empty lines as EN then ZH
+    // Fallback: accept either two lines (Japanese/Chinese) or three lines.
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length >= 2) {
-      const en = lines[0].replace(/^(English|EN|Sentence|句子):\s*/i, '').replace(/^["']|["']$/g, '').trim();
-      const zh = lines[1].replace(/^(Chinese|ZH|Translation|中文|翻譯):\s*/i, '').replace(/^["']|["']$/g, '').trim();
-      if (en && zh && en.length > 3 && zh.length > 1) return { en, zh };
+      const en = lines[0].replace(/^(Japanese|JA|JP|Sentence|日文|日本語|句子):\s*/i, '').replace(/^["']|["']$/g, '').trim();
+      const hasReadingLine = lines.length >= 3 && /^(KANA|Reading|讀音|假名|かな):/i.test(lines[1]);
+      const reading = hasReadingLine ? lines[1].replace(/^(KANA|Reading|讀音|假名|かな):\s*/i, '').replace(/^["']|["']$/g, '').trim() : '';
+      const zhLine = hasReadingLine ? lines[2] : lines[1];
+      const zh = zhLine.replace(/^(Chinese|ZH|Translation|中文|翻譯):\s*/i, '').replace(/^["']|["']$/g, '').trim();
+      if (en && zh && en.length > 1 && zh.length > 1) return { en, zh, reading };
     }
     return null;
   },
@@ -1182,11 +1382,11 @@ const Gemini = {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
     const wordList = words.map(w => `"${w.english}" (${w.partOfSpeech}: ${w.chinese})`).join(', ');
-    const prompt = `You are an English writing teacher. Review the student essay below.
+    const prompt = `You are a Japanese writing teacher for a Traditional Chinese learner. Review the Japanese composition below.
 
 Required vocabulary words: ${wordList}
 
-Student essay:
+Student Japanese composition:
 ${essay}
 
 Respond ONLY with a single valid JSON object. No markdown fences, no explanation, no text before or after the JSON.
@@ -1195,8 +1395,8 @@ Required format:
 
 Rules:
 - wordCheck: one entry per required vocabulary word (used=false if not found in essay)
-- grammar: list up to 5 grammar or spelling errors (empty array [] if none).
-  CRITICAL CONSTRAINT: When correcting errors, you MUST keep the required vocabulary words unchanged in "corrected". Do NOT replace or substitute any required vocabulary word with a different word — only fix surrounding grammar, spelling, or sentence structure.
+- grammar: list up to 5 errors in particles, conjugation, kanji/kana spelling, word choice, or naturalness (empty array [] if none).
+  CRITICAL CONSTRAINT: Keep each required Japanese vocabulary item unchanged in "corrected". Fix only the surrounding grammar and expression.
   "exact" must be the EXACT substring copied verbatim from the student essay so it can be found by string search. "corrected" is the fixed replacement. "explanation" is in Traditional Chinese (繁體中文).
 - suggestions: 2-3 tips to improve the essay in Traditional Chinese (繁體中文). Do NOT suggest replacing the required vocabulary words.
 - comment: one sentence overall evaluation in Traditional Chinese (繁體中文)
@@ -1243,7 +1443,7 @@ Rules:
   async reviewEssayFree(essay, topic) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
-    const prompt = `You are an English writing teacher. The student was given this topic/prompt: "${topic}"
+    const prompt = `You are a Japanese writing teacher for a Traditional Chinese learner. The student was given this topic/prompt: "${topic}"
 
 Student essay:
 ${essay}
@@ -1253,7 +1453,7 @@ Required format:
 {"grammar":[{"exact":"string","corrected":"string","explanation":"string"}],"suggestions":["string"],"score":7,"comment":"string"}
 
 Rules:
-- grammar: up to 5 errors. "exact" must be verbatim from essay. "explanation" in 繁體中文.
+- grammar: up to 5 errors in particles, conjugation, kanji/kana spelling, word choice, or naturalness. "exact" must be verbatim from the composition. "explanation" in 繁體中文.
 - suggestions: 2-3 tips in 繁體中文.
 - comment: one sentence evaluation in 繁體中文.
 - score: integer 1-10`;
@@ -1296,11 +1496,12 @@ Rules:
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
 
-    const prompt = `You are a language learning assistant. Create one natural English sentence using the word "${word.english}" (${word.partOfSpeech}: ${word.chinese}), then provide its Traditional Chinese translation.
+    const prompt = `You are a Japanese language learning assistant for a Traditional Chinese learner. Create one natural Japanese sentence at ${DB.getJlptLevel?.() || 'JLPT N5'} level using "${word.english}" (${word.partOfSpeech}: ${word.chinese}). Provide the full kana reading and Traditional Chinese translation.
 
-Output ONLY these two lines, nothing else:
-EN: [your English sentence]
-ZH: [繁體中文 translation]`;
+Output ONLY these three lines, nothing else:
+JA: [Japanese sentence]
+KANA: [full sentence reading in kana]
+ZH: [繁體中文翻譯]`;
 
     const body = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
@@ -1324,6 +1525,55 @@ ZH: [繁體中文 translation]`;
     throw lastErr || new Error('API_ERROR');
   },
 
+  async generateDailyVocabulary({ level, rows, count = 1 }) {
+    const apiKey = DB.getApiKey();
+    if (!apiKey) throw new Error('NO_API_KEY');
+    const normalized = normalizeDailyLearningPreferences({ source: DAILY_LEARNING_SOURCES.LEVEL, level, rows });
+    const rowDescription = selectedLearningRows(normalized.rows)
+      .map(row => `${row.label}（${row.kana}）`).join('、');
+    const prompt = `You are selecting daily Japanese vocabulary for a Traditional Chinese learner.
+
+Target level: JLPT ${normalized.level}
+Allowed initial kana rows: ${rowDescription}
+Number of words: ${count}
+
+Choose ${count} useful, non-duplicate Japanese words commonly taught around JLPT ${normalized.level}. The full kana reading of every word MUST begin with a kana from one of the allowed rows. When several rows are selected, distribute the words across them as evenly as practical. Avoid names, brands, obsolete words, particles by themselves, and words substantially outside the target level.
+
+Return ONLY a JSON array with exactly ${count} objects and no markdown:
+[{"word":"愛","reading":"あい","romaji":"ai","partOfSpeech":"名詞","meaning":"愛、愛情","level":"${normalized.level}"}]
+
+Requirements:
+- word: normal Japanese spelling (kanji/kana as commonly written)
+- reading: full hiragana reading
+- romaji: Hepburn-style lowercase romaji
+- partOfSpeech: Traditional Chinese label
+- meaning: concise Traditional Chinese meaning
+- level: exactly ${normalized.level}`;
+    const body = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.65, maxOutputTokens: 360 }
+    });
+    let best = [];
+    let lastError = null;
+    for (const model of this._getModelList()) {
+      try {
+        const raw = await this._callModel(model, body, apiKey);
+        const parsed = parseDailyVocabularyResponse(raw, { level: normalized.level, rows: normalized.rows, limit: count });
+        if (parsed.length === count) return parsed;
+        for (const word of parsed) {
+          if (!best.some(item => item.word === word.word && item.reading === word.reading)) best.push(word);
+          if (best.length === count) return best;
+        }
+        lastError = new Error('PARSE_ERROR');
+      } catch (error) {
+        if (error.message === 'NETWORK_ERROR') throw error;
+        if (error.fallback) { lastError = error; continue; }
+        throw error;
+      }
+    }
+    throw lastError || new Error('PARSE_ERROR');
+  },
+
 
   async translateReadingArticle(article, words) {
     const apiKey = DB.getApiKey();
@@ -1335,9 +1585,9 @@ ZH: [繁體中文 translation]`;
       const zh = String(w.chinese || '').trim();
       return `${i + 1}. ${en}: ${zh || '請依文章脈絡翻譯'}`;
     }).filter(Boolean).join('\n');
-    const prompt = `Translate the full English reading passage into natural Traditional Chinese for Taiwan learners.
+    const prompt = `Translate the full Japanese reading passage into natural Traditional Chinese for Taiwan learners.
 
-English passage:
+Japanese passage:
 ${cleanArticle}
 
 Target vocabulary and preferred Chinese meanings:
@@ -1381,37 +1631,37 @@ Requirements:
     if (!apiKey) throw new Error('NO_API_KEY');
     const cleanWords = (Array.isArray(words) ? words : []).slice(0, 5).map((w, i) => ({
       index: i + 1,
-      english: String(w.english || '').trim().toLowerCase(),
+      english: String(w.english || '').trim(),
       partOfSpeech: String(w.partOfSpeech || '').trim(),
       chinese: String(w.chinese || '').trim()
     })).filter(w => w.english);
     if (cleanWords.length < 5) throw new Error('NOT_ENOUGH_WORDS');
 
-    const wordList = cleanWords.map(w => `${w.index}. "${w.english}" (${w.partOfSpeech || 'word'}: ${w.chinese || 'no Chinese definition'})`).join('\n');
-    const prompt = `You are an English reading-test generator for Traditional Chinese learners.
+    const wordList = cleanWords.map(w => `${w.index}. "${w.english}" (${w.partOfSpeech || '語彙'}: ${w.chinese || '請依脈絡判斷'})`).join('\n');
+    const prompt = `You are a Japanese reading-test generator for Traditional Chinese learners at ${DB.getJlptLevel?.() || 'JLPT N5'} level.
 
 Selected vocabulary words:
 ${wordList}
 
-Create a short, natural English reading passage and a synonym multiple-choice quiz.
+Create a short, natural Japanese reading passage and a closest-meaning multiple-choice quiz.
 
 Respond ONLY with a single valid JSON object. No markdown fences, no explanation, no text before or after JSON.
 Required JSON format:
 {
-  "article": "English passage under 200 words. Use every selected vocabulary word exactly as written at least once.",
+  "article": "Natural Japanese passage, about 180-300 Japanese characters. Use every selected vocabulary item exactly as written at least once.",
   "questions": [
-    {"word":"selected vocabulary word", "correctSynonym":"one correct English synonym", "options":["option A", "option B", "option C"]}
+    {"word":"selected vocabulary item", "correctSynonym":"one correct Japanese meaning or paraphrase", "options":["Japanese option A", "Japanese option B", "Japanese option C"]}
   ]
 }
 
 Rules:
-- article must be under 200 English words.
+- article must be natural Japanese and no more than 450 Japanese characters.
 - questions must contain exactly 5 items, one item for each selected vocabulary word.
-- options must contain exactly 3 English options.
+- options must contain exactly 3 short Japanese options.
 - exactly one option must be the correct synonym, and it must equal correctSynonym.
-- the other two options must be plausible English distractors but NOT synonyms.
+- the other two options must be plausible Japanese distractors but NOT equivalent meanings.
 - Do not translate the article.
-- Keep the article suitable for CEFR A2-B1 learners.`;
+- Use everyday vocabulary and short sentences suitable for the selected JLPT level.`;
 
     const body = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
@@ -1434,7 +1684,7 @@ Rules:
       let options = Array.isArray(q?.options) ? q.options.map(o => String(o || '').trim()).filter(Boolean) : [];
       if (correct && !options.some(o => o.toLowerCase() === correct.toLowerCase())) options.unshift(correct);
       options = [...new Set(options)].slice(0, 3);
-      while (options.length < 3) options.push(['meaning', 'opposite', 'example'][options.length] + ' ' + (idx + 1));
+      while (options.length < 3) options.push(['同じ意味', '反対の意味', '別の表現'][options.length] + String(idx + 1));
       return {
         word: wordObj.english,
         wordId: wordObj.id || '',
@@ -1453,16 +1703,16 @@ Rules:
         if (!jsonStr) { lastErr = new Error('PARSE_ERROR: no JSON'); continue; }
         const parsed = JSON.parse(jsonStr);
         const article = String(parsed.article || '').trim();
-        const articleWordCount = (article.match(/\b[\w'-]+\b/g) || []).length;
-        const missingWords = cleanWords.filter(w => !(new RegExp(`\\b${escapeRegex(w.english)}\\b`, 'i')).test(article));
+        const articleCharacterCount = Array.from(article.replace(/\s/g, '')).length;
+        const missingWords = cleanWords.filter(w => !article.includes(w.english));
         const rawQuestions = Array.isArray(parsed.questions) ? parsed.questions : [];
-        if (!article || articleWordCount > 200 || missingWords.length || rawQuestions.length < 5) {
+        if (!article || articleCharacterCount > 450 || missingWords.length || rawQuestions.length < 5) {
           lastErr = new Error('PARSE_ERROR: article or quiz does not meet requirements');
           continue;
         }
         const questions = cleanWords.map((cw, i) => {
-          const originalWord = words.find(w => String(w.english || '').trim().toLowerCase() === cw.english) || cw;
-          const match = rawQuestions.find(q => String(q?.word || '').trim().toLowerCase() === cw.english) || rawQuestions[i] || {};
+          const originalWord = words.find(w => normalizeJapaneseAnswer(w.english) === normalizeJapaneseAnswer(cw.english)) || cw;
+          const match = rawQuestions.find(q => normalizeJapaneseAnswer(q?.word) === normalizeJapaneseAnswer(cw.english)) || rawQuestions[i] || {};
           return normalizeQuestion(match, originalWord, i);
         });
         if (questions.every(q => q.correctSynonym && q.options.length === 3)) return { article, questions };
@@ -1548,23 +1798,27 @@ Rules:
     return entries.filter(e => e.english && e.chinese);
   },
 
-  // Look up a single word via AI and return all POS senses as structured JSON
+  // Look up Japanese vocabulary via AI. Historical field names remain compatible
+  // with the existing views: `english` stores Japanese and `phonetic` stores kana.
   async lookupWord(word) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
-    const prompt = `You are an English dictionary. Look up the word "${word}" and return ALL its parts of speech (noun, verb, adjective, etc.) as a JSON array.
+    const prompt = `You are a Japanese dictionary for Traditional Chinese learners. Look up "${word}" and return its useful Japanese senses as a JSON array.
 
 Each element must have these fields:
-- "english": the word in lowercase
-- "phonetic": IPA pronunciation WITHOUT any slashes, e.g. ˈpæʃən (NOT /ˈpæʃən/)
-- "pos": part of speech abbreviation in Traditional Chinese style, use one of: n. v. adj. adv. prep. conj. pron. aux. num. interj.
+- "japanese": the standard Japanese spelling
+- "reading": the full reading in hiragana
+- "romaji": Hepburn romanization without tone marks
+- "pos": concise Traditional Chinese part of speech, such as 名詞、五段動詞、一段動詞、い形容詞、な形容詞、副詞、慣用語
 - "chinese": concise Traditional Chinese definition (1-3 meanings separated by semicolons, max 30 chars)
-- "example": one short example sentence in English (max 12 words)
+- "example": one short natural Japanese example sentence
+- "exampleReading": the example sentence's full kana reading
+- "jlpt": one of N5, N4, N3, N2, N1, or 未分級
 
 Return ONLY the JSON array. No markdown, no explanation. Example:
-[{"english":"run","phonetic":"rʌn","pos":"v.","chinese":"跑；運行；管理","example":"She runs every morning."},{"english":"run","phonetic":"rʌn","pos":"n.","chinese":"跑步；一段路程","example":"Let's go for a run."}]
+[{"japanese":"食べる","reading":"たべる","romaji":"taberu","pos":"一段動詞","chinese":"吃；食用","example":"毎朝パンを食べます。","exampleReading":"まいあさぱんをたべます。","jlpt":"N5"}]
 
-If the word does not exist or is invalid, return: []`;
+If the input is not valid Japanese vocabulary, return: []`;
 
     const body = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
@@ -1591,11 +1845,15 @@ If the word does not exist or is invalid, return: []`;
         const arr = JSON.parse(text.slice(start, end + 1));
         if (Array.isArray(arr)) {
           return arr.map(item => ({
-            english:  String(item.english || word || '').trim().toLowerCase(),
-            phonetic: String(item.phonetic || '').replace(/^\/+|\/+$/g, '').trim(),
+            english:  String(item.japanese || item.english || word || '').trim(),
+            phonetic: String(item.reading || item.phonetic || '').trim(),
+            reading:  String(item.reading || item.phonetic || '').trim(),
+            romaji:   String(item.romaji || '').trim(),
             pos:      String(item.pos || '').trim(),
             chinese:  String(item.chinese || '').trim(),
-            example:  String(item.example || '').trim()
+            example:  String(item.example || '').trim(),
+            exampleReading: String(item.exampleReading || '').trim(),
+            jlpt: String(item.jlpt || '未分級').trim()
           })).filter(item => item.english && item.chinese);
         }
         lastErr = new Error('NOT_ARRAY');
@@ -1605,27 +1863,14 @@ If the word does not exist or is invalid, return: []`;
         lastErr = err;
       }
     }
-    // Database lookup should remain useful even when Gemini is blocked by network/region, model availability, quota, or parsing issues.
-    // Do not hide true API-key/auth problems, because those require settings changes.
-    if (!this._isAuthError(lastErr)) {
-      const fallbackEntries = await this._lookupWordPublicFallback(word);
-      if (fallbackEntries.length) return fallbackEntries;
-      if (this._isLocationError(lastErr)) {
-        const e = new Error('REGION_UNSUPPORTED_NO_FALLBACK');
-        e.originalMessage = String(lastErr?.message || '');
-        throw e;
-      }
+    if (this._isLocationError(lastErr)) {
+      const e = new Error('REGION_UNSUPPORTED_NO_FALLBACK');
+      e.originalMessage = String(lastErr?.message || '');
+      throw e;
     }
     throw lastErr || new Error('API_ERROR');
   }
 };
-
-// Yield between expensive backup/restore phases so Safari/iOS can repaint
-// button progress and keep touch/scroll input responsive.
-const yieldForUI = () => new Promise(resolve => {
-  if (document.hidden || typeof requestAnimationFrame !== 'function') setTimeout(resolve, 0);
-  else requestAnimationFrame(() => setTimeout(resolve, 0));
-});
 
 // ===== GOOGLE DRIVE SYNC =====
 const GDrive = {
@@ -1634,24 +1879,27 @@ const GDrive = {
   _client: null,
   _clientKey: '',
   _gisPromise: null,
-  _tokenRequestPromise: null,
-  _profilePromise: null,
+  _silentRestorePromise: null,
   _streakSyncTimer: null,
   _streakSyncPromise: null,
-  STUDY_STREAK_FILE: 'vocab_study_streak.json',
+  STUDY_STREAK_FILE: 'japanese_learning_state.json',
   SESSION_KEYS: {
-    token: 'gdriveToken',
-    email: 'gdriveEmail',
-    expiry: 'gdriveExpiry',
-    clientId: 'gdriveSessionClientId',
-    scope: 'gdriveSessionScope',
-    lastLogin: 'gdriveLastLoginAt'
+    token: 'japaneseGdriveToken',
+    email: 'japaneseGdriveEmail',
+    expiry: 'japaneseGdriveExpiry',
+    clientId: 'japaneseGdriveSessionClientId',
+    scope: 'japaneseGdriveSessionScope',
+    lastLogin: 'japaneseGdriveLastLoginAt'
   },
   SCOPE: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
   EXPIRY_MARGIN_MS: 5 * 60 * 1000,
+  REQUEST_TIMEOUT_MS: 20000,
+  UPLOAD_TIMEOUT_MS: 45000,
 
   isSignedIn() { return !!this._token && !this._isTokenExpired(); },
-  hasRememberedSession() { return !!this.getUserEmail(); },
+  hasRememberedSession() {
+    return !!this.getUserEmail() || !!AppStorage.getItem(this.SESSION_KEYS.lastLogin);
+  },
   getUserEmail() { return this._email || AppStorage.getItem(this.SESSION_KEYS.email) || ''; },
   getSessionStatus() {
     if (this.isSignedIn()) return 'active';
@@ -1661,52 +1909,62 @@ const GDrive = {
   _loadGIS() {
     if (window.google?.accounts?.oauth2) return Promise.resolve();
     if (this._gisPromise) return this._gisPromise;
-
     this._gisPromise = new Promise((resolve, reject) => {
       let settled = false;
-      const complete = (fn, value) => {
+      const finish = (error) => {
         if (settled) return;
         settled = true;
-        clearInterval(poll);
         clearTimeout(timeout);
-        fn(value);
+        clearInterval(poll);
+        if (error) reject(error);
+        else resolve();
       };
-      const finish = () => {
-        if (window.google?.accounts?.oauth2) complete(resolve);
+      const detect = () => {
+        if (window.google?.accounts?.oauth2) finish();
       };
-      const poll = setInterval(finish, 75);
-      const timeout = setTimeout(() => complete(reject, new Error('GIS_LOAD_FAILED')), 12000);
-      const existing = document.querySelector('script[data-gis="1"]');
-      if (existing) {
-        existing.addEventListener('load', finish, { once: true });
-        existing.addEventListener('error', () => complete(reject, new Error('GIS_LOAD_FAILED')), { once: true });
-        finish();
-        return;
+      const timeout = setTimeout(() => finish(new Error('GIS_LOAD_TIMEOUT')), 12000);
+      const poll = setInterval(detect, 50);
+      let script = document.querySelector('script[data-gis="1"]');
+      if (!script) {
+        script = document.createElement('script');
+        script.src = 'https://accounts.google.com/gsi/client';
+        script.async = true;
+        script.defer = true;
+        script.dataset.gis = '1';
+        document.head.appendChild(script);
       }
-      const script = document.createElement('script');
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.async = true;
-      script.defer = true;
-      script.dataset.gis = '1';
-      script.onload = finish;
-      script.onerror = () => complete(reject, new Error('GIS_LOAD_FAILED'));
-      document.head.appendChild(script);
+      script.addEventListener('load', detect, { once: true });
+      script.addEventListener('error', () => finish(new Error('GIS_LOAD_FAILED')), { once: true });
+      detect();
     }).catch(error => {
       this._gisPromise = null;
       throw error;
     });
-
     return this._gisPromise;
   },
 
-  preloadGIS() {
-    if (!DB.getGDriveClientId() || !navigator.onLine) return Promise.resolve(false);
-    return this._loadGIS()
-      .then(() => true)
-      .catch(error => {
-        console.info('[GDrive] GIS preload skipped:', error.message);
-        return false;
-      });
+  preload() {
+    if (!navigator.onLine || !DB.getGDriveClientId()) return;
+    void this._loadGIS().catch(error => {
+      console.info('[GDrive] GIS preload deferred:', error.message);
+    });
+  },
+
+  _progress(options, message, percent = 0) {
+    try { options?.onProgress?.({ message, percent }); } catch {}
+  },
+
+  async _fetch(url, options = {}, timeoutMs = this.REQUEST_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error('DRIVE_TIMEOUT');
+      throw new Error('DRIVE_NETWORK_ERROR: ' + (error?.message || 'Fetch failed'));
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   _sessionClientId() { return AppStorage.getItem(this.SESSION_KEYS.clientId) || ''; },
@@ -1730,28 +1988,6 @@ const GDrive = {
     AppStorage.setItem(this.SESSION_KEYS.lastLogin, new Date().toISOString());
   },
 
-  refreshUserEmail(token = this._token) {
-    if (!token) return Promise.resolve(this.getUserEmail());
-    if (this._profilePromise) return this._profilePromise;
-    this._profilePromise = netRequest('https://www.googleapis.com/oauth2/v1/userinfo', {
-      headers: { Authorization: 'Bearer ' + token }
-    }, { timeout: 12000, retries: 1 })
-      .then(response => response.data)
-      .then(info => {
-        // Ignore a late profile response if another token has already replaced it.
-        if (token !== this._token) return this.getUserEmail();
-        const email = String(info?.email || '').trim();
-        if (email) {
-          this._email = email;
-          AppStorage.setItem(this.SESSION_KEYS.email, email);
-        }
-        return this.getUserEmail();
-      })
-      .catch(() => this.getUserEmail())
-      .finally(() => { this._profilePromise = null; });
-    return this._profilePromise;
-  },
-
   _clearTokenOnly() {
     this._token = null;
     sessionStorage.removeItem(this.SESSION_KEYS.token);
@@ -1773,90 +2009,93 @@ const GDrive = {
     const email = AppStorage.getItem(this.SESSION_KEYS.email) || '';
     const exp = this._expiry();
     if (email) this._email = email;
-    if (!token || !email || !clientId || !this._hasSameClientAndScope(clientId)) return false;
+    if (!token || !clientId || !this._hasSameClientAndScope(clientId)) return false;
     if (Date.now() > exp - this.EXPIRY_MARGIN_MS) return false;
     this._token = token;
     this._email = email;
     return true;
   },
 
-  async _getClient(clientId) {
-    await this._loadGIS();
-    const key = clientId + '|' + this.SCOPE;
-    if (!this._client || this._clientKey !== key) {
-      this._clientKey = key;
-      this._client = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: this.SCOPE,
-        include_granted_scopes: true,
-        callback: () => {},
-        error_callback: () => {}
-      });
-    }
+  _createClient(clientId, callback, errorCallback) {
+    this._clientKey = clientId + '|' + this.SCOPE;
+    this._client = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: this.SCOPE,
+      include_granted_scopes: true,
+      callback,
+      error_callback: errorCallback
+    });
     return this._client;
   },
 
-  async _requestToken({ promptMode = '', accountHint = '' } = {}) {
-    // Google TokenClient uses mutable callbacks. Share a single in-flight request
-    // so startup refresh and a user action cannot overwrite each other's callback.
-    if (this._tokenRequestPromise) return this._tokenRequestPromise;
-
-    this._tokenRequestPromise = (async () => {
-      const clientId = DB.getGDriveClientId();
-      if (!clientId) throw new Error('NO_CLIENT_ID');
-      const client = await this._getClient(clientId);
-      const hint = accountHint || this.getUserEmail();
-      return new Promise((resolve, reject) => {
-        let settled = false;
-        const timer = setTimeout(() => fail(new Error('AUTH_TIMEOUT')), 45000);
-        const fail = (err) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          reject(err instanceof Error ? err : new Error(String(err || 'AUTH_FAILED')));
-        };
-        client.callback = (resp) => {
-          if (settled) return;
-          if (resp.error) { fail(new Error(resp.error)); return; }
-          settled = true;
-          clearTimeout(timer);
-
-          // Do not hold up sign-in for the extra userinfo HTTP request. Persist the
-          // access token immediately; refresh the e-mail label in the background.
-          this._saveSession(resp.access_token, this.getUserEmail(), resp.expires_in, clientId);
-          void this.refreshUserEmail(resp.access_token);
-          resolve(resp);
-        };
-        client.error_callback = (e) => fail(new Error(e?.type || e?.message || 'AUTH_FAILED'));
-        const req = { prompt: promptMode };
-        if (hint) {
-          req.hint = hint;
-          req.login_hint = hint;
-        }
-        client.requestAccessToken(req);
-      });
-    })();
-
-    try { return await this._tokenRequestPromise; }
-    finally { this._tokenRequestPromise = null; }
+  async _refreshUserEmail(accessToken) {
+    try {
+      const response = await this._fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }, 12000);
+      if (!response.ok) return;
+      const info = await response.json();
+      if (this._token !== accessToken || !info.email) return;
+      this._email = info.email;
+      AppStorage.setItem(this.SESSION_KEYS.email, info.email);
+      this.scheduleStudyStreakSync(500);
+    } catch (error) {
+      console.info('[GDrive] Account email refresh deferred:', error.message);
+    }
   },
 
-  async silentRefresh({ noUi = false } = {}) {
-    // V7.4.2: prompt:'none' is used only for best-effort reconnects that must
-    // never interrupt the user with Google's account/consent dialog.
-    await this._requestToken({
-      promptMode: noUi ? 'none' : '',
-      accountHint: this.getUserEmail()
+  async _requestToken({ promptMode, accountHint = '' } = {}) {
+    const clientId = DB.getGDriveClientId();
+    if (!clientId) throw new Error('NO_CLIENT_ID');
+    await this._loadGIS();
+    const hint = accountHint || this.getUserEmail();
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => fail(new Error('AUTH_TIMEOUT')), 30000);
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err || 'AUTH_FAILED')));
+      };
+      const handleToken = (resp) => {
+        if (settled) return;
+        if (resp.error) { fail(new Error(resp.error)); return; }
+        settled = true;
+        clearTimeout(timer);
+        this._saveSession(resp.access_token, this.getUserEmail(), resp.expires_in, clientId);
+        resolve();
+        // User info is useful for display, but it must not delay login or Drive operations.
+        void this._refreshUserEmail(resp.access_token);
+      };
+      const req = {};
+      // An empty prompt is meaningful to Google: it reuses a previously approved
+      // account without showing the account chooser. Do not test truthiness here,
+      // otherwise GIS falls back to its default `select_account` prompt.
+      if (promptMode !== undefined) req.prompt = promptMode;
+      if (hint) req.login_hint = hint;
+      try {
+        const client = this._createClient(
+          clientId,
+          handleToken,
+          e => fail(new Error(e?.type || e?.message || 'AUTH_FAILED'))
+        );
+        client.requestAccessToken(req);
+      } catch (error) {
+        fail(error);
+      }
     });
   },
 
+  async silentRefresh() {
+    // Startup must never display an account chooser or consent dialog. When the
+    // Google session cannot be restored without UI, the app remains usable and
+    // Drive authorization is deferred to the next user-initiated Drive action.
+    await this._requestToken({ promptMode: 'none', accountHint: this.getUserEmail() });
+  },
+
   async signIn() {
-    if (this.isSignedIn() || this.tryRestoreFromStorage()) return;
-    const remembered = this.getUserEmail();
-    // One user gesture, one Google flow. An empty prompt plus login_hint reuses
-    // an existing grant/account when possible and only shows Google UI when
-    // Google itself requires authentication or consent.
-    await this._requestToken({ promptMode: '', accountHint: remembered });
+    await this._requestToken({ promptMode: 'select_account' });
   },
 
   async reconnect() {
@@ -1867,31 +2106,40 @@ const GDrive = {
     const interactive = !!options.interactive;
     if (this.isSignedIn()) return;
     if (this.tryRestoreFromStorage()) return;
-
-    this._clearTokenOnly();
-    if (!interactive) throw new Error('TOKEN_EXPIRED');
-
-    // Drive actions are already initiated by a real tap/click. Reuse that same
-    // gesture instead of asking the user to press a separate Sign in button and
-    // then confirming a second account-selection prompt.
-    try {
-      await this._requestToken({ promptMode: '', accountHint: this.getUserEmail() });
-    } catch (error) {
+    if (interactive) {
+      // Keep the token request inside the original tap. A silent attempt followed by
+      // a second request loses Safari's user activation and can block the popup.
+      await this._requestToken({
+        promptMode: this.getUserEmail() ? '' : 'consent select_account',
+        accountHint: this.getUserEmail()
+      });
+      return;
+    }
+    try { await this.silentRefresh(); }
+    catch {
       this._clearTokenOnly();
-      throw error;
+      throw new Error('TOKEN_EXPIRED');
     }
   },
 
-  async tryRestoreToken({ noUi = true } = {}) {
+  async tryRestoreToken() {
     if (this.tryRestoreFromStorage()) return true;
-    if (!DB.getGDriveClientId() || !this.getUserEmail()) return false;
-    try {
-      await this.silentRefresh({ noUi });
-      return true;
-    } catch (e) {
-      this._clearTokenOnly();
-      return false;
-    }
+    if (!DB.getGDriveClientId()) return false;
+    if (!this.hasRememberedSession()) return false;
+    if (this._silentRestorePromise) return this._silentRestorePromise;
+    this._silentRestorePromise = (async () => {
+      try {
+        await this.silentRefresh();
+        return true;
+      } catch (error) {
+        this._clearTokenOnly();
+        console.info('[GDrive] Silent account restore deferred:', error?.message || error);
+        return false;
+      } finally {
+        this._silentRestorePromise = null;
+      }
+    })();
+    return this._silentRestorePromise;
   },
 
   signOut() {
@@ -1900,15 +2148,14 @@ const GDrive = {
     }
     this._client = null;
     this._clientKey = '';
-    this._tokenRequestPromise = null;
-    this._profilePromise = null;
+    this._silentRestorePromise = null;
     clearTimeout(this._streakSyncTimer);
     this._streakSyncTimer = null;
     this._clearSession();
   },
 
   _getDeviceId() {
-    return getOrCreateVocabularyDeviceId();
+    return getOrCreateJapaneseDeviceId();
   },
 
   _buildCollections() {
@@ -1921,22 +2168,20 @@ const GDrive = {
       readingQuizHistory: DB.getReadingQuizHistory(),
       essayHistory: DB.getEssayHistory(),
       aiAskHistory: DB.getAiAskHistory(),
-      studyDays: StudyStreak.getDays()
+      studyDays: StudyStreak.getDays(),
+      handwritingHistory: KanaProgress.getHistory(),
+      kanaReadingHistory: KanaReadingProgress.getHistory(),
+      kanaProgress: KanaProgress.getProgress(),
+      preferences: [{
+        jlptLevel: DB.getJlptLevel(),
+        ttsDelay: DB.getTtsDelay(),
+        geminiModel: DB.getModel(),
+        practice: DB.getPracticePreferenceBundle()
+      }]
     };
   },
 
   _buildPayload() {
-    return BackupSchema.attach(this._buildCollections(), {
-      appVersion: APP_DISPLAY_VERSION,
-      deviceId: this._getDeviceId(),
-      revision: Date.now()
-    });
-  },
-
-  _buildRecoveryPayload() {
-    // Local recovery points live in this app's own IndexedDB. They do not need
-    // the expensive cloud checksum pass; keeping schemaVersion=8 preserves all
-    // collections, including studyDays, when the snapshot is restored.
     return BackupSchema.attach(this._buildCollections(), {
       appVersion: APP_DISPLAY_VERSION,
       deviceId: this._getDeviceId(),
@@ -1961,44 +2206,67 @@ const GDrive = {
       '閱讀測驗 ' + (counts.reading || 0),
       '文章 ' + (counts.essay || 0),
       'AI詢問 ' + (counts.aiAsk || 0),
-      '練習天數 ' + (counts.studyDays || 0)
+      '練習天數 ' + (counts.studyDays || 0),
+      '五十音手寫 ' + (counts.handwriting || 0),
+      '五十音讀音 ' + (counts.kanaReading || 0)
     ].join('・');
   },
 
-  async _listStudyStreakFiles() {
-    const q = `name='${this.STUDY_STREAK_FILE}' and mimeType='application/json' and trashed=false`;
-    const params = new URLSearchParams({ q, fields: 'files(id,name,createdTime,modifiedTime)', orderBy: 'modifiedTime desc', pageSize: '20' });
-    const response = await netRequest('https://www.googleapis.com/drive/v3/files?' + params, {
-      headers: { Authorization: 'Bearer ' + this._token }
-    }, { timeout: 20000, retries: 1 }).catch(error => {
-      if (error.message === 'TOKEN_EXPIRED') this._clearTokenOnly();
-      throw error;
-    });
-    return response.data.files || [];
+  _studyStateName() {
+    return `japanese_learning_state_${this._getDeviceId().replace(/[^a-zA-Z0-9_-]/g, '')}.json`;
   },
 
-  async _downloadStudyStreakFile(fileId) {
-    const response = await netRequest(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
+  async _listStudyStreakFiles() {
+    const folderId = DB.getGDriveFolderId();
+    let q = `(name='${this.STUDY_STREAK_FILE}' or name contains 'japanese_learning_state_') and mimeType='application/json' and trashed=false`;
+    if (folderId) q += ` and '${escapeDriveQuery(folderId)}' in parents`;
+    const files = [];
+    let pageToken = '';
+    do {
+      const params = new URLSearchParams({ q, fields: 'nextPageToken,files(id,name,createdTime,modifiedTime)', orderBy: 'modifiedTime desc', pageSize: '100' });
+      if (pageToken) params.set('pageToken', pageToken);
+      const response = await this._fetch('https://www.googleapis.com/drive/v3/files?' + params, {
+        headers: { Authorization: 'Bearer ' + this._token }
+      });
+      if (!response.ok) {
+        if (response.status === 401) this._clearTokenOnly();
+        throw new Error('STREAK_LIST_FAILED: ' + response.status);
+      }
+      const data = await response.json();
+      files.push(...(data.files || []));
+      pageToken = data.nextPageToken || '';
+    } while (pageToken);
+    return files;
+  },
+
+  async _downloadStudyStreakFile(fileId, ready = async () => {}) {
+    const response = await this._fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
       headers: { Authorization: 'Bearer ' + this._token }
-    }, { timeout: 20000, retries: 1 }).catch(error => {
-      if (error.message === 'TOKEN_EXPIRED') this._clearTokenOnly();
-      throw error;
     });
-    const data = response.data;
-    if (!data || !Array.isArray(data.studyDays)) throw new Error('STREAK_FILE_INVALID');
+    if (!response.ok) {
+      if (response.status === 401) this._clearTokenOnly();
+      throw new Error('STREAK_DOWNLOAD_FAILED: ' + response.status);
+    }
+    const raw = await response.text();
+    await ready();
+    const data = JSON.parse(raw);
+    if (!data || data.dataType !== 'japanese-learning-state' || !Array.isArray(data.studyDays)) throw new Error('STREAK_FILE_INVALID');
     return data;
   },
 
-  _buildStudyStreakPayload(studyDays) {
+  _buildStudyStreakPayload(studyDays, handwritingHistory = KanaProgress.getHistory(), kanaReadingHistory = KanaReadingProgress.getHistory()) {
     return {
-      dataType: 'vocabulary-study-streak',
+      dataType: 'japanese-learning-state',
       schemaVersion: 1,
       appVersion: APP_DISPLAY_VERSION,
       deviceId: this._getDeviceId(),
       userEmail: this.getUserEmail(),
       revision: Date.now(),
       updatedAt: new Date().toISOString(),
-      studyDays: mergeStudyDays(studyDays)
+      studyDays: mergeStudyDays(studyDays),
+      handwritingHistory: mergeHandwritingHistory(handwritingHistory),
+      kanaProgress: buildKanaProgress(handwritingHistory),
+      kanaReadingHistory
     };
   },
 
@@ -2006,215 +2274,220 @@ const GDrive = {
     const boundary = 'streak_boundary_' + Date.now();
     const folderId = DB.getGDriveFolderId();
     const metadata = {
-      name: this.STUDY_STREAK_FILE,
+      name: this._studyStateName(),
       mimeType: 'application/json',
-      description: 'Vocabulary PWA cross-device study streak',
-      appProperties: { dataType: 'vocabulary-study-streak' },
+      description: 'Japanese PWA cross-device learning state',
+      appProperties: { dataType: 'japanese-learning-state' },
       ...(folderId ? { parents: [folderId] } : {})
     };
     const body = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
       + JSON.stringify(metadata) + '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n'
       + JSON.stringify(payload) + '\r\n--' + boundary + '--';
-    const response = await netRequest('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    const response = await this._fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + this._token, 'Content-Type': 'multipart/related; boundary=' + boundary },
       body
-    }, { timeout: 30000, retries: 0 }).catch(error => {
-      if (error.message === 'TOKEN_EXPIRED') this._clearTokenOnly();
-      throw error;
-    });
-    return response.data;
+    }, this.UPLOAD_TIMEOUT_MS);
+    if (!response.ok) {
+      if (response.status === 401) this._clearTokenOnly();
+      throw new Error('STREAK_CREATE_FAILED: ' + response.status);
+    }
+    return response.json();
   },
 
   async _updateStudyStreakFile(fileId, payload) {
-    const response = await netRequest(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media`, {
+    const response = await this._fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media`, {
       method: 'PATCH',
       headers: { Authorization: 'Bearer ' + this._token, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    }, { timeout: 30000, retries: 0 }).catch(error => {
-      if (error.message === 'TOKEN_EXPIRED') this._clearTokenOnly();
-      throw error;
-    });
-    return response.data;
+    }, this.UPLOAD_TIMEOUT_MS);
+    if (!response.ok) {
+      if (response.status === 401) this._clearTokenOnly();
+      throw new Error('STREAK_UPDATE_FAILED: ' + response.status);
+    }
+    return response.json();
   },
 
-  async _readStudyStreakFiles(files) {
-    const results = await Promise.all((files || []).map(async file => {
-      try {
-        const payload = await this._downloadStudyStreakFile(file.id);
-        return payload.studyDays || [];
-      } catch (error) {
-        console.warn('[GDrive] Ignored unreadable streak file.', file.id, error.message);
-        return [];
-      }
-    }));
-    return mergeStudyDays(results.flat());
+  async _readStudyStreakFiles(files, ready = async () => {}) {
+    const results = await Promise.allSettled(files.map(file => this._downloadStudyStreakFile(file.id, ready)));
+    if (results.some(result => result.status === 'rejected')) {
+      throw new Error('部分雲端學習資料暫時無法讀取，已保留原資料，請稍後重試。');
+    }
+    await ready();
+    return mergeLearningStates(...results.map(result => result.value));
   },
 
   async syncStudyStreak(options = {}) {
     if (this._streakSyncPromise) return this._streakSyncPromise;
     this._streakSyncPromise = (async () => {
+      this._progress(options, '確認 Google 授權…', 10);
       await this.ensureToken(options);
-      let merged = StudyStreak.getDays();
-      let files = await this._listStudyStreakFiles();
-
-      // Two union/write/read passes close the normal race where two devices add
-      // different dates at nearly the same time. No side ever overwrites a date
-      // that exists on the other side.
-      for (let pass = 0; pass < 2; pass++) {
-        const cloudDays = await this._readStudyStreakFiles(files);
-        merged = mergeStudyDays(merged, cloudDays);
-        const payload = this._buildStudyStreakPayload(merged);
-        if (!files.length) {
-          const created = await this._createStudyStreakFile(payload);
-          files = [{ id: created.id, name: this.STUDY_STREAK_FILE }];
-        } else {
-          await Promise.all(files.map(file => this._updateStudyStreakFile(file.id, payload)));
+      const account = this.getUserEmail();
+      const folder = DB.getGDriveFolderId();
+      const clientId = DB.getGDriveClientId();
+      let ownFile = null;
+      const ready = async () => {
+        while (isPracticeActive(document, Router) || this._restoreInProgress) await new Promise(resolve => setTimeout(resolve, 500));
+        if (!this.hasRememberedSession() || this.getUserEmail() !== account ||
+            DB.getGDriveFolderId() !== folder || DB.getGDriveClientId() !== clientId) {
+          throw new Error('帳戶或資料夾已變更，已停止本次同步。');
         }
-        const verifiedFiles = await this._listStudyStreakFiles();
-        const verifiedDays = await this._readStudyStreakFiles(verifiedFiles);
-        const verifiedMerge = mergeStudyDays(merged, verifiedDays);
-        files = verifiedFiles;
-        if (JSON.stringify(verifiedMerge) === JSON.stringify(merged)) break;
-        merged = verifiedMerge;
-      }
-
-      StudyStreak.replace(merged, { markPending: false });
-      const syncedAt = new Date().toISOString();
-      StudyStreak.markSynced(syncedAt);
+      };
+      const result = await syncLearningState({
+        ready,
+        readLocal: () => ({ studyDays: StudyStreak.getDays(), handwritingHistory: KanaProgress.getHistory(), kanaReadingHistory: KanaReadingProgress.getHistory() }),
+        writeLocal: state => {
+          StudyStreak.merge(state.studyDays, { markPending: true });
+          KanaProgress.mergeRemote(state.handwritingHistory);
+          KanaReadingProgress.mergeRemote(state.kanaReadingHistory);
+        },
+        readRemote: async () => {
+          this._progress(options, '讀取跨裝置學習資料…', 30);
+          const files = await this._listStudyStreakFiles();
+          ownFile = files.find(file => file.name === this._studyStateName()) || null;
+          return this._readStudyStreakFiles(files, ready);
+        },
+        writeRemote: async state => {
+          this._progress(options, '保存合併後的學習資料…', 65);
+          const payload = this._buildStudyStreakPayload(state.studyDays, state.handwritingHistory, state.kanaReadingHistory);
+          // Each device publishes its own file. Concurrent devices cannot
+          // overwrite each other's answers; legacy shared files remain readable.
+          if (ownFile) await this._updateStudyStreakFile(ownFile.id, payload);
+          else ownFile = await this._createStudyStreakFile(payload);
+        },
+        flush: () => AppStorage.flush(),
+        markPending: () => StudyStreak.markPending(),
+        markSynced: at => StudyStreak.markSynced(at)
+      });
       refreshStudyStreakUI();
-      return { studyDays: merged, summary: StudyStreak.getSummary(), syncedAt };
+      syncDailyReminderFromStudyDays();
+      this._progress(options, result.pending ? '新答案已保留，等待下次同步' : '學習資料同步完成', result.pending ? 90 : 100);
+      if (result.pending) this.scheduleStudyStreakSync(1200);
+      return { ...result, summary: StudyStreak.getSummary() };
     })();
     try { return await this._streakSyncPromise; }
-    finally { this._streakSyncPromise = null; }
+    catch (error) { StudyStreak.markPending(); throw error; }
+    finally { this._streakSyncPromise = null; resumeAppUpdateWhenSafe(); }
   },
 
   scheduleStudyStreakSync(delay = 1200) {
     clearTimeout(this._streakSyncTimer);
     this._streakSyncTimer = null;
     if (!navigator.onLine || !this.hasRememberedSession() || !DB.getGDriveClientId()) return;
-    this._streakSyncTimer = setTimeout(() => {
+    const runWhenPracticeIsIdle = () => {
+      // A Drive sync downloads, merges and serializes handwriting history. On
+      // iPhone/iPad this can briefly occupy the main thread just as the user
+      // starts the next character. Keep the local save immediate, but defer the
+      // cloud work until the handwriting/reading input surface is gone.
+      if (document.querySelector('.kana-writing-canvas, #kana-reading-answer')) {
+        this._streakSyncTimer = setTimeout(runWhenPracticeIsIdle, 2500);
+        return;
+      }
       this._streakSyncTimer = null;
-      void Tasks.run('streak-sync', () => this.syncStudyStreak({ interactive: false }), { exclusive: true }).catch(error => {
+      void this.syncStudyStreak({ interactive: false }).catch(error => {
         StudyStreak.markPending();
         refreshStudyStreakUI();
         console.warn('[GDrive] Study streak sync deferred.', error.message);
       });
-    }, delay);
+    };
+    this._streakSyncTimer = setTimeout(runWhenPracticeIsIdle, delay);
   },
 
   async upload(options = {}) {
-    const progress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
-    clearTimeout(this._streakSyncTimer);
-    this._streakSyncTimer = null;
-
-    progress('正在確認 Google 登入…');
+    if (this._uploadInProgress) throw new Error('備份正在上傳，請稍候。');
+    this._uploadInProgress = true;
+    try {
+    this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
-    await yieldForUI();
-
-    progress('正在準備備份資料…');
+    this._progress(options, '整理本機備份資料…', 30);
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
     await AppStorage.flush();
-    await yieldForUI();
-    const prepared = await BackupWorker.prepare(this._buildCollections(), {
-      appVersion: APP_DISPLAY_VERSION,
-      deviceId: this._getDeviceId(),
-      revision: Date.now()
-    });
-    const data = prepared.payload;
-    await yieldForUI();
-
+    const data     = this._buildPayload();
     const folderId = DB.getGDriveFolderId();
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = 'vocab_backup_' + ts + '.json';
-    const boundary = 'vocab_boundary_' + Date.now();
-    const dataCounts = data.collectionCounts || this._countPayloadItems(data);
-    const summary = {
-      words: dataCounts.words,
+    const ts       = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = 'japanese_backup_' + ts + '.json';
+    const boundary = 'japanese_boundary_' + Date.now();
+    const dataCounts = this._countPayloadItems(data);
+    const summary  = {
+      words:     dataCounts.words,
       sentences: dataCounts.examples,
-      stats: dataCounts.practice,
-      boosted: dataCounts.boosted,
-      reading: dataCounts.reading,
-      essay: dataCounts.essay,
-      aiAsk: dataCounts.aiAsk,
+      stats:     dataCounts.practice,
+      boosted:   dataCounts.boosted,
+      reading:   dataCounts.reading,
+      essay:     dataCounts.essay,
+      aiAsk:     dataCounts.aiAsk,
       studyDays: dataCounts.studyDays,
-      total: dataCounts.total,
-      version: APP_DISPLAY_VERSION
+      handwriting: dataCounts.handwriting,
+      total:     dataCounts.total,
+      version:   APP_DISPLAY_VERSION
     };
-    const metadata = {
-      name: fileName,
-      mimeType: 'application/json',
-      description: JSON.stringify(summary),
-      ...(folderId ? { parents: [folderId] } : {})
-    };
-
-    progress('正在建立上傳檔案…');
-    await yieldForUI();
-    const json = prepared.json;
-    const prefix = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
-      + JSON.stringify(metadata) + '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n';
-    const suffix = '\r\n--' + boundary + '--';
-    // Blob keeps the multipart pieces separate and avoids constructing another
-    // giant concatenated JavaScript string for large backups.
-    const body = new Blob([prefix, json, suffix], { type: 'multipart/related; boundary=' + boundary });
-    await yieldForUI();
-
-    progress('正在上傳 Google Drive…');
-    await netRequest('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    const metadata = { name: fileName, mimeType: 'application/json', description: JSON.stringify(summary), ...(folderId ? { parents: [folderId] } : {}) };
+    const body = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
+      + JSON.stringify(metadata) + '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n'
+      + JSON.stringify(data) + '\r\n--' + boundary + '--';
+    this._progress(options, '上傳至 Google Drive…', 55);
+    const r = await this._fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + this._token, 'Content-Type': 'multipart/related; boundary=' + boundary },
       body
-    }, { timeout: 45000, retries: 0 }).catch(error => {
-      if (error.message === 'TOKEN_EXPIRED') this._clearTokenOnly();
-      throw error;
-    });
+    }, this.UPLOAD_TIMEOUT_MS);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      if (r.status === 401) { this._clearTokenOnly(); throw new Error('TOKEN_EXPIRED'); }
+      throw new Error('UPLOAD_FAILED: ' + (err.error?.message || r.status));
+    }
     const now = new Date().toLocaleString('zh-TW');
     DB.setGDriveLastSync(now);
-
-    // The full backup already contains current local studyDays. Cross-device
-    // streak reconciliation is useful but no longer blocks the backup upload.
-    this.scheduleStudyStreakSync(900);
-    progress('完成');
+    await AppStorage.flush();
+    this._progress(options, '備份上傳完成', 100);
+    // The full backup already contains study days. Keep the separate live-state
+    // union in the background so it never blocks the user's upload button.
+    this.scheduleStudyStreakSync(250);
     return now;
+    } finally { this._uploadInProgress = false; resumeAppUpdateWhenSafe(); }
   },
 
   async listBackups(options = {}) {
-    const progress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
-    progress('正在確認 Google 登入…');
+    this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
-    progress('正在讀取備份清單…');
+    this._progress(options, '讀取雲端備份清單…', 45);
     const folderId = DB.getGDriveFolderId();
-    let q = "name contains 'vocab_backup_' and mimeType='application/json' and trashed=false";
+    let q = "name contains 'japanese_backup_' and mimeType='application/json' and trashed=false";
     if (folderId) q += " and '" + folderId + "' in parents";
     const params = new URLSearchParams({ q, fields: 'files(id,name,createdTime,description)', orderBy: 'createdTime desc', pageSize: '10' });
-    const r = await netRequest('https://www.googleapis.com/drive/v3/files?' + params, {
+    const r = await this._fetch('https://www.googleapis.com/drive/v3/files?' + params, {
       headers: { Authorization: 'Bearer ' + this._token }
-    }, { timeout: 20000, retries: 1 }).catch(error => {
-      if (error.message === 'TOKEN_EXPIRED') this._clearTokenOnly();
-      throw error;
     });
-    return r.data.files || [];
+    if (!r.ok) {
+      if (r.status === 401) { this._clearTokenOnly(); throw new Error('TOKEN_EXPIRED'); }
+      throw new Error('LIST_FAILED: ' + r.status);
+    }
+    const data = await r.json();
+    this._progress(options, '備份清單讀取完成', 100);
+    return data.files || [];
   },
 
   async downloadFile(fileId, options = {}) {
-    const progress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
-    progress('正在確認 Google 登入…');
+    this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
-    progress('正在下載備份…');
-    const r = await netRequest('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
+    this._progress(options, '下載備份資料…', 50);
+    const r = await this._fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
       headers: { Authorization: 'Bearer ' + this._token }
-    }, { timeout: 30000, retries: 1, responseType: 'text' }).catch(error => {
-      if (error.message === 'TOKEN_EXPIRED') this._clearTokenOnly();
-      throw error;
     });
-    progress('正在驗證備份…');
-    const data = await BackupWorker.parse(r.data);
-    await yieldForUI();
+    if (!r.ok) {
+      if (r.status === 401) { this._clearTokenOnly(); throw new Error('TOKEN_EXPIRED'); }
+      throw new Error('DOWNLOAD_FAILED: ' + r.status);
+    }
+    const raw = await r.text();
+    while (isPracticeActive(document, Router)) await new Promise(resolve => setTimeout(resolve, 500));
+    const data = JSON.parse(raw);
+    const validation = BackupSchema.validate(data);
+    if (!validation.valid) throw new Error('BACKUP_INVALID_' + validation.reason);
+    this._progress(options, '備份下載完成', 100);
     return data;
   },
 
   async autoRestoreIfCloudHasMore(options = {}) {
-    await AppStorage.flush();
-    const expectedRevision = AppStorage.getStatus().revision;
     const files = await this.listBackups(options);
     const localPayload = this._buildPayload();
     if (!files.length) {
@@ -2237,148 +2510,113 @@ const GDrive = {
       return { status: 'safety_blocked', ...comparison, file: latestFile };
     }
 
-    await AppStorage.createRecoverySnapshot(this._buildRecoveryPayload(), 'before-auto-cloud-restore');
-    if (AppStorage.getStatus().revision !== expectedRevision) return { status: 'local_changed', ...comparison, file: latestFile };
-    const syncedAt = await this.applyDownload(cloudData, 'overwrite', { skipSnapshot: true, prevalidated: true, expectedRevision });
+    if (isPracticeActive(document, Router) || this._streakSyncPromise) return { status: 'skipped', ...comparison, file: latestFile };
+    const latestComparison = this._comparePayloads(this._buildPayload(), cloudData);
+    if (!latestComparison.cloudIsStrictSuperset) return { status: 'conflict', ...latestComparison, file: latestFile };
+    const syncedAt = await this.applyDownload(cloudData, 'overwrite', { expectedCollections: JSON.stringify(this._buildCollections()) });
     return { status: 'restored', syncedAt, ...comparison, file: latestFile };
   },
 
   async applyDownload(data, mode, options = {}) {
-    const progress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
-    progress('正在驗證備份…');
-    await yieldForUI();
-
-    await AppStorage.flush();
-    const expectedRevision = options.expectedRevision ?? AppStorage.getStatus().revision;
-    const validation = options.prevalidated
-      ? { valid: true, collections: BackupSchema.normalize(data), sourceSchemaVersion: Number(data?.schemaVersion) || 0 }
-      : await BackupWorker.validate(data);
+    if (this._restoreInProgress) throw new Error('已有還原作業進行中，請稍候。');
+    if (this._streakSyncPromise) throw new Error('學習資料正在同步，請完成後再還原。');
+    const validation = BackupSchema.validate(data);
     if (!validation.valid) throw new Error('BACKUP_INVALID_' + validation.reason);
-
+    this._restoreInProgress = true;
+    try {
+    const normalized = validation.collections;
     if (!options.skipSnapshot) {
-      progress('正在建立本機復原點…');
-      await AppStorage.createRecoverySnapshot(this._buildRecoveryPayload(), 'before-manual-cloud-restore');
-      await yieldForUI();
+      const snapshot = await AppStorage.createRecoverySnapshot(this._buildPayload(), 'before-manual-cloud-restore');
+      if (!snapshot && mode === 'overwrite') throw new Error('無法建立復原點，已停止覆蓋。請先匯出救援備份。');
     }
-
-    const incoming = validation.collections;
-    const writes = {};
-    progress(mode === 'overwrite' ? '正在寫入備份資料…' : '正在合併備份資料…');
-    await yieldForUI();
-
+    if (isPracticeActive(document, Router)) throw new Error('請完成練習後再還原備份。');
+    if (options.expectedCollections && JSON.stringify(this._buildCollections()) !== options.expectedCollections) {
+      throw new Error('等待還原期間本機資料已變更，已停止覆蓋，請重新比較。');
+    }
+    data = normalized;
     if (mode === 'overwrite') {
-      writes.vocabWords = JSON.stringify(incoming.words || []);
-      writes.practiceHistory = JSON.stringify(incoming.history || []);
-      await yieldForUI();
-      writes.sentenceLog = JSON.stringify(incoming.sentences || []);
-      writes.importedSentences = JSON.stringify(incoming.imported || []);
-      writes.boostedWords = JSON.stringify(incoming.boosted || []);
-      await yieldForUI();
-      writes.readingQuizHistory = JSON.stringify(incoming.readingQuizHistory || []);
-      writes.essayHistory = JSON.stringify(incoming.essayHistory || []);
-      writes.aiAskHistory = JSON.stringify(incoming.aiAskHistory || []);
+      if (Array.isArray(data.words))        AppStorage.setItem('vocabWords',        JSON.stringify(data.words.map(normalizeJapaneseWord)));
+      if (Array.isArray(data.history))      AppStorage.setItem('practiceHistory',   JSON.stringify(data.history));
+      if (Array.isArray(data.sentences))    AppStorage.setItem('sentenceLog',       JSON.stringify(data.sentences));
+      if (Array.isArray(data.imported))     AppStorage.setItem('importedSentences', JSON.stringify(data.imported));
+      if (Array.isArray(data.boosted))      AppStorage.setItem('boostedWords',      JSON.stringify(data.boosted));
+      if (Array.isArray(data.readingQuizHistory)) AppStorage.setItem('readingQuizHistory', JSON.stringify(data.readingQuizHistory));
+      if (Array.isArray(data.essayHistory)) AppStorage.setItem('essayHistory',      JSON.stringify(data.essayHistory));
+      if (Array.isArray(data.aiAskHistory)) AppStorage.setItem('aiAskHistory',      JSON.stringify(data.aiAskHistory));
+      if (Array.isArray(data.handwritingHistory)) KanaProgress.saveHistory(data.handwritingHistory);
+      if (Array.isArray(data.kanaReadingHistory)) KanaReadingProgress.saveHistory(data.kanaReadingHistory);
+      if (data.preferences?.[0]) {
+        DB.saveJlptLevel(data.preferences[0].jlptLevel || 'N5');
+        DB.saveTtsDelay(Number(data.preferences[0].ttsDelay) || 300);
+        if (data.preferences[0].geminiModel) DB.saveModel(data.preferences[0].geminiModel);
+        if (data.preferences[0].practice) DB.applyPracticePreferenceBundle(data.preferences[0].practice);
+      }
+      StudyStreak.replace(data.studyDays || [], { markPending: true });
     } else {
-      const localWords = DB.getWords();
-      const wordKeys = new Set(localWords.map(w => String(w.english || w.wordEn || '').toLowerCase()).filter(Boolean));
-      const mergedWords = [...localWords];
-      for (const word of incoming.words || []) {
-        const key = String(word.english || word.wordEn || '').toLowerCase();
-        if (key && !wordKeys.has(key)) { wordKeys.add(key); mergedWords.push(word); }
-      }
-      writes.vocabWords = JSON.stringify(mergedWords);
-      await yieldForUI();
-
-      const historyMap = {};
-      [...DB.getHistory(), ...(incoming.history || [])].forEach(h => {
-        if (!historyMap[h.date] || h.total > historyMap[h.date].total) historyMap[h.date] = h;
-      });
-      writes.practiceHistory = JSON.stringify(Object.values(historyMap));
-
-      const localSentences = DB.getSentenceLog();
-      const sentenceKeys = new Set(localSentences.map(item => item.word + item.date));
-      const mergedSentences = [...localSentences];
-      for (const item of incoming.sentences || []) {
-        const key = item.word + item.date;
-        if (!sentenceKeys.has(key)) { sentenceKeys.add(key); mergedSentences.push(item); }
-      }
-      writes.sentenceLog = JSON.stringify(mergedSentences);
-
-      const localImported = DB.getImportedSentences();
-      const importedKeys = new Set(localImported.map(item => item.word + item.english));
-      const mergedImported = [...localImported];
-      for (const item of incoming.imported || []) {
-        const key = item.word + item.english;
-        if (!importedKeys.has(key)) { importedKeys.add(key); mergedImported.push(item); }
-      }
-      writes.importedSentences = JSON.stringify(mergedImported);
-      writes.boostedWords = JSON.stringify([...new Set([...DB.getBoostedWords(), ...(incoming.boosted || [])])]);
-      await yieldForUI();
-
-      if (Array.isArray(incoming.readingQuizHistory)) {
-        const readingMap = {};
-        [...DB.getReadingQuizHistory(), ...incoming.readingQuizHistory].forEach(group => {
-          if (!readingMap[group.date]) readingMap[group.date] = { ...group, sessions: [...(group.sessions || [])] };
-          else {
-            const existing = new Set((readingMap[group.date].sessions || []).map(session => String(session.ts || session.id || '')));
-            for (const session of group.sessions || []) {
-              const key = String(session.ts || session.id || '');
-              if (!existing.has(key)) { readingMap[group.date].sessions.push(session); existing.add(key); }
-            }
-          }
+      const lw = DB.getWords(); const cw = data.words || [];
+      const merged = [...lw]; cw.forEach(w => { const key = String(w.english || w.wordEn || '').toLowerCase(); if (key && !merged.find(x => String(x.english || x.wordEn || '').toLowerCase() === key)) merged.push(w); });
+      AppStorage.setItem('vocabWords', JSON.stringify(merged.map(normalizeJapaneseWord)));
+      const lh = DB.getHistory(); const ch = data.history || []; const hm = {};
+      [...lh, ...ch].forEach(h => { if (!hm[h.date] || h.total > hm[h.date].total) hm[h.date] = h; });
+      AppStorage.setItem('practiceHistory', JSON.stringify(Object.values(hm)));
+      const ls = DB.getSentenceLog(); const cs = data.sentences || [];
+      const ss = new Set(ls.map(s => s.word + s.date));
+      AppStorage.setItem('sentenceLog', JSON.stringify([...ls, ...cs.filter(s => !ss.has(s.word + s.date))]));
+      const li = DB.getImportedSentences(); const ci = data.imported || [];
+      const iss = new Set(li.map(s => s.word + s.english));
+      AppStorage.setItem('importedSentences', JSON.stringify([...li, ...ci.filter(s => !iss.has(s.word + s.english))]));
+      const lb = new Set(DB.getBoostedWords()); (data.boosted || []).forEach(id => lb.add(id));
+      AppStorage.setItem('boostedWords', JSON.stringify([...lb]));
+      if (Array.isArray(data.readingQuizHistory)) {
+        const lr = DB.getReadingQuizHistory(); const rm = {};
+        [...lr, ...data.readingQuizHistory].forEach(h => {
+          if (!rm[h.date]) { rm[h.date] = { ...h, sessions: [...(h.sessions||[])] }; }
+          else { const ex = new Set((rm[h.date].sessions||[]).map(s => String(s.ts || s.id || ''))); (h.sessions||[]).forEach(s => { const key = String(s.ts || s.id || ''); if (!ex.has(key)) { rm[h.date].sessions.push(s); ex.add(key); } }); }
         });
-        writes.readingQuizHistory = JSON.stringify(Object.values(readingMap));
+        AppStorage.setItem('readingQuizHistory', JSON.stringify(Object.values(rm)));
       }
-
-      if (Array.isArray(incoming.essayHistory)) {
-        const essayMap = {};
-        [...DB.getEssayHistory(), ...incoming.essayHistory].forEach(group => {
-          if (!essayMap[group.date]) essayMap[group.date] = { ...group, sessions: [...(group.sessions || [])] };
-          else {
-            const existing = new Set((essayMap[group.date].sessions || []).map(session => session.ts));
-            for (const session of group.sessions || []) {
-              if (!existing.has(session.ts)) { essayMap[group.date].sessions.push(session); existing.add(session.ts); }
-            }
-          }
+      if (Array.isArray(data.essayHistory)) {
+        const le = DB.getEssayHistory(); const em = {};
+        [...le, ...data.essayHistory].forEach(h => {
+          if (!em[h.date]) { em[h.date] = { ...h, sessions: [...(h.sessions||[])] }; }
+          else { const ex = new Set((em[h.date].sessions||[]).map(s => s.ts)); (h.sessions||[]).forEach(s => { if (!ex.has(s.ts)) { em[h.date].sessions.push(s); ex.add(s.ts); } }); }
         });
-        writes.essayHistory = JSON.stringify(Object.values(essayMap));
+        AppStorage.setItem('essayHistory', JSON.stringify(Object.values(em)));
       }
-
-      if (Array.isArray(incoming.aiAskHistory)) {
-        const localAi = DB.getAiAskHistory();
-        const ids = new Set(localAi.map(entry => entry.id));
-        writes.aiAskHistory = JSON.stringify([...localAi, ...incoming.aiAskHistory.filter(entry => !ids.has(entry.id))]);
+      if (Array.isArray(data.aiAskHistory)) {
+        const la = DB.getAiAskHistory(); const as = new Set(la.map(e => e.id));
+        AppStorage.setItem('aiAskHistory', JSON.stringify([...la, ...data.aiAskHistory.filter(e => !as.has(e.id))]));
       }
+      if (Array.isArray(data.handwritingHistory)) KanaProgress.mergeRemote(data.handwritingHistory);
+      if (Array.isArray(data.kanaReadingHistory)) KanaReadingProgress.mergeRemote(data.kanaReadingHistory);
+      if (data.preferences?.[0] && !AppStorage.getItem('japaneseJlptLevel')) DB.saveJlptLevel(data.preferences[0].jlptLevel || 'N5');
+      if (data.preferences?.[0]?.practice) {
+        const remotePractice = data.preferences[0].practice;
+        if (!AppStorage.getItem('lastPracticeMode') && remotePractice.lastPracticeMode) DB.saveLastPracticeMode(remotePractice.lastPracticeMode);
+        if (!AppStorage.getItem('wordPracticePreferencesV1') && remotePractice.wordPractice) DB.saveWordPracticePreferences(remotePractice.wordPractice);
+        if (!AppStorage.getItem('kanaPracticePreferencesV1') && remotePractice.kanaPractice) DB.saveKanaPracticePreferences(remotePractice.kanaPractice);
+        if (!AppStorage.getItem('kanaReadingPreferencesV1') && remotePractice.kanaReading) DB.saveKanaReadingPreferences(remotePractice.kanaReading);
+        if (!AppStorage.getItem('dailyLearningPreferencesV1') && remotePractice.dailyLearning) DB.saveDailyLearningPreferences(remotePractice.dailyLearning);
+      }
+      StudyStreak.merge(data.studyDays || [], { markPending: true });
     }
-
-    await yieldForUI();
-    if (validation.sourceSchemaVersion >= 8) {
-      const nextDays = mode === 'overwrite'
-        ? mergeStudyDays(incoming.studyDays || [])
-        : mergeStudyDays(StudyStreak.getDays(), incoming.studyDays || []);
-      writes.studyActivityDays = JSON.stringify(nextDays);
-    }
-
-    await AppStorage.setItemsBatch(writes, { expectedRevision });
-
-    if (validation.sourceSchemaVersion >= 8) {
-      StudyStreak.markPending();
-    } else {
-      StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true });
-    }
-
-    await AppStorage.flush();
     const now = new Date().toLocaleString('zh-TW');
+    await AppStorage.flush();
     DB.setGDriveLastSync(now);
+    await AppStorage.flush();
     refreshStudyStreakUI();
-    this.scheduleStudyStreakSync(700);
-    progress('完成');
+    this.scheduleStudyStreakSync(300);
     return now;
+    } finally { this._restoreInProgress = false; resumeAppUpdateWhenSafe(); }
   }
-
 };
 
 // ===== UTILITIES =====
-function showToast(msg, duration = 2200) {
+async function showToast(msg, duration = 2200) {
+  if (/已儲存|已還原|已保存/.test(msg)) {
+    try { await AppStorage.flush(); }
+    catch { msg = '資料尚未儲存成功，請重試或先匯出救援備份。'; duration = 4500; }
+  }
   let t = document.getElementById('toast');
   if (!t) { t = document.createElement('div'); t.id='toast'; t.setAttribute('role','status'); t.setAttribute('aria-live','polite'); document.body.appendChild(t); }
   t.textContent = msg; t.classList.add('show');
@@ -2406,7 +2644,6 @@ const Modal = {
   },
   hide() { const o = document.getElementById('modal-overlay'); o.classList.add('hidden'); o.setAttribute('aria-hidden','true'); }
 };
-const Drafts = new DraftManager({storage:AppStorage});
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
@@ -2456,27 +2693,40 @@ const TTS = {
     this._synth.cancel();
   },
 
-  speak(text, rate = 0.85) {
-    if (!this._synth || !this._enabled) return;
+  speak(text, rate = 0.85, options = {}) {
+    const force = options?.force === true;
+    if (!this._synth || (!this._enabled && !force)) return false;
     this._synth.cancel();
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'en-US'; utter.rate = rate; utter.pitch = 1.0; utter.volume = 1.0;
+    utter.lang = 'ja-JP'; utter.rate = rate; utter.pitch = 1.0; utter.volume = 1.0;
     const voices = this._synth.getVoices();
-    const preferred = voices.find(v => v.lang.startsWith('en') &&
-      (v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Karen') || v.name.includes('Moira'))
-    ) || voices.find(v => v.lang.startsWith('en-US')) || voices.find(v => v.lang.startsWith('en'));
+    const preferred = voices.find(v => /^ja/i.test(v.lang) &&
+      /Kyoko|O-ren|Hattori|Google 日本語|Japanese/i.test(v.name)
+    ) || voices.find(v => /^ja-JP/i.test(v.lang)) || voices.find(v => /^ja/i.test(v.lang));
     if (preferred) utter.voice = preferred;
     this._synth.speak(utter);
+    return true;
   },
 
-  speakWhenReady(text, rate = 0.85) {
-    if (!this._synth || !this._enabled) return;
+  speakWhenReady(text, rate = 0.85, options = {}) {
+    const force = options?.force === true;
+    if (!this._synth || (!this._enabled && !force)) return false;
     const voices = this._synth.getVoices();
     if (voices.length > 0) {
-      this.speak(text, rate);
+      return this.speak(text, rate, options);
     } else {
-      this._synth.onvoiceschanged = () => { this.speak(text, rate); this._synth.onvoiceschanged = null; };
+      this._synth.onvoiceschanged = () => { this.speak(text, rate, options); this._synth.onvoiceschanged = null; };
+      return true;
     }
+  },
+
+  speakKana(text, rate = 0.62, { immediate = false } = {}) {
+    // Handwriting pronunciation has its own saved preference, independent of
+    // the spelling quiz TTS switch. A direct call preserves the user gesture on
+    // iPhone/iPad; the ready path is retained for manual replay.
+    return immediate
+      ? this.speak(text, rate, { force: true })
+      : this.speakWhenReady(text, rate, { force: true });
   }
 };
 
@@ -2485,25 +2735,27 @@ const Router = {
   currentView: 'home',
   quizActive: false,
   essayActive: false,
+  handwritingActive: false,
   navigate(view, params = {}, force = false) {
     // Block ALL navigation (even back to practice) when quiz is active
-    if ((this.quizActive || this.essayActive) && !force) {
+    if ((this.quizActive || this.essayActive || this.handwritingActive) && !force) {
       const isEssay = this.essayActive && !this.quizActive;
+      const isHandwriting = this.handwritingActive;
       // If already on that view AND quiz is active → show warning
       Modal.show(`
         <div class="modal-handle"></div>
-        <div class="modal-title">⚠️ ${isEssay ? "文章撰寫中" : "測驗進行中"}</div>
+        <div class="modal-title">⚠️ ${isEssay ? "文章撰寫中" : isHandwriting ? "五十音書寫中" : "測驗進行中"}</div>
         <p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">
-          ${isEssay ? "離開會中斷目前的文章撰寫，<br>草稿會保留在本機。" : "離開將會中斷目前的測驗，<br>進度將不會被記錄。"}確定要離開嗎？
+          ${isEssay ? "離開將會中斷目前的文章撰寫，<br>已輸入的內容將不會被儲存。" : isHandwriting ? "離開將會中斷目前的五十音書寫，<br>尚未評分的字不會被記錄。" : "離開將會中斷目前的測驗，<br>進度將不會被記錄。"}確定要離開嗎？
         </p>
         <div class="modal-actions">
-          <button class="modal-btn-cancel" id="stay-btn">${isEssay ? "繼續撰寫" : "繼續測驗"}</button>
-          <button class="modal-btn-delete" id="leave-btn">${isEssay ? "離開撰寫" : "離開測驗"}</button>
+          <button class="modal-btn-cancel" id="stay-btn">${isEssay ? "繼續撰寫" : isHandwriting ? "繼續書寫" : "繼續測驗"}</button>
+          <button class="modal-btn-delete" id="leave-btn">${isEssay ? "離開撰寫" : isHandwriting ? "離開書寫" : "離開測驗"}</button>
         </div>
       `);
       document.getElementById('stay-btn').addEventListener('click', () => Modal.hide());
       document.getElementById('leave-btn').addEventListener('click', () => {
-        Modal.hide(); this.quizActive = false; this.essayActive = false; this._doNavigate(view, params);
+        Modal.hide(); this.quizActive = false; this.essayActive = false; this.handwritingActive = false; this._doNavigate(view, params);
       });
       return;
     }
@@ -2511,7 +2763,10 @@ const Router = {
   },
   _doNavigate(view, params) {
     if (this.currentView === 'practice') Views.practice?.cleanupQuiz?.();
-    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+    if (this.currentView === 'kanaReadingPractice' || document.getElementById('kana-reading-answer')) Views.kanaReadingPractice?.cleanup?.();
+    if (this.currentView === 'kanaPractice' || this.handwritingActive || document.documentElement.classList.contains('kana-view-active')) Views.kanaPractice?.cleanup?.();
+    const activeNavView = ['practice', 'kanaPractice', 'kanaReadingPractice', 'essay', 'readingQuiz', 'aiAsk'].includes(view) ? 'practice' : view;
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === activeNavView));
     this.currentView = view;
     const container = document.getElementById('view-container');
     container.innerHTML = '';
@@ -2535,59 +2790,236 @@ const Views = {};
 Views.home = {
   render(container) {
     const streak = StudyStreak.getSummary();
-    const practicedDates = new Set(StudyStreak.getDays().map(day => day.date));
-    const weekdayNames = ['日','一','二','三','四','五','六'];
-    const weekDots = Array.from({length:7},(_,index)=>{
-      const date=new Date();date.setHours(12,0,0,0);date.setDate(date.getDate()-(6-index));
-      const key=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-      return `<span class="streak-day ${practicedDates.has(key)?'is-done':''}" title="${escapeAttr(key)}"><b>${weekdayNames[date.getDay()]}</b><i></i></span>`;
-    }).join('');
-    const googleConnected = GDrive.isSignedIn() || GDrive.hasRememberedSession();
+    const dailyPreferences = DB.getDailyLearningPreferences();
+    const levelLearning = dailyPreferences.source === DAILY_LEARNING_SOURCES.LEVEL;
     container.innerHTML = `
-      <div class="home-layout">
-        <div class="home-welcome">
-          <div><h1>今天，練習一點英文</h1><p>持續學習，讓改變悄悄發生。</p></div>
-          <span class="home-cloud-state ${googleConnected?'is-connected':''}">${googleConnected?'Google 已連線':'本機模式'}</span>
-        </div>
+      <div id="home-view">
+        <header class="home-brand">
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_7" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
+        </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
           <div class="study-streak-heading">
-            <div class="study-streak-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
-            <div><div class="study-streak-title" id="study-streak-title">連續練習</div><div class="study-streak-today ${streak.practicedToday?'is-complete':''}" id="streak-today-state">${streak.practicedToday?'今天已完成練習':'今天尚未完成練習'}</div></div>
-            <div class="study-streak-total"><strong><b id="streak-current-days">${streak.current}</b> 天</strong><span>累積 <b id="streak-total-days">${streak.totalDays}</b> 天</span></div>
+            <div class="study-streak-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2s1 4-2 6c-2 1-3-1-3-1s-4 4-2 9a6 6 0 0 0 12 0c1-4-2-7-5-8 1-2 0-4 0-6z"/><path d="M10 17c0 1.1.9 2 2 2s2-.9 2-2c0-1-.7-1.7-1.5-2.3-.1.8-.6 1.3-1.2 1.5-.5.1-.9-.2-1.1-.6-.1.4-.2.9-.2 1.4z"/></svg>
+            </div>
+            <div>
+              <div class="study-streak-title" id="study-streak-title">每天一點，持續進步</div>
+              <div class="study-streak-today ${streak.practicedToday ? 'is-complete' : ''}" id="streak-today-state">${streak.practicedToday ? '今天已完成練習' : '今天尚未完成練習'}</div>
+            </div>
+            <div class="study-streak-total"><strong id="streak-total-days">${streak.totalDays}</strong><span>累積天數</span></div>
           </div>
-          <div class="streak-week" aria-label="最近七天練習狀態">${weekDots}</div>
-          <span id="streak-longest-days" hidden>${streak.longest}</span>
+          <div class="study-streak-metrics">
+            <div class="study-streak-metric is-current">
+              <span>連續練習天數</span>
+              <strong><b id="streak-current-days">${streak.current}</b> 天</strong>
+            </div>
+            <div class="study-streak-divider" aria-hidden="true"></div>
+            <div class="study-streak-metric">
+              <span>歷史最長紀錄</span>
+              <strong><b id="streak-longest-days">${streak.longest}</b> 天</strong>
+            </div>
+          </div>
+          <div class="study-week" id="study-week" role="group" aria-label="本週練習紀錄"></div>
         </section>
-        <button class="home-start-card" data-nav="practice">
-          <span><strong>準備好開始了嗎？</strong><small>10 個單字・約 5 分鐘</small><b>開始練習 →</b></span>
-          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2"><path d="M24 12c-5-5-12-5-17-3v27c5-2 12-2 17 3m0-27c5-5 12-5 17-3v27c-5-2-12-2-17 3V12z"/><path d="M12 17h7M12 23h7m10-6h7m-7 6h7"/></svg>
-        </button>
-        <div class="home-menu-grid">
-          <button class="menu-card" data-nav="practice" data-practice-mode="quiz"><div class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div><div class="menu-card-copy"><div class="menu-card-title">單字拼寫</div><div class="menu-card-sub">聽音拼字・加深記憶</div></div></button>
-          <button class="menu-card" data-nav="practice" data-practice-mode="reading"><div class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div><div class="menu-card-copy"><div class="menu-card-title">閱讀測驗</div><div class="menu-card-sub">閱讀理解・強化語感</div></div></button>
-          <button class="menu-card" data-nav="practice" data-practice-mode="essay"><div class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8m-8 4h6"/></svg></div><div class="menu-card-copy"><div class="menu-card-title">文章撰寫</div><div class="menu-card-sub">練習表達・提升寫作</div></div></button>
-          <button class="menu-card" data-nav="practice" data-practice-mode="aiask"><div class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg></div><div class="menu-card-copy"><div class="menu-card-title">AI 問答</div><div class="menu-card-sub">即時解答・深入學習</div></div></button>
-        </div>
         <div class="home-hero" id="hero-card">
-          <div class="hero-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 22h4"/><path d="M8 14a7 7 0 1 1 8 0c-1 1-1 2-1 2H9s0-1-1-2z"/></svg>今日例句</div>
-          <div id="hero-content"><div class="hero-idle"><div>點右上角 ↻ 生成今日例句</div></div></div>
-          <button class="hero-refresh-btn" id="hero-refresh" title="重新生成" aria-label="重新生成今日例句"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/></svg></button>
+          <div class="hero-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span>${levelLearning ? '今日推薦單字' : '今日例句'}</span>
+            <small class="hero-learning-context">${levelLearning ? `JLPT ${escapeHTML(dailyPreferences.level)}・${escapeHTML(selectedLearningRowLabel(dailyPreferences.rows))}` : '來源：單字庫'}</small>
+          </div>
+          <div id="hero-content">
+            <div class="hero-idle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:28px;height:28px;opacity:0.35;display:block;margin:0 auto 8px"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><div style="font-size:12px;opacity:0.5">${levelLearning ? '正在準備今日推薦單字…' : '點右上角 ↻ 生成今日例句'}</div></div>
+          </div>
+          <button class="hero-refresh-btn" id="hero-refresh" title="強制重新生成">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
         </div>
-        <div class="sentence-log-section"><div class="sentence-log-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8m-8 4h6"/></svg>每日例句記錄</div><div id="sentence-log-content"></div></div>
-      </div>`;
-    container.querySelectorAll('[data-nav]').forEach(el => el.addEventListener('click', () => {
-      Router.navigate(el.dataset.nav);
-      const mode=el.dataset.practiceMode;
-      const target=document.getElementById('practice-view');
-      if(!mode||!target)return;
-      if(mode==='essay')Views.essay.render(target);
-      else if(mode==='reading')Views.readingQuiz.render(target);
-      else if(mode==='aiask')Views.aiAsk.render(target);
-    }));
-    document.getElementById('hero-refresh')?.addEventListener('click', () => this.loadSentence(true));
-    const cached = DB.getTodaySentenceAny();
-    if (cached) this.displaySentence(cached);
-    this.renderSentenceLog();refreshStudyStreakUI();
+        <div class="home-primary-action"><button type="button" class="btn-primary" data-nav="practice">開始今日練習 <span aria-hidden="true">›</span></button></div>
+        <div class="home-menu-grid">
+          <div class="menu-card" data-nav="practice">
+            <div class="menu-icon" style="background:#e3f2fd"><svg viewBox="0 0 24 24" fill="none" stroke="#1565c0" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+            <div><div class="menu-card-title">日文練習</div><div class="menu-card-sub">語彙拼寫與閱讀測驗</div></div>
+          </div>
+          <div class="menu-card" data-nav="kanaPractice">
+            <div class="menu-icon" style="background:#e8eafc;color:#3949ab;font-size:25px;font-weight:800">あ</div>
+            <div><div class="menu-card-title">五十音手寫</div><div class="menu-card-sub">平假名・片假名・Apple Pencil</div></div>
+          </div>
+          <div class="menu-card" data-nav="kanaReadingPractice">
+            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">abc</div>
+            <div><div class="menu-card-title">五十音讀音</div><div class="menu-card-sub">看假名・輸入羅馬音</div></div>
+          </div>
+          <div class="menu-card" data-nav="database">
+            <div class="menu-icon" style="background:#e8f0ff"><svg viewBox="0 0 24 24" fill="none" stroke="#3366cc" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
+            <div><div class="menu-card-title">資料庫</div><div class="menu-card-sub">管理單字資料</div></div>
+          </div>
+          <div class="menu-card" data-nav="stats">
+            <div class="menu-icon" style="background:#fff3e0"><svg viewBox="0 0 24 24" fill="none" stroke="#e67e00" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
+            <div><div class="menu-card-title">練習統計</div><div class="menu-card-sub">近期練習情形</div></div>
+          </div>
+          <div class="menu-card" data-nav="settings">
+            <div class="menu-icon" style="background:#f0e8ff"><svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：${APP_VERSION}</div></div>
+          </div>
+        </div>
+        <div class="sentence-log-section">
+          <div class="sentence-log-header">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            每日例句記錄
+          </div>
+          <div id="sentence-log-content"></div>
+        </div>
+        <div style="height:8px"></div>
+      </div>
+    `;
+    container.querySelectorAll('[data-nav]').forEach(el => {
+      const navigate = () => {
+        const target = el.dataset.nav;
+        Router.navigate(target, target === 'practice' ? { restoreLast: true } : {});
+      };
+      el.addEventListener('click', navigate);
+      if (el.tagName !== 'BUTTON') {
+        el.setAttribute('role', 'button'); el.tabIndex = 0;
+        el.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); navigate(); }
+        });
+      }
+    });
+    document.getElementById('hero-refresh').addEventListener('click', () => this.loadHero(true));
+    if (levelLearning) {
+      const cached = DB.getTodayDailyVocabulary();
+      if (cached) {
+        this.displayDailyVocabulary(cached);
+        queueMicrotask(() => this.ensureDailyVocabularySentence(cached));
+      }
+      else queueMicrotask(() => this.loadDailyVocabulary(false));
+    } else {
+      // 單字庫模式沿用既有流程，不會自動消耗 AI 配額。
+      const cached = DB.getTodaySentenceAny();
+      if (cached) this.displaySentence(cached);
+    }
+    this.renderSentenceLog();
+    refreshStudyStreakUI();
+  },
+  loadHero(forceNew) {
+    const preferences = DB.getDailyLearningPreferences();
+    return preferences.source === DAILY_LEARNING_SOURCES.LEVEL
+      ? this.loadDailyVocabulary(forceNew)
+      : this.loadSentence(forceNew);
+  },
+  async loadDailyVocabulary(forceNew = false) {
+    const heroContent = document.getElementById('hero-content');
+    if (!heroContent) return;
+    const cached = DB.getTodayDailyVocabulary();
+    if (!forceNew && cached) { this.displayDailyVocabulary(cached); return; }
+    if (!DB.getApiKey()) {
+      heroContent.innerHTML = '<div class="daily-vocab-message">請先在設定頁填入 Gemini API Key，才能依等級產生推薦單字。</div>';
+      return;
+    }
+    const preferences = DB.getDailyLearningPreferences();
+    heroContent.innerHTML = '<div class="hero-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>正在產生今日推薦單字…</span></div>';
+    try {
+      const words = await Gemini.generateDailyVocabulary(preferences);
+      if (!words.length) throw new Error('PARSE_ERROR');
+      if (!document.getElementById('hero-content')) return;
+      const saved = DB.saveTodayDailyVocabulary(words);
+      this.displayDailyVocabulary(saved);
+      await this.ensureDailyVocabularySentence(saved);
+    } catch (error) {
+      if (!document.getElementById('hero-content')) return;
+      let message = '推薦單字產生失敗，請點右上角重試。';
+      if (error.message === 'NO_API_KEY') message = '請先在設定頁填入 Gemini API Key。';
+      else if (error.message === 'NETWORK_ERROR') message = '目前無法連線 Gemini，請確認網路後重試。';
+      else if (/quota|RESOURCE_EXHAUSTED|429/i.test(error.message || '')) message = 'Gemini 今日配額暫時不足，請稍後再試。';
+      else if (/API_KEY_INVALID|403|permission/i.test(error.message || '')) message = 'Gemini API Key 無效或沒有權限，請到設定頁確認。';
+      heroContent.innerHTML = `<div class="daily-vocab-message">${escapeHTML(message)}</div>`;
+    }
+  },
+  displayDailyVocabulary(data) {
+    const heroContent = document.getElementById('hero-content');
+    if (!heroContent) return;
+    const words = Array.isArray(data?.words) ? data.words : [];
+    if (!words.length) {
+      heroContent.innerHTML = '<div class="daily-vocab-message">尚無今日推薦單字，請點右上角重新產生。</div>';
+      return;
+    }
+    heroContent.innerHTML = `
+      <div class="daily-vocab-grid">
+        ${words.map((word, index) => `
+          <article class="daily-vocab-card">
+            <div class="daily-vocab-index">${index + 1}</div>
+            <div class="daily-vocab-main">
+              <div class="daily-vocab-word">${escapeHTML(word.word)}</div>
+              <div class="daily-vocab-reading">${escapeHTML(word.reading)} <span>${escapeHTML(word.romaji)}</span></div>
+              <div class="daily-vocab-meaning">${escapeHTML(word.meaning)}</div>
+            </div>
+            <div class="daily-vocab-side">
+              <span>${escapeHTML(word.partOfSpeech || '語彙')}</span>
+              <button type="button" class="daily-vocab-speak" data-daily-speak="${escapeAttr(word.reading)}" aria-label="播放 ${escapeAttr(word.reading)} 發音">🔊</button>
+            </div>
+          </article>
+        `).join('')}
+      </div>
+      <div class="daily-vocab-foot">JLPT ${escapeHTML(data.level || DB.getJlptLevel())}・${escapeHTML(selectedLearningRowLabel(data.rows || ['all']))}・每日一詞</div>
+      <div class="daily-sentence-preview" id="daily-sentence-preview" data-word="${escapeAttr(words[0]?.word || '')}"></div>
+      <div class="daily-vocab-sentence-status" id="daily-vocab-sentence-status" role="status" aria-live="polite">正在同步至每日例句…</div>`;
+    heroContent.querySelectorAll('[data-daily-speak]').forEach(button => {
+      button.addEventListener('click', () => TTS.speakKana(button.dataset.dailySpeak, 0.72, { immediate: true }));
+    });
+  },
+  displayRecommendedSentence(entry) {
+    const preview = document.getElementById('daily-sentence-preview');
+    if (!preview || preview.dataset.word !== entry.wordEn) return;
+    preview.innerHTML = `<p lang="ja">${escapeHTML(entry.en)}</p><p class="daily-sentence-zh">${escapeHTML(entry.zh)}</p><button type="button" class="btn-secondary" id="daily-open-log">例句練習 <span aria-hidden="true">›</span></button>`;
+    preview.querySelector('button')?.addEventListener('click', () => {
+      document.querySelector('.sentence-log-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  },
+  async ensureDailyVocabularySentence(data) {
+    const word = Array.isArray(data?.words) ? data.words[0] : null;
+    if (!word?.word) return null;
+    const status = document.getElementById('daily-vocab-sentence-status');
+    const existing = DB.getCombinedSentenceLog().find(entry =>
+      entry?.date === todayStr() && normalizeJapaneseAnswer(entry?.wordEn) === normalizeJapaneseAnswer(word.word)
+    );
+    if (existing) {
+      DB.saveTodaySentence(existing);
+      if (status) status.textContent = '已儲存至今日例句練習';
+      this.displayRecommendedSentence(existing);
+      return existing;
+    }
+    if (status) status.textContent = '正在建立並儲存今日例句…';
+    try {
+      const result = await Gemini.generateSentence({
+        english: word.word,
+        reading: word.reading || '',
+        romaji: word.romaji || '',
+        partOfSpeech: word.partOfSpeech || '語彙',
+        chinese: word.meaning || ''
+      });
+      if (!result?.en || !result?.zh) throw new Error('PARSE_ERROR');
+      const entry = {
+        date: todayStr(),
+        wordEn: word.word,
+        wordZh: word.meaning || '',
+        wordPos: word.partOfSpeech || '語彙',
+        wordReading: word.reading || '',
+        wordRomaji: word.romaji || '',
+        en: result.en,
+        reading: result.reading || '',
+        zh: result.zh,
+        source: 'daily-recommendation'
+      };
+      DB.saveTodaySentence(entry);
+      DB.saveSentenceToLog(entry);
+      this.renderSentenceLog();
+      if (status) status.textContent = '已儲存至今日例句練習';
+      this.displayRecommendedSentence(entry);
+      return entry;
+    } catch (error) {
+      if (status) status.textContent = '推薦詞已保存；例句建立失敗，可點右上角重試';
+      return null;
+    }
   },
   async loadSentence(forceNew) {
     const heroContent = document.getElementById('hero-content');
@@ -2611,7 +3043,7 @@ Views.home = {
       const result = await Gemini.generateSentence(word);
       if (!result.en || !result.zh) throw new Error('Invalid');
       if (!document.getElementById('hero-content')) return;
-      const entry = { date: todayStr(), wordEn: word.english, wordZh: word.chinese, wordPos: word.partOfSpeech, en: result.en, zh: result.zh };
+      const entry = { date: todayStr(), wordEn: word.english, wordZh: word.chinese, wordPos: word.partOfSpeech, en: result.en, reading: result.reading || '', zh: result.zh };
       DB.saveTodaySentence(entry); DB.saveSentenceToLog(entry);
       this.displaySentence(entry); this.renderSentenceLog();
     } catch(e) {
@@ -2636,10 +3068,13 @@ Views.home = {
     if (!heroContent) return;
     const sourceTag = entry.source === 'csv'
       ? `<span class="hero-source-tag">📄 CSV</span>`
-      : `<span class="hero-source-tag">✨ AI</span>`;
+      : entry.source === 'daily-recommendation'
+        ? `<span class="hero-source-tag">🌱 每日推薦</span>`
+        : `<span class="hero-source-tag">✨ AI</span>`;
     heroContent.innerHTML = `
       <div class="hero-sentence">
         <div>${highlightEn(entry.en, entry.wordEn)}</div>
+        ${entry.reading ? `<div class="japanese-reading">${escapeHTML(entry.reading)}</div>` : ''}
         <span class="zh-text">${highlightZh(entry.zh, entry.wordZh)}</span>
         <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
           <span class="log-word-chip" style="margin:0">${escapeHTML(entry.wordEn)} <span style="opacity:0.6;font-size:10px">${escapeHTML(entry.wordPos||'')}</span></span>
@@ -2661,9 +3096,10 @@ Views.home = {
         <div class="log-entry-header">
           <span class="log-date">${escapeHTML(entry.date)}</span>
           <span class="log-word-chip">${escapeHTML(entry.wordEn)} <span style="opacity:0.6;font-size:10px">${escapeHTML(entry.wordPos||'')}</span></span>
-          ${entry.source === 'csv' ? `<span class="log-source-csv">CSV</span>` : ''}
+          ${entry.source === 'csv' ? `<span class="log-source-csv">CSV</span>` : entry.source === 'daily-recommendation' ? `<span class="log-source-csv">每日推薦</span>` : ''}
         </div>
         <div class="log-entry-en">${highlightEn(entry.en, entry.wordEn)}</div>
+        ${entry.reading ? `<div class="japanese-reading">${escapeHTML(entry.reading)}</div>` : ''}
         <div class="log-entry-zh">${highlightZh(entry.zh, entry.wordZh)}</div>
       </div>`).join('')}</div>`;
   }
@@ -2674,7 +3110,10 @@ Views.home = {
 // PRACTICE MODE SELECTOR — shared by quiz / essay / AI ask
 // ===========================
 function renderPracticeModeSelector(currentMode = 'quiz') {
+  DB.saveLastPracticeMode(currentMode);
   const isQuiz = currentMode === 'quiz';
+  const isKana = currentMode === 'kana';
+  const isKanaReading = currentMode === 'kanaReading';
   const isEssay = currentMode === 'essay';
   const isReading = currentMode === 'reading';
   const isAiAsk = currentMode === 'aiask';
@@ -2682,11 +3121,22 @@ function renderPracticeModeSelector(currentMode = 'quiz') {
     <div class="practice-mode-bar">
       <select class="practice-mode-select" id="practice-mode-select" aria-label="選擇練習模式">
         <option value="quiz" ${isQuiz ? 'selected' : ''}>📝 單字拼寫</option>
+        <option value="kana" ${isKana ? 'selected' : ''}>🖌️ 五十音手寫</option>
+        <option value="kanaReading" ${isKanaReading ? 'selected' : ''}>🔤 五十音讀音</option>
         <option value="essay" ${isEssay ? 'selected' : ''}>✍️ 文章撰寫</option>
         <option value="reading" ${isReading ? 'selected' : ''}>📖 文章閱讀測驗</option>
         <option value="aiask" ${isAiAsk ? 'selected' : ''}>💬 AI 詢問</option>
       </select>
     </div>`;
+}
+
+function renderPracticeModeInContainer(container, mode) {
+  if (mode === 'kana') Views.kanaPractice.render(container);
+  else if (mode === 'kanaReading') Views.kanaReadingPractice.render(container);
+  else if (mode === 'essay') Views.essay.render(container);
+  else if (mode === 'reading') Views.readingQuiz.render(container);
+  else if (mode === 'aiask') Views.aiAsk.render(container);
+  else Views.practice.render(container);
 }
 
 function bindPracticeModeSelector(container, currentMode = 'quiz') {
@@ -2695,12 +3145,13 @@ function bindPracticeModeSelector(container, currentMode = 'quiz') {
   selector.addEventListener('change', (e) => {
     const mode = e.target.value;
     if (mode === currentMode) return;
+    DB.saveLastPracticeMode(mode);
     Router.essayActive = false;
     Router.quizActive = false;
-    if (mode === 'essay') Views.essay.render(container);
-    else if (mode === 'reading') Views.readingQuiz.render(container);
-    else if (mode === 'aiask') Views.aiAsk.render(container);
-    else Views.practice.render(container);
+    Router.handwritingActive = false;
+    Views.kanaPractice?.cleanup?.();
+    Views.kanaReadingPractice?.cleanup?.();
+    renderPracticeModeInContainer(container, mode);
   });
 }
 
@@ -2800,59 +3251,90 @@ Views.practice = {
     resumeAppUpdateWhenSafe();
   },
 
-  render(container) {
+  render(container, options = {}) {
     this.cleanupQuiz();
+    if (options?.restoreLast) {
+      const lastMode = DB.getLastPracticeMode();
+      if (lastMode !== 'quiz') {
+        renderPracticeModeInContainer(container, lastMode);
+        return;
+      }
+    }
     this.state.phase = 'setup';
     this.renderSetup(container);
     setTimeout(resumeAppUpdateWhenSafe, 0);
   },
   renderSetup(container) {
     Router.quizActive = false;
+    const savedPreferences = DB.getWordPracticePreferences();
+    this.state.selectedCount = savedPreferences.count;
+    this.state.selectedMode = savedPreferences.order;
     const totalWords = DB.getWords().length;
+    const savedDelay = DB.getTtsDelay();
+    const orderLabel = this.state.selectedMode === 'newest' ? '最新' : '隨機';
+    const delayLabel = savedDelay === 0 ? '立即' : savedDelay < 1000 ? `${savedDelay}ms` : `${savedDelay / 1000}s`;
     container.innerHTML = `
-      <div class="section-header"><h1 class="section-title">練習</h1></div>
+      <div class="practice-compact-page word-practice-page">
+      <div class="section-header practice-page-header"><h1 class="section-title">練習</h1></div>
       ${renderPracticeModeSelector('quiz')}
-      <div class="practice-setup">
-        ${totalWords === 0 ? `<div class="no-api-warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>資料庫尚無單字，請先新增單字</div>` : ''}
-        <div class="option-group">
-          <div class="option-label">練習題數</div>
-          <div class="option-chips">${[5,10,15,20,25,30].map(n=>`<button class="chip ${n===10?'selected':''}" data-count="${n}">${n}</button>`).join('')}</div>
-          <div class="num-words-info">資料庫共 ${totalWords} 個單字</div>
+      <section class="practice-compact-card word-practice-setup-card">
+        <div class="practice-compact-heading">
+          <div class="practice-compact-mark" aria-hidden="true">日</div>
+          <div><h2>單字拼寫練習</h2><p>選擇題數、出題順序與發音延遲後開始練習。</p></div>
         </div>
-        <div class="option-group">
+        <div class="practice-summary-strip" aria-label="單字拼寫設定摘要">
+          <div><strong>${totalWords}</strong><span>題庫</span></div>
+          <div><strong id="word-summary-count">${this.state.selectedCount}</strong><span>題數</span></div>
+          <div><strong id="word-summary-order">${orderLabel}</strong><span>順序</span></div>
+          <div><strong id="word-summary-delay">${delayLabel}</strong><span>延遲</span></div>
+        </div>
+        ${totalWords === 0 ? `<div class="no-api-warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>資料庫尚無單字，請先新增單字</div>` : ''}
+        <div class="option-group practice-compact-group">
+          <div class="option-label">練習題數</div>
+          <div class="option-chips practice-six-grid">${[5,10,15,20,25,30].map(n=>`<button class="chip ${n===this.state.selectedCount?'selected':''}" data-count="${n}">${n}</button>`).join('')}</div>
+        </div>
+        <div class="option-group practice-compact-group">
           <div class="option-label">出題順序</div>
-          <div class="option-radio-group">
-            <div class="radio-option" data-mode="newest"><div class="radio-circle"></div><div><div class="radio-text">從最新加入開始</div><div class="radio-sub">依最近加入的單字優先出題</div></div></div>
-            <div class="radio-option selected" data-mode="all"><div class="radio-circle"></div><div><div class="radio-text">全部隨機</div><div class="radio-sub">從題庫所有單字中隨機出題</div></div></div>
+          <div class="option-radio-group practice-two-grid">
+            <div class="radio-option ${this.state.selectedMode==='newest'?'selected':''}" data-mode="newest"><div class="radio-circle"></div><div><div class="radio-text">從最新加入開始</div><div class="radio-sub">依最近加入的單字優先出題</div></div></div>
+            <div class="radio-option ${this.state.selectedMode==='all'?'selected':''}" data-mode="all"><div class="radio-circle"></div><div><div class="radio-text">全部隨機</div><div class="radio-sub">從題庫所有單字中隨機出題</div></div></div>
           </div>
         </div>
-        <div class="option-group">
+        <div class="option-group practice-compact-group">
           <div class="option-label">唸單字延遲</div>
-          <div class="option-chips">
+          <div class="option-chips practice-five-grid">
             ${[0,300,600,1000,2000].map(ms => {
               const label = ms === 0 ? '立即' : ms < 1000 ? ms+'ms' : (ms/1000)+'s';
-              const saved = DB.getTtsDelay();
-              return `<button class="chip ${ms === saved ? 'selected' : ''}" data-tts-delay="${ms}">${label}</button>`;
+              return `<button class="chip ${ms === savedDelay ? 'selected' : ''}" data-tts-delay="${ms}">${label}</button>`;
             }).join('')}
           </div>
-          <div class="num-words-info">進入單字練習後，系統唸出單字前的等待時間</div>
         </div>
         <button class="btn-primary" id="start-btn" ${totalWords===0?'disabled':''}>開始練習</button>
+      </section>
       </div>
     `;
     const state = this.state;
     container.querySelectorAll('[data-count]').forEach(btn => btn.addEventListener('click', () => {
       container.querySelectorAll('[data-count]').forEach(b=>b.classList.remove('selected')); btn.classList.add('selected'); state.selectedCount = parseInt(btn.dataset.count);
+      DB.saveWordPracticePreferences({ count: state.selectedCount });
+      const summaryCount = document.getElementById('word-summary-count');
+      if (summaryCount) summaryCount.textContent = String(state.selectedCount);
     }));
     container.querySelectorAll('[data-mode]').forEach(opt => opt.addEventListener('click', () => {
       container.querySelectorAll('[data-mode]').forEach(o=>o.classList.remove('selected')); opt.classList.add('selected'); state.selectedMode = opt.dataset.mode;
+      DB.saveWordPracticePreferences({ order: state.selectedMode });
+      const summaryOrder = document.getElementById('word-summary-order');
+      if (summaryOrder) summaryOrder.textContent = state.selectedMode === 'newest' ? '最新' : '隨機';
     }));
     bindPracticeModeSelector(container, 'quiz');
     container.querySelectorAll('[data-tts-delay]').forEach(btn => {
       btn.addEventListener('click', () => {
         container.querySelectorAll('[data-tts-delay]').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
-        DB.saveTtsDelay(parseInt(btn.dataset.ttsDelay));
+        const ms = parseInt(btn.dataset.ttsDelay);
+        DB.saveTtsDelay(ms);
+        const summaryDelay = document.getElementById('word-summary-delay');
+        if (summaryDelay) summaryDelay.textContent = ms === 0 ? '立即' : ms < 1000 ? `${ms}ms` : `${ms / 1000}s`;
       });
     });
 
@@ -2897,7 +3379,7 @@ Views.practice = {
       ghost.setAttribute('autocomplete','off');
       ghost.setAttribute('spellcheck','false');
       ghost.setAttribute('inputmode','text');
-      ghost.setAttribute('lang','en');
+      ghost.setAttribute('lang','ja');
       ghost.setAttribute('enterkeyhint','done');
       ghost.setAttribute('name', 'quiz-' + Date.now()); // unique name prevents browser autocomplete
       document.getElementById('app').appendChild(ghost);
@@ -2922,15 +3404,15 @@ Views.practice = {
     if (wordInfo) {
       const ttsOn = TTS.enabled;
       wordInfo.innerHTML = `
-        <div class="quiz-chinese">${escapeHTML(word.chinese)}</div>
+        <div class="quiz-chinese">${word.chinese}</div>
         <div class="quiz-phonetic-row">
-          <span class="quiz-pos">${escapeHTML(word.partOfSpeech)}</span>
-          ${word.phonetic ? `<span class="quiz-phonetic">/${escapeHTML(word.phonetic)}/</span>` : ''}
+          <span class="quiz-pos">${word.partOfSpeech}</span>
+          ${word.phonetic ? `<span class="quiz-phonetic">/${word.phonetic}/</span>` : ''}
           <button class="tts-inline-btn ${ttsOn?'':'tts-off'}" id="tts-replay-btn" title="${ttsOn?'再聽一次':'發音已關閉'}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>${ttsOn?`<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>`:`<line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>`}</svg>
           </button>
         </div>
-        <div class="quiz-hint">${word.english.replace(/[^a-zA-Z]/g,'').length} 個字母</div>
+        <div class="quiz-hint">${Array.from(this._norm(word.english)).length} 個字</div>
       `;
       document.getElementById('tts-replay-btn')?.addEventListener('click', () => {
         this._clearTimer('_ttsTimer');
@@ -2961,12 +3443,12 @@ Views.practice = {
     const ghost = this._ghost;
     if (!wrap || !ghost) return;
 
-    const wordParts = word.english.split(' ');
-    const totalLetters = word.english.replace(/[^a-zA-Z]/g, '').length;
+    const wordParts = String(word.english || '').split(/\s+/).map(part => this._norm(part)).filter(Boolean);
+    const totalLetters = Array.from(this._norm(word.english)).length;
     const GAP = 4;
     const PADDING = 48;
     const maxWidth = (window.innerWidth || 390) - PADDING;
-    const longestPartLetters = Math.max(...wordParts.map(part => part.replace(/[^a-zA-Z]/g, '').length || 1));
+    const longestPartLetters = Math.max(...wordParts.map(part => Array.from(this._norm(part)).length || 1));
     const maxBoxSize = Math.floor((maxWidth - GAP * (longestPartLetters - 1)) / longestPartLetters);
     const boxSize = Math.max(20, Math.min(38, maxBoxSize));
     const fontSize = Math.round(boxSize * 0.52);
@@ -2984,7 +3466,7 @@ Views.practice = {
       group.className = 'word-group';
       [...part].forEach(ch => {
         const box = document.createElement('div');
-        if (/[a-zA-Z]/.test(ch)) {
+        if (!/\s/.test(ch)) {
           box.className = 'letter-box-vis';
           box.style.width = `${boxSize}px`;
           box.style.height = `${boxSize + 6}px`;
@@ -3017,7 +3499,9 @@ Views.practice = {
     const prevTxt = new Array(allBoxDivs.length).fill(null);
 
     ghost.value = '';
-    ghost.maxLength = maxLen;
+    // IME composition temporarily contains romaji; limiting the native input to
+    // the answer length would truncate Japanese conversion on iOS/iPadOS.
+    ghost.maxLength = 64;
 
     const writeBox = (index, state, text) => {
       if (index < 0 || index >= allBoxDivs.length) return;
@@ -3076,8 +3560,8 @@ Views.practice = {
       updateDefaultVisual();
     };
 
-    const sanitizeInput = value => String(value || '').replace(/[^a-zA-Z]/g, '').slice(0, maxLen);
-    const normalizeInput = value => sanitizeInput(value).toLowerCase();
+    const sanitizeInput = value => normalizeJapaneseAnswer(value);
+    const normalizeInput = value => Array.from(sanitizeInput(value)).slice(0, maxLen).join('');
 
     const evaluate = () => {
       if (userInput.length < maxLen || evaluating) return;
@@ -3159,8 +3643,8 @@ Views.practice = {
     this._focusGhost();
     updateDefaultVisual();
   },
-  // Canonical answer normaliser — strips everything except a-z, lowercases
-  _norm(s) { return (s || '').replace(/[^a-zA-Z]/g, '').toLowerCase(); },
+  // Canonical Japanese answer normaliser (NFKC + punctuation/space removal).
+  _norm(s) { return normalizeJapaneseAnswer(s); },
 
   _checkAnswer(word, typed, allBoxDivs, container, updateVisual, correctStr, maxLen) {
     // Always recompute from the word itself — guards against any stale closure value
@@ -3239,7 +3723,7 @@ Views.practice = {
     // Flash correct letters in red
     boxes.forEach((box,i) => { box.className='letter-box-vis wrong'; box.textContent=correctStr[i]||''; });
     if (!actionsEl) return;
-    actionsEl.innerHTML = `<div class="answer-reveal answer-reveal-wrong"><div class="revealed-word revealed-word-wrong">${escapeHTML(word.english.toLowerCase())}</div><div class="reveal-hint">請重新輸入一次正確拼字</div></div>`;
+    actionsEl.innerHTML = `<div class="answer-reveal answer-reveal-wrong"><div class="revealed-word revealed-word-wrong">${escapeHTML(word.english)}</div><div class="reveal-hint">請重新輸入一次正確日文</div></div>`;
     state.waitingRetype = true;
     // Keep input locked until rebuilding finishes. This removes the old 80 ms
     // window where fast retyping was accepted and then silently erased.
@@ -3258,7 +3742,7 @@ Views.practice = {
       this._enterNextH = null;
     }
     const isLast = this.state.currentIdx + 1 >= this.state.words.length;
-    actionsEl.innerHTML = `<div class="correct-answer-row">${escapeHTML(word.english.toLowerCase())}</div><button class="btn-primary" id="next-btn">${isLast ? '查看結果 →' : '下一題 → (Enter)'}</button>`;
+    actionsEl.innerHTML = `<div class="correct-answer-row">${escapeHTML(word.english)}</div><button class="btn-primary" id="next-btn">${isLast ? '查看結果 →' : '下一題 → (Enter)'}</button>`;
     let advanced = false;
     const doNext = () => {
       if (advanced) return;
@@ -3312,8 +3796,8 @@ Views.practice = {
         ${wrongCount === 0 ? `<div style="text-align:center;padding:24px;color:var(--text-muted);font-weight:700">🎉 全部答對！太棒了！</div>`
           : state.wrongWords.map(w=>`
             <div class="wrong-word-card" data-id="${w.id}">
-              <div class="wrong-word-en">${escapeHTML(w.english.toLowerCase())}</div>
-              <div class="wrong-word-meta"><span class="wrong-word-pos">${escapeHTML(w.partOfSpeech)}</span><span class="wrong-word-zh">${escapeHTML(w.chinese)}</span></div>
+              <div class="wrong-word-en">${escapeHTML(w.english)}</div>
+              <div class="wrong-word-meta"><span class="wrong-word-pos">${w.partOfSpeech}</span><span class="wrong-word-zh">${w.chinese}</span></div>
               <button class="boost-btn ${DB.isBoosted(w.id)?'boosted':''}" data-boost="${w.id}">${DB.isBoosted(w.id)?'✓ 已加強練習':'⚡ 加入加強練習'}</button>
             </div>`).join('')}
         <div style="height:16px"></div>
@@ -3340,6 +3824,761 @@ Views.practice = {
 
 
 // ===========================
+// KANA HANDWRITING VIEW — iPad / Apple Pencil optimized
+// ===========================
+Views.kanaPractice = {
+  engine: null,
+  _viewportHandler: null,
+  state: {
+    script: 'hiragana', rows: ['all'], mode: 'trace', repeat: 1, weakOnly: false, layout: 'auto', autoSpeak: true,
+    selection: 'random', items: [], index: 0, results: [], scored: false
+  },
+
+  cleanup() {
+    TTS.stop();
+    this.engine?.destroy?.();
+    this.engine = null;
+    if (this._viewportHandler) {
+      window.removeEventListener('resize', this._viewportHandler);
+      window.removeEventListener('orientationchange', this._viewportHandler);
+      window.visualViewport?.removeEventListener?.('resize', this._viewportHandler);
+      this._viewportHandler = null;
+    }
+    document.documentElement.classList.remove('kana-view-active');
+    Router.handwritingActive = false;
+    resumeAppUpdateWhenSafe();
+  },
+
+  _resolveLayout() {
+    const viewportWidth = window.visualViewport?.width || window.innerWidth || 0;
+    const isTouchDevice = navigator.maxTouchPoints > 0 || window.matchMedia?.('(pointer: coarse)').matches;
+    return resolveWritingLayout({
+      preference: this.state.layout,
+      viewportWidth,
+      screenWidth: window.screen?.width || viewportWidth,
+      screenHeight: window.screen?.height || window.innerHeight || viewportWidth,
+      touch: isTouchDevice
+    });
+  },
+
+  _layoutLabel() {
+    return this._resolveLayout() === 'tablet' ? '目前自動套用：iPad 寬版' : '目前自動套用：iPhone 精簡版';
+  },
+
+  _applySessionLayout() {
+    if (this.engine?.pointerId != null) { this._layoutPending = true; return; }
+    this._layoutPending = false;
+    const session = document.querySelector('.kana-session');
+    const layout = this._resolveLayout();
+    if (session && session.dataset.layout !== layout) session.dataset.layout = layout;
+    const detected = document.getElementById('kana-layout-detected');
+    if (detected && this.state.layout === 'auto') detected.textContent = this._layoutLabel();
+  },
+
+  _bindViewportLayout() {
+    if (this._viewportHandler) {
+      window.removeEventListener('resize', this._viewportHandler);
+      window.removeEventListener('orientationchange', this._viewportHandler);
+      window.visualViewport?.removeEventListener?.('resize', this._viewportHandler);
+    }
+    this._viewportHandler = () => this._applySessionLayout();
+    window.addEventListener('resize', this._viewportHandler, { passive: true });
+    window.addEventListener('orientationchange', this._viewportHandler, { passive: true });
+    window.visualViewport?.addEventListener?.('resize', this._viewportHandler, { passive: true });
+  },
+
+  render(container) {
+    this.cleanup();
+    this.renderSetup(container);
+  },
+
+  renderSetup(container) {
+    Router.handwritingActive = false;
+    document.documentElement.classList.add('kana-view-active');
+    const savedPreferences = DB.getKanaPracticePreferences();
+    this.state.script = savedPreferences.script;
+    this.state.rows = savedPreferences.rows;
+    this.state.mode = savedPreferences.mode;
+    this.state.repeat = savedPreferences.repeat;
+    this.state.weakOnly = savedPreferences.weakOnly;
+    this.state.layout = savedPreferences.layout;
+    this.state.autoSpeak = savedPreferences.autoSpeak;
+    this.state.inputMode = savedPreferences.inputMode;
+    this.state.diagnostics = savedPreferences.diagnostics;
+    const summary = KanaProgress.getSummary();
+    container.innerHTML = `
+      <div class="kana-setup-page">
+        <div class="section-header kana-page-header"><h1 class="section-title">練習</h1></div>
+        ${renderPracticeModeSelector('kana')}
+        <section class="kana-setup-card kana-setup-compact">
+          <div class="kana-setup-heading">
+            <div class="kana-setup-mark" aria-hidden="true">あ</div>
+            <div><h2>五十音手寫練習</h2><p>選擇假名後可設定每個字的重複次數，題目會隨機排列且相同假名不會相鄰。</p></div>
+          </div>
+          <div class="kana-summary-grid kana-summary-strip" aria-label="五十音練習摘要">
+            <div><strong>${summary.practiced}</strong><span>已練</span></div>
+            <div><strong>${summary.mastered}</strong><span>熟練</span></div>
+            <div><strong>${summary.averageScore}</strong><span>均分</span></div>
+            <div><strong>${summary.attempts}</strong><span>次數</span></div>
+          </div>
+          <div class="kana-setup-grid">
+            <div class="option-group kana-compact-group kana-script-group">
+              <div class="option-label">假名類型</div>
+              <div class="option-chips kana-option-chips kana-script-options">
+                <button class="chip ${this.state.script==='hiragana'?'selected':''}" data-kana-script="hiragana">平假名</button>
+                <button class="chip ${this.state.script==='katakana'?'selected':''}" data-kana-script="katakana">片假名</button>
+                <button class="chip ${this.state.script==='both'?'selected':''}" data-kana-script="both">兩者混合</button>
+              </div>
+            </div>
+            <div class="option-group kana-compact-group kana-row-group">
+              <div class="option-label">五十音行（可複選）</div>
+              <div class="kana-row-grid" id="kana-row-grid" role="group" aria-label="選擇要練習的五十音行">
+                <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-kana-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
+                ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-kana-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${row.label}</button>`).join('')}
+              </div>
+              <div class="kana-row-summary" id="kana-row-summary"></div>
+            </div>
+            <div class="option-group kana-compact-group kana-mode-group">
+              <div class="option-label">練習方式</div>
+              <div class="kana-mode-grid">
+                <button class="kana-mode-option ${this.state.mode==='trace'?'selected':''}" data-kana-mode="trace"><b>描紅</b><span>顯示底稿</span></button>
+                <button class="kana-mode-option ${this.state.mode==='copy'?'selected':''}" data-kana-mode="copy"><b>臨摹</b><span>看字書寫</span></button>
+                <button class="kana-mode-option ${this.state.mode==='recall'?'selected':''}" data-kana-mode="recall"><b>默寫</b><span>看拼音回想</span></button>
+              </div>
+            </div>
+            <div class="option-group kana-compact-group kana-repeat-group">
+              <div class="option-label">每個假名重複次數</div>
+              <div class="kana-repeat-grid" role="group" aria-label="選擇每個假名的重複次數">
+                ${KANA_REPEAT_OPTIONS.map(value => `<button type="button" class="kana-repeat-chip ${value===this.state.repeat?'selected':''}" data-kana-repeat="${value}" aria-pressed="${value===this.state.repeat}">${value} 次</button>`).join('')}
+              </div>
+              <div class="kana-repeat-summary" id="kana-repeat-summary"></div>
+            </div>
+          </div>
+          <details class="kana-advanced-settings">
+            <summary><b>更多設定</b><span>版面、弱項優先</span></summary>
+            <div class="kana-advanced-content">
+              <div class="option-group kana-compact-group kana-layout-option-group">
+                <div class="option-label">書寫版面</div>
+                <div class="kana-layout-grid" role="group" aria-label="選擇書寫版面">
+                  <button type="button" class="kana-layout-option ${this.state.layout==='auto'?'selected':''}" data-kana-layout="auto"><b>自動</b><span>依裝置調整</span></button>
+                  <button type="button" class="kana-layout-option ${this.state.layout==='phone'?'selected':''}" data-kana-layout="phone"><b>iPhone</b><span>單欄精簡版</span></button>
+                  <button type="button" class="kana-layout-option ${this.state.layout==='tablet'?'selected':''}" data-kana-layout="tablet"><b>iPad</b><span>大畫布寬版</span></button>
+                </div>
+                <div class="kana-layout-detected" id="kana-layout-detected">${this.state.layout === 'auto' ? this._layoutLabel() : '使用手動指定版面'}</div>
+              </div>
+              <label class="kana-weak-toggle"><input type="checkbox" id="kana-auto-speak" ${this.state.autoSpeak?'checked':''}><span>進入每一題時自動播放該假名發音</span></label>
+              <label class="kana-weak-toggle"><input type="checkbox" id="kana-weak-only" ${this.state.weakOnly?'checked':''}><span>優先練習尚未熟練的假名（最高分未達 80）</span></label>
+              <p class="kana-device-tip">iPad 建議橫向使用 Apple Pencil；偵測到 Pencil 後會暫時忽略手掌觸碰。</p>
+              <label class="kana-device-tip" for="kana-input-mode">書寫工具</label>
+              <select id="kana-input-mode" aria-label="書寫工具">
+                <option value="auto" ${this.state.inputMode === 'auto' ? 'selected' : ''}>自動辨識</option>
+                <option value="pen" ${this.state.inputMode === 'pen' ? 'selected' : ''}>僅 Apple Pencil／觸控筆</option>
+                <option value="touch" ${this.state.inputMode === 'touch' ? 'selected' : ''}>手指／滑鼠</option>
+              </select>
+              <label class="kana-weak-toggle"><input type="checkbox" id="kana-diagnostics" ${this.state.diagnostics ? 'checked' : ''}><span>顯示書寫診斷（排查卡頓時開啟）</span></label>
+            </div>
+          </details>
+          <button class="btn-primary kana-start-btn" id="kana-start-btn">開始手寫練習</button>
+        </section>
+      </div>`;
+
+    bindPracticeModeSelector(container, 'kana');
+    const persistPreferences = patch => DB.saveKanaPracticePreferences(patch);
+    const getPracticePool = () => {
+      let pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
+      if (this.state.weakOnly) {
+        const weakKeys = KanaProgress.getWeakKeys();
+        const attemptedKeys = new Set(KanaProgress.getProgress().map(item => item.key));
+        const weakPool = pool.filter(item => weakKeys.has(item.id) || !attemptedKeys.has(item.id));
+        if (weakPool.length) pool = weakPool;
+      }
+      return pool;
+    };
+    const updateSetupUI = () => {
+      container.querySelectorAll('[data-kana-row]').forEach(button => {
+        const selected = this.state.rows.includes(button.dataset.kanaRow);
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
+      container.querySelectorAll('[data-kana-repeat]').forEach(button => {
+        const selected = Number(button.dataset.kanaRepeat) === this.state.repeat;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
+      const selectedCount = getKanaSet({ script: this.state.script, rows: this.state.rows }).length;
+      const practiceCount = getPracticePool().length;
+      const totalQuestions = practiceCount * this.state.repeat;
+      const rowSummary = document.getElementById('kana-row-summary');
+      if (rowSummary) {
+        const rowText = this.state.rows.includes('all') ? '全部 10 行' : `已選 ${this.state.rows.length} 行`;
+        rowSummary.textContent = `${rowText}・${selectedCount} 個假名`;
+      }
+      const repeatSummary = document.getElementById('kana-repeat-summary');
+      if (repeatSummary) {
+        const orderLabel = practiceCount > 1 ? '不連續隨機' : '單一假名重複';
+        repeatSummary.textContent = `${this.state.weakOnly ? '弱項優先・' : ''}${practiceCount} 個假名 × ${this.state.repeat} 次 ＝ ${totalQuestions} 題・${orderLabel}`;
+      }
+      const startButton = document.getElementById('kana-start-btn');
+      if (startButton) {
+        startButton.disabled = totalQuestions === 0;
+        startButton.textContent = totalQuestions ? `開始 ${totalQuestions} 題手寫練習` : '目前沒有可練習的假名';
+      }
+    };
+    container.querySelectorAll('[data-kana-script]').forEach(button => button.addEventListener('click', () => {
+      container.querySelectorAll('[data-kana-script]').forEach(item => item.classList.remove('selected'));
+      button.classList.add('selected'); this.state.script = button.dataset.kanaScript;
+      persistPreferences({ script: this.state.script });
+      updateSetupUI();
+    }));
+    container.querySelectorAll('[data-kana-row]').forEach(button => button.addEventListener('click', () => {
+      const row = button.dataset.kanaRow;
+      if (row === 'all') {
+        this.state.rows = ['all'];
+      } else {
+        const selected = new Set(this.state.rows.filter(value => value !== 'all'));
+        if (selected.has(row)) selected.delete(row); else selected.add(row);
+        this.state.rows = selected.size ? [...selected] : ['all'];
+      }
+      persistPreferences({ rows: this.state.rows });
+      updateSetupUI();
+    }));
+    container.querySelectorAll('[data-kana-mode]').forEach(button => button.addEventListener('click', () => {
+      container.querySelectorAll('[data-kana-mode]').forEach(item => item.classList.remove('selected'));
+      button.classList.add('selected'); this.state.mode = button.dataset.kanaMode;
+      persistPreferences({ mode: this.state.mode });
+    }));
+    container.querySelectorAll('[data-kana-repeat]').forEach(button => button.addEventListener('click', () => {
+      this.state.repeat = Number(button.dataset.kanaRepeat);
+      persistPreferences({ repeat: this.state.repeat });
+      updateSetupUI();
+    }));
+    container.querySelectorAll('[data-kana-layout]').forEach(button => button.addEventListener('click', () => {
+      container.querySelectorAll('[data-kana-layout]').forEach(item => item.classList.remove('selected'));
+      button.classList.add('selected'); this.state.layout = button.dataset.kanaLayout;
+      persistPreferences({ layout: this.state.layout });
+      const detected = document.getElementById('kana-layout-detected');
+      if (detected) detected.textContent = this.state.layout === 'auto' ? this._layoutLabel() : '使用手動指定版面';
+    }));
+    document.getElementById('kana-weak-only')?.addEventListener('change', event => {
+      this.state.weakOnly = event.target.checked;
+      persistPreferences({ weakOnly: this.state.weakOnly });
+      updateSetupUI();
+    });
+    document.getElementById('kana-auto-speak')?.addEventListener('change', event => {
+      this.state.autoSpeak = event.target.checked;
+      persistPreferences({ autoSpeak: this.state.autoSpeak });
+    });
+    document.getElementById('kana-input-mode')?.addEventListener('change', event => {
+      this.state.inputMode = event.target.value;
+      persistPreferences({ inputMode: this.state.inputMode });
+    });
+    document.getElementById('kana-diagnostics')?.addEventListener('change', event => {
+      this.state.diagnostics = event.target.checked;
+      persistPreferences({ diagnostics: this.state.diagnostics });
+    });
+    updateSetupUI();
+    this._bindViewportLayout();
+    document.getElementById('kana-start-btn')?.addEventListener('click', () => {
+      persistPreferences({
+        script: this.state.script, rows: this.state.rows, mode: this.state.mode,
+        repeat: this.state.repeat, weakOnly: this.state.weakOnly, layout: this.state.layout,
+        autoSpeak: this.state.autoSpeak
+      });
+      const pool = getPracticePool();
+      this.state.items = buildRepeatedKanaPractice(pool, this.state.repeat);
+      this.state.index = 0; this.state.results = []; this.state.scored = false;
+      if (!this.state.items.length) { showToast('此條件沒有可練習的假名'); return; }
+      Router.handwritingActive = true;
+      this.renderWriter(container);
+    });
+  },
+
+  renderWriter(container) {
+    if (this.engine && this.engine.canvas === document.getElementById('kana-writing-canvas')) {
+      this._resetWriterQuestion(container);
+      return;
+    }
+    this.engine?.destroy?.(); this.engine = null;
+    const kana = this.state.items[this.state.index];
+    const total = this.state.items.length;
+    const progress = Math.round(this.state.index / total * 100);
+    const hideCharacter = this.state.mode === 'recall';
+    this.state.scored = false;
+    container.innerHTML = `
+      <div class="kana-session" data-mode="${this.state.mode}" data-layout="${this._resolveLayout()}">
+        <header class="kana-session-header">
+          <button class="kana-back-btn" id="kana-exit-btn" type="button" aria-label="返回設定">‹</button>
+          <div class="kana-session-progress"><span>五十音手寫 ${this.state.index + 1} / ${total}</span><div><i style="width:${progress}%"></i></div></div>
+          <span class="kana-mode-badge">${({trace:'描紅',copy:'臨摹',recall:'默寫'})[this.state.mode]}</span>
+        </header>
+        <div class="kana-session-body">
+        <div class="kana-workspace">
+          <aside class="kana-reference-card">
+            <span class="kana-script-label">${kana.scriptLabel}・${kana.rowLabel}</span>
+            <div class="kana-reference-character ${hideCharacter ? 'is-hidden' : ''}" id="kana-reference-character">${hideCharacter ? '？' : kana.character}</div>
+            <strong class="kana-romaji">${escapeHTML(kana.romaji)}</strong>
+            <span class="kana-stroke-count">標準 ${kana.strokes.length} 畫</span>
+            <div class="kana-reference-actions">
+              <button class="btn-secondary kana-small-btn" id="kana-listen-btn" type="button">🔊 發音</button>
+              <button class="btn-secondary kana-small-btn" id="kana-animate-btn" type="button">▶ 筆順</button>
+              ${hideCharacter ? '<button class="btn-secondary kana-small-btn" id="kana-reveal-btn" type="button">顯示字形</button>' : ''}
+            </div>
+          </aside>
+          <main class="kana-canvas-card">
+            <div class="kana-canvas-caption"><span id="kana-stroke-live">請開始書寫</span><span>分數為本機輔助判定</span>${this.state.diagnostics ? '<small id="kana-diagnostic-status" aria-live="off">書寫診斷已開啟</small>' : ''}</div>
+            <div class="kana-canvas-stage"><canvas class="kana-writing-canvas" id="kana-writing-canvas" aria-label="${kana.character} 手寫區"></canvas></div>
+            <div class="kana-canvas-tools">
+              <button type="button" id="kana-undo-btn">↶ 復原</button>
+              <button type="button" id="kana-clear-btn">清除</button>
+              <button type="button" id="kana-guide-btn">顯示筆畫</button>
+            </div>
+          </main>
+        </div>
+        <section class="kana-score-panel" id="kana-score-panel" aria-live="polite">
+          <div class="kana-score-placeholder">完成後點選「評分」，查看筆形與畫數參考；筆順請對照示範動畫。</div>
+        </section>
+        </div>
+        <div class="kana-session-actions"><button class="btn-primary" id="kana-score-btn">評分</button></div>
+      </div>`;
+
+    this._bindViewportLayout();
+    const scrollContainer = document.getElementById('view-container');
+    if (scrollContainer) scrollContainer.scrollTop = 0;
+
+    const canvas = document.getElementById('kana-writing-canvas');
+    this.engine = new HandwritingEngine(canvas, {
+      inputMode: this.state.inputMode,
+      diagnostics: this.state.diagnostics,
+      onStrokeEnd: () => {
+        if (this._layoutPending) requestAnimationFrame(() => this._applySessionLayout());
+      },
+      onDiagnostic: metrics => {
+        const status = document.getElementById('kana-diagnostic-status');
+        if (status) status.textContent = `繪製最慢 ${metrics.maxDrawMs.toFixed(1)}ms・事件等待最長 ${metrics.maxSampleAgeMs.toFixed(1)}ms・中斷 ${metrics.interruptions}・縮放 ${metrics.resizes}`;
+      },
+      onChange: count => {
+        const label = document.getElementById('kana-stroke-live');
+        if (label) label.textContent = count ? `已寫 ${count} 畫` : '請開始書寫';
+      }
+    });
+    this.engine.setMode(this.state.mode);
+    this.engine.setKana(kana);
+
+    document.getElementById('kana-undo-btn')?.addEventListener('click', () => this.engine?.undo());
+    document.getElementById('kana-clear-btn')?.addEventListener('click', () => this.engine?.clear());
+    document.getElementById('kana-guide-btn')?.addEventListener('click', () => this.engine?.revealGuide());
+    document.getElementById('kana-animate-btn')?.addEventListener('click', () => this.engine?.animateGuide());
+    document.getElementById('kana-listen-btn')?.addEventListener('click', () => TTS.speakKana(this.state.items[this.state.index].character));
+    document.getElementById('kana-reveal-btn')?.addEventListener('click', event => {
+      const reference = document.getElementById('kana-reference-character');
+      if (reference) { reference.textContent = this.state.items[this.state.index].character; reference.classList.remove('is-hidden'); }
+      this.engine?.revealGuide(); event.currentTarget.hidden = true;
+    });
+    document.getElementById('kana-exit-btn')?.addEventListener('click', () => {
+      Modal.show(`<div class="modal-handle"></div><div class="modal-title">離開五十音書寫？</div><p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">已評分的字會保留，尚未評分的字不會記錄。</p><div class="modal-actions"><button class="modal-btn-cancel" id="kana-stay">繼續書寫</button><button class="modal-btn-delete" id="kana-leave">離開</button></div>`);
+      document.getElementById('kana-stay')?.addEventListener('click', () => Modal.hide());
+      document.getElementById('kana-leave')?.addEventListener('click', () => { Modal.hide(); this.cleanup(); this.renderSetup(container); });
+    });
+    document.getElementById('kana-score-btn')?.addEventListener('click', event => {
+      if (!this.state.scored) this.scoreCurrent(container, this.state.items[this.state.index], event.currentTarget);
+      else if (this.state.index + 1 >= this.state.items.length) this.renderResult(container);
+      else { this.state.index += 1; this.renderWriter(container); }
+    });
+
+    // renderWriter is entered directly from the Start / Next user gesture, so
+    // speaking here works reliably in iPhone and iPad standalone PWA mode.
+    if (this.state.autoSpeak) TTS.speakKana(kana.character, 0.62, { immediate: true });
+  },
+
+  _resetWriterQuestion(container) {
+    const kana = this.state.items[this.state.index];
+    this.state.scored = false;
+    TTS.stop();
+    this.engine.setKana(kana);
+    const character = document.getElementById('kana-reference-character');
+    character.textContent = this.state.mode === 'recall' ? '？' : kana.character;
+    character.classList.toggle('is-hidden', this.state.mode === 'recall');
+    container.querySelector('.kana-script-label').textContent = `${kana.scriptLabel}・${kana.rowLabel}`;
+    container.querySelector('.kana-romaji').textContent = kana.romaji;
+    container.querySelector('.kana-stroke-count').textContent = `標準 ${kana.strokes.length} 畫`;
+    container.querySelector('.kana-session-progress > span').textContent = `五十音手寫 ${this.state.index + 1} / ${this.state.items.length}`;
+    container.querySelector('.kana-session-progress i').style.width = `${Math.round(this.state.index / this.state.items.length * 100)}%`;
+    this.engine.canvas.setAttribute('aria-label', `${kana.character} 手寫區`);
+    const reveal = document.getElementById('kana-reveal-btn');
+    if (reveal) reveal.hidden = false;
+    document.getElementById('kana-score-panel').innerHTML = '<div class="kana-score-placeholder">完成後點選「評分」，查看筆形與畫數參考；筆順請對照示範動畫。</div>';
+    document.getElementById('kana-score-btn').textContent = '評分';
+    container.querySelector('.kana-session-actions').classList.remove('is-scored');
+    if (this.state.autoSpeak) TTS.speakKana(kana.character, 0.62, { immediate: true });
+  },
+
+  scoreCurrent(container, kana, button) {
+    if (this.state.scored || !this.engine) return;
+    const result = this.engine.score();
+    if (!result.strokeCount) { showToast('請先寫下假名再評分'); return; }
+    this.state.scored = true;
+    this.state.results.push({ kana, ...result });
+    KanaProgress.recordAttempt(kana, result, this.state.mode);
+    recordStudyActivity(STUDY_ACTIVITY_TYPES.KANA_HANDWRITING, `kana:${kana.id}:${Date.now()}`);
+    const tone = result.score >= 80 ? 'excellent' : result.score >= 60 ? 'good' : 'retry';
+    const panel = document.getElementById('kana-score-panel');
+    if (panel) panel.innerHTML = `
+      <div class="kana-score-result ${tone}">
+        <div class="kana-score-total"><strong>${result.score}</strong><span>分</span></div>
+        <div class="kana-score-details">
+          <div><span>筆形</span><b>${result.shape}/40</b></div>
+          <div><span>畫數</span><b>${result.strokeCountScore}/25</b></div>
+          <div><span>方向</span><b>${result.direction}/15</b></div>
+          <div><span>起收筆</span><b>${result.endpoints}/10</b></div>
+          <div><span>配置</span><b>${result.balance}/10</b></div>
+        </div>
+        <p>${result.score >= 80 ? '字形與畫數表現良好！筆順請再對照示範確認。' : result.score >= 60 ? '已接近標準，請對照淡藍色筆畫再練一次。' : '建議播放筆順動畫，留意起筆位置與筆畫順序。'}</p>
+      </div>`;
+    const isLast = this.state.index + 1 >= this.state.items.length;
+    button.textContent = isLast ? '查看練習結果' : '下一個假名';
+    container.querySelector('.kana-session-actions')?.classList.add('is-scored');
+  },
+
+  renderResult(container) {
+    this.engine?.destroy?.(); this.engine = null; Router.handwritingActive = false;
+    const results = this.state.results;
+    const average = results.length ? Math.round(results.reduce((sum, item) => sum + item.score, 0) / results.length) : 0;
+    const mastered = results.filter(item => item.score >= 80).length;
+    container.innerHTML = `
+      <div class="kana-result-view">
+        <div class="kana-result-mark">${average >= 80 ? '上手！' : average >= 60 ? '進步中' : '再練習'}</div>
+        <h1>五十音手寫完成</h1>
+        <div class="kana-result-summary"><div><strong>${average}</strong><span>平均分數</span></div><div><strong>${mastered}/${results.length}</strong><span>本次達 80 分</span></div></div>
+        <div class="kana-result-list">${results.map(item => `<div><b>${item.kana.character}</b><span>${escapeHTML(item.kana.romaji)}</span><strong class="${item.score>=80?'is-mastered':''}">${item.score}</strong></div>`).join('')}</div>
+        <button class="btn-primary" id="kana-again-btn">再練一次</button>
+        <button class="btn-secondary" id="kana-home-btn">回到主頁</button>
+      </div>`;
+    document.getElementById('kana-again-btn')?.addEventListener('click', () => this.renderSetup(container));
+    document.getElementById('kana-home-btn')?.addEventListener('click', () => Router.navigate('home'));
+    GDrive.scheduleStudyStreakSync(900);
+    resumeAppUpdateWhenSafe();
+  }
+};
+
+
+// ===========================
+// KANA READING VIEW — kana to romaji practice
+// ===========================
+Views.kanaReadingPractice = {
+  state: {
+    script: 'hiragana', rows: ['all'], repeat: 1,
+    items: [], initialTotal: 0, index: 0, results: [], answered: false, transitioning: false
+  },
+  _advanceTimer: null,
+
+  cleanup() {
+    if (this._advanceTimer !== null) {
+      clearTimeout(this._advanceTimer);
+      this._advanceTimer = null;
+    }
+    TTS.stop();
+    Router.quizActive = false;
+    resumeAppUpdateWhenSafe();
+  },
+
+  _focusAnswerInput(input) {
+    if (!input?.isConnected || input.disabled) return false;
+    const focus = () => {
+      if (!input?.isConnected || input.disabled) return;
+      try { input.focus({ preventScroll: true }); }
+      catch { input.focus(); }
+      try {
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
+      } catch {}
+    };
+    // The first focus must stay synchronous with Start／Next. iOS only opens the
+    // software keyboard when focus is part of the user's current tap or key event.
+    focus();
+    // Desktop browsers and a few iPadOS transitions may replace the active element
+    // during layout. Retry only when the synchronous focus did not stick.
+    requestAnimationFrame(() => {
+      if (document.activeElement !== input) focus();
+    });
+    return document.activeElement === input;
+  },
+
+  render(container) {
+    this.cleanup();
+    this.renderSetup(container);
+  },
+
+  renderSetup(container) {
+    const saved = DB.getKanaReadingPreferences();
+    this.state.script = saved.script;
+    this.state.rows = saved.rows;
+    this.state.repeat = saved.repeat;
+    this.state.items = [];
+    this.state.initialTotal = 0;
+    this.state.index = 0;
+    this.state.results = [];
+    this.state.answered = false;
+    const summary = KanaReadingProgress.getSummary();
+    container.innerHTML = `
+      <div class="kana-reading-page kana-setup-page practice-compact-page">
+        <div class="section-header kana-page-header practice-page-header"><h1 class="section-title">練習</h1></div>
+        ${renderPracticeModeSelector('kanaReading')}
+        <section class="kana-reading-setup-card kana-setup-card kana-setup-compact practice-compact-card">
+          <div class="kana-setup-heading">
+            <div class="kana-setup-mark" aria-hidden="true">A</div>
+            <div><h2>五十音讀音練習</h2><p>看平假名或片假名，輸入對應的羅馬拼音。例如看到「あ」，輸入「a」。</p></div>
+          </div>
+          <div class="kana-summary-grid kana-summary-strip" aria-label="五十音讀音練習摘要">
+            <div><strong>${summary.practiced}</strong><span>已練</span></div>
+            <div><strong>${summary.correct}</strong><span>答對</span></div>
+            <div><strong>${summary.accuracy}%</strong><span>正確率</span></div>
+            <div><strong>${summary.attempts}</strong><span>總題數</span></div>
+          </div>
+          <div class="kana-setup-grid kana-reading-setup-grid">
+            <div class="option-group kana-compact-group kana-script-group">
+              <div class="option-label">假名類型</div>
+              <div class="option-chips kana-option-chips kana-script-options">
+                <button class="chip ${this.state.script==='hiragana'?'selected':''}" type="button" data-reading-script="hiragana">平假名</button>
+                <button class="chip ${this.state.script==='katakana'?'selected':''}" type="button" data-reading-script="katakana">片假名</button>
+                <button class="chip ${this.state.script==='both'?'selected':''}" type="button" data-reading-script="both">兩者混合</button>
+              </div>
+            </div>
+            <div class="option-group kana-compact-group kana-row-group">
+              <div class="option-label">五十音行（可複選）</div>
+              <div class="kana-row-grid kana-row-grid-compact" role="group" aria-label="選擇五十音行">
+                <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-reading-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
+                ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-reading-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${row.label}</button>`).join('')}
+              </div>
+              <div class="kana-row-summary" id="kana-reading-row-summary"></div>
+            </div>
+            <div class="option-group kana-compact-group kana-repeat-group">
+              <div class="option-label">每個假名練習次數</div>
+              <div class="kana-repeat-grid" role="group" aria-label="選擇每個假名的練習次數">
+                ${KANA_REPEAT_OPTIONS.map(value => `<button type="button" class="kana-repeat-chip ${value===this.state.repeat?'selected':''}" data-reading-repeat="${value}" aria-pressed="${value===this.state.repeat}">${value} 次</button>`).join('')}
+              </div>
+              <div class="kana-repeat-summary" id="kana-reading-repeat-summary"></div>
+            </div>
+          </div>
+          <p class="kana-row-summary">答錯的題目會追加到尾端補練；補練再答錯也會追加，總題數會隨之增加。</p>
+          <button class="btn-primary kana-start-btn" id="kana-reading-start-btn">開始讀音練習</button>
+        </section>
+      </div>`;
+
+    bindPracticeModeSelector(container, 'kanaReading');
+    const updateSetupUI = () => {
+      container.querySelectorAll('[data-reading-row]').forEach(button => {
+        const selected = this.state.rows.includes(button.dataset.readingRow);
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
+      container.querySelectorAll('[data-reading-repeat]').forEach(button => {
+        const selected = Number(button.dataset.readingRepeat) === this.state.repeat;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
+      const pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
+      const total = pool.length * this.state.repeat;
+      const rowLabel = this.state.rows.includes('all') ? '全部 10 行' : `已選 ${this.state.rows.length} 行`;
+      const rowSummary = document.getElementById('kana-reading-row-summary');
+      if (rowSummary) rowSummary.textContent = `${rowLabel}・${pool.length} 個假名`;
+      const repeatSummary = document.getElementById('kana-reading-repeat-summary');
+      if (repeatSummary) repeatSummary.textContent = `${pool.length} 個假名 × ${this.state.repeat} 次 ＝ ${total} 題・不連續隨機`;
+      const start = document.getElementById('kana-reading-start-btn');
+      if (start) {
+        start.disabled = !total;
+        start.textContent = total ? `開始 ${total} 題讀音練習` : '目前沒有可練習的假名';
+      }
+    };
+    container.querySelectorAll('[data-reading-script]').forEach(button => button.addEventListener('click', () => {
+      container.querySelectorAll('[data-reading-script]').forEach(item => item.classList.remove('selected'));
+      button.classList.add('selected');
+      this.state.script = button.dataset.readingScript;
+      DB.saveKanaReadingPreferences({ script: this.state.script });
+      updateSetupUI();
+    }));
+    container.querySelectorAll('[data-reading-row]').forEach(button => button.addEventListener('click', () => {
+      const row = button.dataset.readingRow;
+      if (row === 'all') this.state.rows = ['all'];
+      else {
+        const selected = new Set(this.state.rows.filter(value => value !== 'all'));
+        if (selected.has(row)) selected.delete(row); else selected.add(row);
+        this.state.rows = selected.size ? [...selected] : ['all'];
+      }
+      DB.saveKanaReadingPreferences({ rows: this.state.rows });
+      updateSetupUI();
+    }));
+    container.querySelectorAll('[data-reading-repeat]').forEach(button => button.addEventListener('click', () => {
+      this.state.repeat = Number(button.dataset.readingRepeat);
+      DB.saveKanaReadingPreferences({ repeat: this.state.repeat });
+      updateSetupUI();
+    }));
+    document.getElementById('kana-reading-start-btn')?.addEventListener('click', () => {
+      void Sound.unlock();
+      const pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
+      this.state.items = buildRepeatedKanaPractice(pool, this.state.repeat);
+      this.state.initialTotal = this.state.items.length;
+      if (!this.state.items.length) { showToast('此條件沒有可練習的假名'); return; }
+      this.state.index = 0;
+      this.state.results = [];
+      this.state.answered = false;
+      this.state.transitioning = false;
+      DB.saveKanaReadingPreferences({ script: this.state.script, rows: this.state.rows, repeat: this.state.repeat });
+      Router.quizActive = true;
+      this.renderQuestion(container);
+    });
+    updateSetupUI();
+  },
+
+  renderQuestion(container) {
+    container.innerHTML = `
+      <div class="kana-reading-session">
+        <header class="kana-session-header">
+          <button class="kana-back-btn" id="kana-reading-exit-btn" type="button" aria-label="離開讀音練習">‹</button>
+          <div class="kana-session-progress"><span id="kana-reading-progress-text"></span><div><i id="kana-reading-progress-fill"></i></div></div>
+        </header>
+        <main class="kana-reading-question-card">
+          <div class="kana-reading-character" id="kana-reading-character"></div>
+          <p>輸入羅馬拼音，按鍵盤「下一個／換行」送出並自動換題</p>
+          <form class="kana-reading-answer-form" id="kana-reading-answer-form">
+            <input id="kana-reading-answer" type="text" inputmode="text" lang="en" enterkeyhint="next" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="8" autofocus aria-label="輸入假名的羅馬拼音" placeholder="例如：a">
+            <button class="btn-primary" id="kana-reading-submit" type="submit">送出並下一題</button>
+          </form>
+          <div class="kana-reading-feedback" id="kana-reading-feedback" role="status" aria-live="polite"></div>
+          <button class="btn-secondary kana-reading-listen" id="kana-reading-listen" type="button">🔊 播放假名發音</button>
+        </main>
+      </div>`;
+    const input = document.getElementById('kana-reading-answer');
+    const form = document.getElementById('kana-reading-answer-form');
+    input?.addEventListener('beforeinput', event => {
+      if (this.state.transitioning) event.preventDefault();
+    });
+    input?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      form?.requestSubmit();
+    });
+    document.getElementById('kana-reading-listen')?.addEventListener('click', () => {
+      const kana = this.state.items[this.state.index];
+      if (kana) TTS.speakKana(kana.character, 0.62, { immediate: true });
+    });
+    document.getElementById('kana-reading-exit-btn')?.addEventListener('click', () => {
+      Modal.show(`<div class="modal-handle"></div><div class="modal-title">離開五十音讀音練習？</div><p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">已完成的題目會保留，這次未完成的進度不列入測驗結果。</p><div class="modal-actions"><button class="modal-btn-cancel" id="kana-reading-stay">繼續練習</button><button class="modal-btn-delete" id="kana-reading-leave">離開</button></div>`);
+      document.getElementById('kana-reading-stay')?.addEventListener('click', () => Modal.hide());
+      document.getElementById('kana-reading-leave')?.addEventListener('click', () => { Modal.hide(); this.cleanup(); this.renderSetup(container); });
+    });
+    form?.addEventListener('submit', event => {
+      event.preventDefault();
+      this._submitCurrentAnswer(container);
+      this._focusAnswerInput(input);
+    });
+    this._paintCurrentQuestion();
+    this._focusAnswerInput(input);
+  },
+
+  _paintCurrentQuestion() {
+    const kana = this.state.items[this.state.index];
+    const total = this.state.items.length;
+    if (!kana || !total) return;
+    const progress = Math.round(this.state.index / total * 100);
+    const isLast = this.state.index + 1 >= total;
+    this.state.answered = false;
+    this.state.transitioning = false;
+    const progressText = document.getElementById('kana-reading-progress-text');
+    const progressFill = document.getElementById('kana-reading-progress-fill');
+    const character = document.getElementById('kana-reading-character');
+    const input = document.getElementById('kana-reading-answer');
+    const submit = document.getElementById('kana-reading-submit');
+    const feedback = document.getElementById('kana-reading-feedback');
+    if (progressText) progressText.textContent = `五十音讀音 ${this.state.index + 1} / ${total}`;
+    if (progressFill) progressFill.style.width = `${progress}%`;
+    if (character) {
+      character.textContent = kana.character;
+      character.setAttribute('aria-label', `題目 ${kana.character}`);
+    }
+    if (input) {
+      input.value = '';
+      input.disabled = false;
+      input.setAttribute('aria-label', `輸入 ${kana.character} 的羅馬拼音`);
+      input.setAttribute('enterkeyhint', 'next');
+    }
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = isLast ? '送出答案（答對後完成）' : '送出並下一題';
+    }
+    if (feedback) feedback.innerHTML = '';
+  },
+
+  _submitCurrentAnswer(container) {
+    if (this.state.transitioning) return;
+    const kana = this.state.items[this.state.index];
+    const total = this.state.items.length;
+    const input = document.getElementById('kana-reading-answer');
+    const submit = document.getElementById('kana-reading-submit');
+    if (!kana || !input || !total) return;
+      const checked = checkKanaReadingAnswer(kana, input?.value || '');
+      if (!checked.normalized) { showToast('請先輸入羅馬拼音'); this._focusAnswerInput(input); return; }
+      this.state.answered = true;
+      this.state.transitioning = true;
+      const result = { kana, answer: checked.normalized, correct: checked.correct };
+      this.state.results.push(result);
+      if (!checked.correct) this.state.items.push({ ...kana });
+      const updatedTotal = this.state.items.length;
+      const progressText = document.getElementById('kana-reading-progress-text');
+      const progressFill = document.getElementById('kana-reading-progress-fill');
+      if (progressText) progressText.textContent = `五十音讀音 ${this.state.index + 1} / ${updatedTotal}`;
+      if (progressFill) progressFill.style.width = `${Math.round((this.state.index + 1) / updatedTotal * 100)}%`;
+      KanaReadingProgress.recordAttempt(kana, checked.normalized, checked.correct);
+      void (checked.correct ? Sound.playCorrect() : Sound.playWrong());
+      const feedback = document.getElementById('kana-reading-feedback');
+      if (feedback) feedback.innerHTML = checked.correct
+        ? `<div class="is-correct"><strong>✓ 答對了</strong><span>${escapeHTML(kana.character)} = ${escapeHTML(checked.expected)}</span></div>`
+        : `<div class="is-wrong"><strong>✗ 再加油</strong><span>你的答案：${escapeHTML(checked.normalized)}　正確答案：${escapeHTML(checked.expected)}；已追加至尾端補練（共 ${updatedTotal} 題）</span></div>`;
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = this.state.index + 1 >= updatedTotal ? '正在完成…' : '正在前往下一題…';
+      }
+      // Keep the same input element focused. Replacing or disabling it makes iOS
+      // dismiss the keyboard, which forced the learner to tap and scroll each time.
+      this._advanceTimer = setTimeout(() => {
+        this._advanceTimer = null;
+        if (this.state.index + 1 >= this.state.items.length) {
+          this.renderResult(container);
+          return;
+        }
+        this.state.index += 1;
+        this._paintCurrentQuestion();
+        this._focusAnswerInput(input);
+      }, 650);
+  },
+
+  renderResult(container) {
+    Router.quizActive = false;
+    const results = this.state.results;
+    const correct = results.filter(item => item.correct).length;
+    const score = results.length ? Math.round(correct / results.length * 100) : 0;
+    const wrong = results.filter(item => !item.correct);
+    setTimeout(() => { void Sound.playResult(score); }, 150);
+    recordStudyActivity(STUDY_ACTIVITY_TYPES.KANA_READING, `kana-reading:${todayStr()}:${Date.now()}`);
+    GDrive.scheduleStudyStreakSync(350);
+    container.innerHTML = `
+      <div class="kana-reading-result-view">
+        <div class="kana-result-mark">${score >= 80 ? '上手！' : score >= 60 ? '進步中' : '再練習'}</div>
+        <h1>五十音讀音完成</h1>
+        <p>原定 ${this.state.initialTotal} 題 ＋ 錯題補練 ${results.length - this.state.initialTotal} 題 ＝ 完成 ${results.length} 題</p>
+        <div class="kana-result-summary"><div><strong>${score}</strong><span>正確率</span></div><div><strong>${correct}/${results.length}</strong><span>答對題數</span></div></div>
+        ${wrong.length ? `<section class="kana-reading-wrong-list"><h2>需要加強</h2>${wrong.map(item => `<div><b>${item.kana.character}</b><span>你的答案：${escapeHTML(item.answer)}</span><strong>${escapeHTML(item.kana.romaji)}</strong></div>`).join('')}</section>` : '<div class="kana-reading-perfect">🎉 全部答對！</div>'}
+        <button class="btn-primary" id="kana-reading-again">再練一次</button>
+        <button class="btn-secondary" id="kana-reading-home">回到主頁</button>
+      </div>`;
+    document.getElementById('kana-reading-again')?.addEventListener('click', () => this.renderSetup(container));
+    document.getElementById('kana-reading-home')?.addEventListener('click', () => Router.navigate('home'));
+    refreshStudyStreakUI();
+    resumeAppUpdateWhenSafe();
+  }
+};
+
+
+// ===========================
 // READING QUIZ VIEW
 // ===========================
 Views.readingQuiz = {
@@ -3360,15 +4599,15 @@ Views.readingQuiz = {
     const hasKey = !!DB.getApiKey();
     const canStart = totalWords >= 5 && hasKey;
     container.innerHTML = `
-      <div class="section-header"><h1 class="section-title">練習</h1></div>
+      <div class="practice-compact-page reading-practice-page">
+      <div class="section-header practice-page-header"><h1 class="section-title">練習</h1></div>
       ${renderPracticeModeSelector('reading')}
-      <div class="reading-setup-card">
-        <div class="reading-setup-icon">📖</div>
-        <div class="reading-setup-title">文章閱讀測驗</div>
-        <div class="reading-setup-desc">
-          系統會從目前資料庫隨機挑選 5 個單字，使用你在設定頁選擇的 AI 模型生成 200 字以內的小文章，並針對 5 個單字各出 1 題同義字選擇題。
+      <section class="reading-setup-card practice-compact-card">
+        <div class="practice-compact-heading">
+          <div class="practice-compact-mark" aria-hidden="true">読</div>
+          <div><h2>文章閱讀測驗</h2><p>從單字庫選出 5 個日文語彙，依 JLPT 等級生成短文與選擇題。</p></div>
         </div>
-        <div class="reading-rule-grid">
+        <div class="reading-rule-grid practice-summary-strip">
           <div><strong>5</strong><span>個單字</span></div>
           <div><strong>5</strong><span>題測驗</span></div>
           <div><strong>20</strong><span>分 / 題</span></div>
@@ -3377,8 +4616,9 @@ Views.readingQuiz = {
         ${!hasKey ? `<div class="no-api-warning" style="margin-top:12px">請先在設定頁填入 Gemini API Key</div>` : ''}
         ${totalWords < 5 ? `<div class="no-api-warning" style="margin-top:12px">資料庫至少需要 5 個單字，目前只有 ${totalWords} 個</div>` : ''}
         <button class="btn-primary" id="reading-start-btn" ${canStart ? '' : 'disabled'}>生成文章並開始測驗</button>
-      </div>
+      </section>
       <div id="reading-generate-status"></div>
+      </div>
     `;
     bindPracticeModeSelector(container, 'reading');
     document.getElementById('reading-start-btn')?.addEventListener('click', async () => {
@@ -3387,7 +4627,7 @@ Views.readingQuiz = {
       const selected = selectWords(5, 'all', DB.getBoostedWords());
       if (selected.length < 5) { showToast('資料庫至少需要 5 個單字'); return; }
       btn.disabled = true;
-      if (status) status.innerHTML = `<div class="reading-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>AI 正在生成閱讀文章與同義字測驗...</span></div>`;
+      if (status) status.innerHTML = `<div class="reading-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>AI 正在生成日文閱讀文章與語意測驗...</span></div>`;
       try {
         const result = await Gemini.generateReadingQuiz(selected);
         this.state = { ...this._blankState(), phase: 'quiz', words: selected, article: result.article, questions: result.questions, answers: {}, submitted: false, score: 0, correct: 0 };
@@ -3421,14 +4661,14 @@ Views.readingQuiz = {
           <div class="reading-article-zh-panel" id="reading-article-zh-panel" hidden>
             <div class="reading-article-zh-panel-head">
               <span>中文翻譯</span>
-              <span>可與上方英文文章對照閱讀</span>
+              <span>可與上方日文文章對照閱讀</span>
             </div>
             <div class="reading-article reading-article-zh" id="reading-article-zh-content"></div>
           </div>
         </div>
         <div class="reading-questions-card">
-          <div class="reading-section-title">同義字選擇題</div>
-          <div class="reading-score-note">每題 20 分，共 100 分。請選出與題目單字最接近的英文同義字。</div>
+          <div class="reading-section-title">日文語意選擇題</div>
+          <div class="reading-score-note">每題 20 分，共 100 分。請選出與題目單字最接近的日文近義詞。</div>
           <div class="reading-question-list">
             ${state.questions.map((q, i) => this._questionHtml(q, i)).join('')}
           </div>
@@ -3510,7 +4750,7 @@ Views.readingQuiz = {
           return `<button class="reading-option-btn ${chosen ? 'selected' : ''} ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}" data-q="${i}" data-opt="${escapeAttr(opt)}" ${submitted ? 'disabled' : ''}>${optSafe}</button>`;
         }).join('')}
       </div>
-      ${submitted ? `<div class="reading-answer-note ${isCorrect ? 'ok' : 'ng'}">${isCorrect ? '✓ 正確' : `✗ 答錯，正確同義字是 ${escapeHTML(q.correctSynonym || '')}`}</div>` : ''}
+      ${submitted ? `<div class="reading-answer-note ${isCorrect ? 'ok' : 'ng'}">${isCorrect ? '✓ 正確' : `✗ 答錯，正確答案是 ${escapeHTML(q.correctSynonym || '')}`}</div>` : ''}
     </div>`;
   },
 
@@ -3687,14 +4927,12 @@ Views.readingQuiz = {
 Views.database = {
   deleteMode: false, selectedIds: new Set(),
   aiCorrectMode: false, aiCorrectIds: new Set(),
-  pageSize: 80,
-  visibleCount: 80,
   sortMode: AppStorage.getItem('dbSortMode') || 'createdAt',
-  render(container) { this.deleteMode = false; this.selectedIds = new Set(); this.aiCorrectMode = false; this.aiCorrectIds = new Set(); this.visibleCount=this.pageSize;this.renderList(container); },
+  render(container) { this.deleteMode = false; this.selectedIds = new Set(); this.aiCorrectMode = false; this.aiCorrectIds = new Set(); this.renderList(container); },
   _sortWords(words) {
     const arr = [...words];
     if (this.sortMode === 'alpha') {
-      arr.sort((a, b) => a.english.localeCompare(b.english));
+      arr.sort((a, b) => a.english.localeCompare(b.english, 'ja'));
     } else if (this.sortMode === 'wrongCount') {
       arr.sort((a, b) => (b.wrongCount || 0) - (a.wrongCount || 0));
     } else {
@@ -3710,37 +4948,35 @@ Views.database = {
   // Lightweight refresh: update only the word list + badge without destroying lookup card state
   _refreshWordList(container) {
     const rawWords = DB.getWords();
-    const allWords = this._sortWords(rawWords);
-    const words = allWords.slice(0,this.visibleCount);
+    const words    = this._sortWords(rawWords);
     const dm  = this.deleteMode;  const sel = this.selectedIds;
     const acm = this.aiCorrectMode; const acs = this.aiCorrectIds;
     // Update badge
     const badge = container.querySelector('.word-count-badge');
-    if (badge) badge.textContent = allWords.length + ' 個單字';
+    if (badge) badge.textContent = words.length + ' 個單字';
     // Update list
     const listEl = container.querySelector('#db-list');
     if (!listEl) return;
-    if (allWords.length === 0) {
-      listEl.innerHTML = `<div class="db-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:auto"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><div class="db-empty-title">資料庫是空的</div><div class="db-empty-sub">點選「新增」或從 ECDICT 搜尋加入單字</div></div>`;
+    if (words.length === 0) {
+      listEl.innerHTML = `<div class="db-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:auto"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><div class="db-empty-title">資料庫是空的</div><div class="db-empty-sub">點選「新增」或使用上方 AI 日語辭典加入語彙</div></div>`;
       return;
     }
     listEl.innerHTML = words.map(w => {
       const boosted = DB.isBoosted(w.id);
-      return `<div class="db-word-card ${dm?'delete-mode':acm?'ai-correct-mode':''}" data-id="${escapeAttr(w.id)}">
-        <div class="db-checkbox ${dm&&sel.has(w.id)?'checked':acm&&acs.has(w.id)?'checked ai-check':''}" data-id="${escapeAttr(w.id)}"></div>
+      return `<div class="db-word-card ${dm?'delete-mode':acm?'ai-correct-mode':''}" data-id="${w.id}">
+        <div class="db-checkbox ${dm&&sel.has(w.id)?'checked':acm&&acs.has(w.id)?'checked ai-check':''}" data-id="${w.id}"></div>
         <div class="db-word-main">
-          <div class="db-word-en">${escapeHTML(w.english)}${w.partOfSpeech?`<span class="db-word-pos">${escapeHTML(w.partOfSpeech)}</span>`:''}${boosted?'<span class="boost-badge">⚡</span>':''}</div>
-          ${w.phonetic?`<div class="db-word-phonetic">/${escapeHTML(w.phonetic)}/</div>`:''}
-          <div class="db-word-zh">${escapeHTML(w.chinese)}</div>
-          <div class="db-word-meta"><span>${escapeHTML(w.createdAt||'—')}</span><span>答錯 ${Number(w.wrongCount)||0}次</span>${(Number(w.frequencyWeight)||1)>1?`<span>加權${Number(w.frequencyWeight)}x</span>`:''}</div>
+          <div class="db-word-en">${w.english}${w.partOfSpeech?`<span class="db-word-pos">${w.partOfSpeech}</span>`:''}${boosted?'<span class="boost-badge">⚡</span>':''}</div>
+          ${w.phonetic?`<div class="db-word-phonetic">${escapeHTML(w.phonetic)}${w.romaji ? `・${escapeHTML(w.romaji)}` : ''}</div>`:''}
+          <div class="db-word-zh">${w.chinese}</div>
+          <div class="db-word-meta"><span>${w.createdAt||'—'}</span><span>答錯 ${w.wrongCount||0}次</span>${(w.frequencyWeight||1)>1?`<span>加權${w.frequencyWeight}x</span>`:''}</div>
         </div>
         <div class="db-word-actions">
-          <button class="db-tts-btn" data-tts="${escapeAttr(w.english)}" title="播放發音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
-          ${(!dm&&!acm)?`<button class="db-word-edit-btn" data-edit="${escapeAttr(w.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`:''}
+          <button class="db-tts-btn" data-tts="${w.english}" title="播放發音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
+          ${(!dm&&!acm)?`<button class="db-word-edit-btn" data-edit="${w.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`:''}
         </div>
       </div>`;
-    }).join('') + (words.length < allWords.length ? `<button class="db-load-more" id="db-load-more">載入更多（已顯示 ${words.length} / ${allWords.length}）</button>` : '');
-    listEl.querySelector('#db-load-more')?.addEventListener('click',()=>{this.visibleCount+=this.pageSize;this._refreshWordList(container);});
+    }).join('');
     // Re-bind TTS and edit buttons on the refreshed list
     listEl.querySelectorAll('.db-tts-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -3775,22 +5011,21 @@ Views.database = {
 
   async renderList(container) {
     const rawWords = DB.getWords();
-    const allWords = this._sortWords(rawWords);
-    const words = allWords.slice(0,this.visibleCount);
+    const words = this._sortWords(rawWords);
     const dm = this.deleteMode; const sel = this.selectedIds;
     const acm = this.aiCorrectMode; const acs = this.aiCorrectIds;
-    const ecdictMeta = await ECDICT.getMeta();
-    const ecdictLoaded = ecdictMeta && ecdictMeta.count > 0;
+    const ecdictMeta = null;
+    const ecdictLoaded = false;
     container.innerHTML = `
       <div class="section-header">
         <h1 class="section-title">資料庫</h1>
-        <span class="word-count-badge">${allWords.length} 個單字</span>
+        <span class="word-count-badge">${words.length} 個單字</span>
       </div>
       <div class="lookup-card">
         <!-- Card header -->
         <div class="lookup-card-header">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          <span>單字查詢</span>
+          <span>AI 日語辭典</span>
         </div>
         <!-- Segmented tab control -->
         <div class="lookup-seg-wrap">
@@ -3831,7 +5066,7 @@ Views.database = {
             ? `<div class="ai-search-wrap">
                 <div class="ecdict-search-row">
                   <div class="ai-input-wrap">
-                    <input class="ecdict-search-input" id="ai-word-input" placeholder="輸入英文單字查詢..." autocorrect="off" autocapitalize="off" spellcheck="false">
+                    <input class="ecdict-search-input" id="ai-word-input" placeholder="輸入日文單字查詢..." autocorrect="off" autocapitalize="off" spellcheck="false">
                     <button class="ecdict-clear-btn ai-clear-btn" id="ai-word-clear-btn" title="清除" style="display:none">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
@@ -3842,7 +5077,7 @@ Views.database = {
                 </div>
                 <div id="ai-results"></div>
                </div>`
-            : `<div class="ecdict-intro"><p>使用 Gemini AI 查詢單字，包含所有詞性與中文釋義。<br>請先在設定頁填入 Gemini API Key。</p><button class="btn-ecdict-load" id="ai-goto-settings-btn">前往設定</button></div>`}
+            : `<div class="ecdict-intro"><p>使用 Gemini AI 查詢日文語彙、假名讀音、羅馬拼音、詞性與繁體中文釋義。<br>請先在設定頁填入 Gemini API Key。</p><button class="btn-ecdict-load" id="ai-goto-settings-btn">前往設定</button></div>`}
         </div>
         <input type="file" id="ecdict-file-input" accept=".csv" style="display:none">
       </div>
@@ -3865,7 +5100,7 @@ Views.database = {
         </button>
         <button class="db-sort-chip ${this.sortMode==='alpha'?'active':''}" data-sort="alpha">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l8-3 8 3"/><path d="M4 10h16"/><path d="M4 14h16"/><path d="M4 18h16"/></svg>
-          字首 A→Z
+          五十音順
         </button>
         <button class="db-sort-chip ${this.sortMode==='wrongCount'?'active':''}" data-sort="wrongCount">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -3875,28 +5110,26 @@ Views.database = {
       ${dm ? `<button id="db-back-to-top" class="db-back-to-top" title="回到頂部"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg></button>` : ''}
       <div class="db-list-scroll"><div class="db-list" id="db-list">
         ${words.length === 0
-          ? `<div class="db-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:auto"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><div class="db-empty-title">資料庫是空的</div><div class="db-empty-sub">點選「新增」或從 ECDICT 搜尋加入單字</div></div>`
+          ? `<div class="db-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:auto"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><div class="db-empty-title">資料庫是空的</div><div class="db-empty-sub">點選「新增」或使用上方 AI 日語辭典加入語彙</div></div>`
           : words.map(w => {
               const boosted = DB.isBoosted(w.id);
-              return `<div class="db-word-card ${dm?'delete-mode':acm?'ai-correct-mode':''}" data-id="${escapeAttr(w.id)}">
-                <div class="db-checkbox ${dm&&sel.has(w.id)?'checked':acm&&acs.has(w.id)?'checked ai-check':''}" data-id="${escapeAttr(w.id)}"></div>
+              return `<div class="db-word-card ${dm?'delete-mode':acm?'ai-correct-mode':''}" data-id="${w.id}">
+                <div class="db-checkbox ${dm&&sel.has(w.id)?'checked':acm&&acs.has(w.id)?'checked ai-check':''}" data-id="${w.id}"></div>
                 <div class="db-word-main">
-                  <div class="db-word-en">${escapeHTML(w.english)}${w.partOfSpeech ? `<span class="db-word-pos">${escapeHTML(w.partOfSpeech)}</span>` : ''}${boosted?'<span class="boost-badge">⚡</span>':''}</div>
-                  ${w.phonetic?`<div class="db-word-phonetic">/${escapeHTML(w.phonetic)}/</div>`:''}
-                  <div class="db-word-zh">${escapeHTML(w.chinese)}</div>
-                  <div class="db-word-meta"><span>${escapeHTML(w.createdAt||'—')}</span><span>答錯 ${Number(w.wrongCount)||0}次</span>${(Number(w.frequencyWeight)||1)>1?`<span>加權${Number(w.frequencyWeight)}x</span>`:''}</div>
+                  <div class="db-word-en">${w.english}${w.partOfSpeech ? `<span class="db-word-pos">${w.partOfSpeech}</span>` : ''}${boosted?'<span class="boost-badge">⚡</span>':''}</div>
+                  ${w.phonetic?`<div class="db-word-phonetic">${escapeHTML(w.phonetic)}${w.romaji ? `・${escapeHTML(w.romaji)}` : ''}</div>`:''}
+                  <div class="db-word-zh">${w.chinese}</div>
+                  <div class="db-word-meta"><span>${w.createdAt||'—'}</span><span>答錯 ${w.wrongCount||0}次</span>${(w.frequencyWeight||1)>1?`<span>加權${w.frequencyWeight}x</span>`:''}</div>
                 </div>
                 <div class="db-word-actions">
-                  <button class="db-tts-btn" data-tts="${escapeAttr(w.english)}" title="播放發音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
-                  ${(!dm&&!acm)?`<button class="db-word-edit-btn" data-edit="${escapeAttr(w.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`:''}
+                  <button class="db-tts-btn" data-tts="${w.english}" title="播放發音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
+                  ${(!dm&&!acm)?`<button class="db-word-edit-btn" data-edit="${w.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`:''}
                 </div>
               </div>`;
             }).join('')}
-        ${words.length < allWords.length ? `<button class="db-load-more" id="db-load-more">載入更多（已顯示 ${words.length} / ${allWords.length}）</button>` : ''}
       </div></div>
       <div style="height:20px"></div>
     `;
-    container.querySelector('#db-load-more')?.addEventListener('click',()=>{this.visibleCount+=this.pageSize;this._refreshWordList(container);});
     // TTS buttons in word list
     container.querySelectorAll('.db-tts-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -3940,11 +5173,12 @@ Views.database = {
         return `<div class="ai-result-card" data-idx="${idx}">
           <div class="ai-result-top">
             <span class="ai-result-word">${escapeHTML(e.english)}</span>
-            ${e.phonetic ? `<span class="ai-result-phonetic">/${escapeHTML((e.phonetic||'').replace(/^\/+|\/+$/g,''))}/</span>` : ''}
+            ${e.phonetic ? `<span class="ai-result-phonetic">${escapeHTML(e.phonetic)}${e.romaji ? `・${escapeHTML(e.romaji)}` : ''}</span>` : ''}
             <span class="ai-result-pos-badge">${escapeHTML(e.pos||'')}</span>
+            ${e.jlpt ? `<span class="ai-result-pos-badge">${escapeHTML(e.jlpt)}</span>` : ''}
           </div>
           <div class="ai-result-zh">${escapeHTML(e.chinese||'')}</div>
-          ${e.example ? `<div class="ai-result-example">${escapeHTML(e.example)}</div>` : ''}
+          ${e.example ? `<div class="ai-result-example">${escapeHTML(e.example)}${e.exampleReading ? `<small>${escapeHTML(e.exampleReading)}</small>` : ''}</div>` : ''}
           ${alreadyIn
             ? `<button class="ecdict-add-btn added" disabled>✓ 已在詞庫</button>`
             : `<button class="ecdict-add-btn ai-add-btn" data-idx="${idx}">＋ 加入詞庫</button>`}
@@ -3959,7 +5193,12 @@ Views.database = {
             english:      entry.english,
             partOfSpeech: entry.pos || '',
             chinese:      entry.chinese || '',
-            phonetic:     entry.phonetic || ''
+            phonetic:     entry.phonetic || '',
+            reading:      entry.reading || entry.phonetic || '',
+            romaji:       entry.romaji || '',
+            example:      entry.example || '',
+            exampleReading: entry.exampleReading || '',
+            jlpt:         entry.jlpt || '未分級'
           });
           btn.textContent = '✓ 已在詞庫';
           btn.classList.add('added');
@@ -3992,7 +5231,7 @@ Views.database = {
         else if (detail === 'NETWORK_ERROR') msg = '網路錯誤，請確認連線';
         else if (/api key|apikey|invalid|permission|authentication/i.test(detail)) msg = 'API Key 無效或權限不足，請至設定頁確認';
         else if (/quota|rate limit/i.test(detail)) msg = '模型配額或速率限制已滿，請稍後再試或更換模型';
-        else if (/user location is not supported|region|location|failed_precondition|REGION_UNSUPPORTED/i.test(detail)) msg = 'Gemini API 受目前網路/地區限制，已改用公開字典與翻譯備援；若仍失敗，請改用可支援 Gemini API 的網路或在設定頁更換 API Key';
+        else if (/user location is not supported|region|location|failed_precondition|REGION_UNSUPPORTED/i.test(detail)) msg = 'Gemini API 受目前網路或地區限制，請改用可支援 Gemini API 的網路，或至設定頁確認 API Key';
         else if (/model|not found|not supported|deprecated/i.test(detail)) msg = '目前模型不可用，已嘗試 fallback；請到設定頁改選其他模型';
         aiResults.innerHTML = `<div class="ecdict-no-result">${msg}${detail && detail !== msg ? `<br><span style="font-size:11px;opacity:.65">${escapeHTML(detail)}</span>` : ''}</div>`;
       } finally {
@@ -4136,7 +5375,6 @@ Views.database = {
     // Sort chips
     container.querySelectorAll('.db-sort-chip').forEach(btn => btn.addEventListener('click', () => {
       this.sortMode = btn.dataset.sort;
-      this.visibleCount = this.pageSize;
       AppStorage.setItem('dbSortMode', this.sortMode);
       this.renderList(container);
     }));
@@ -4146,7 +5384,7 @@ Views.database = {
       if (!words.length) { showToast('資料庫是空的'); return; }
       const blob = new Blob(['\uFEFF'+DB.exportCSV()], {type:'text/csv;charset=utf-8;'});
       const url = URL.createObjectURL(blob); const a = document.createElement('a');
-      a.href=url; a.download=`vocab_${todayStr().replace(/\//g,'-')}.csv`; a.click(); URL.revokeObjectURL(url);
+      a.href=url; a.download=`japanese_vocab_${todayStr().replace(/\//g,'-')}.csv`; a.click(); URL.revokeObjectURL(url);
       showToast('✓ CSV 已匯出');
     });
     document.getElementById('import-btn')?.addEventListener('click', () => document.getElementById('csv-file-input').click());
@@ -4240,18 +5478,18 @@ Views.database = {
         ${results.map(r => {
           if (!r.entries || !r.entries.length) {
             return `<div style="padding:10px;background:var(--surface);border-radius:8px;border:1px solid var(--border);opacity:0.6">
-              <span style="font-weight:600;color:var(--text-primary)">${escapeHTML(r.original.english)}</span>
+              <span style="font-weight:600;color:var(--text-primary)">${r.original.english}</span>
               <span style="margin-left:8px;font-size:12px;color:var(--danger)">❌ ${r.error || '查無結果'}</span>
             </div>`;
           }
           const rawPhonetic = (r.entries[0].phonetic || '').replace(/^\/+|\/+$/g, '');
           // Default to entry matching original pos, else first
           const defIdx = Math.max(0, r.entries.findIndex(e => e.pos === r.original.partOfSpeech));
-          return `<div class="ai-correct-item" data-word-id="${escapeAttr(r.original.id)}" data-phonetic="${escapeAttr(rawPhonetic)}" style="padding:12px;background:var(--surface);border-radius:10px;border:1px solid var(--border)">
+          return `<div class="ai-correct-item" data-word-id="${r.original.id}" data-phonetic="${rawPhonetic}" style="padding:12px;background:var(--surface);border-radius:10px;border:1px solid var(--border)">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-              <span style="font-weight:700;font-size:15px;color:var(--text-primary)">${escapeHTML(r.entries[0].english)}</span>
+              <span style="font-weight:700;font-size:15px;color:var(--text-primary)">${r.entries[0].english}</span>
               ${rawPhonetic ? `<span style="font-size:12px;color:var(--text-secondary)">/${rawPhonetic}/</span>` : ''}
-              <span style="font-size:11px;color:var(--text-muted);margin-left:auto">原：${escapeHTML(r.original.partOfSpeech||'—')} ${escapeHTML(r.original.chinese)}</span>
+              <span style="font-size:11px;color:var(--text-muted);margin-left:auto">原：${r.original.partOfSpeech||'—'} ${r.original.chinese}</span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
               <span style="font-size:12px;color:var(--text-secondary);white-space:nowrap">詞性</span>
@@ -4320,29 +5558,35 @@ Views.database = {
     });
   },
   showAddModal(container) {
-    const posOptions = ['n.','v.','adj.','adv.','prep.','conj.','pron.','interj.','phrase'];
-    Modal.show(`<div class="modal-handle"></div><div class="modal-title">新增單字</div>
-      <div class="form-group"><label class="form-label">英文單字 *</label><input class="form-input" id="new-en" placeholder="e.g. beautiful" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="text"></div>
+    const posOptions = ['名詞','五段動詞','一段動詞','不規則動詞','い形容詞','な形容詞','副詞','助詞','接續詞','慣用語'];
+    Modal.show(`<div class="modal-handle"></div><div class="modal-title">新增日文語彙</div>
+      <div class="form-group"><label class="form-label">日文語彙 *</label><input class="form-input" id="new-en" placeholder="例：食べる" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="text"></div>
       <div class="form-group"><label class="form-label">詞性 *</label><select class="form-select" id="new-pos">${posOptions.map(p=>`<option>${p}</option>`).join('')}</select></div>
-      <div class="form-group"><label class="form-label">中文意思 *</label><input class="form-input" id="new-zh" placeholder="e.g. 美麗的"></div>
-      <div class="form-group"><label class="form-label">音標（可選）</label><input class="form-input" id="new-phonetic" placeholder="e.g. bjuːtɪfəl" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label">繁體中文意思 *</label><input class="form-input" id="new-zh" placeholder="例：吃；食用"></div>
+      <div class="form-group"><label class="form-label">假名讀音（可選）</label><input class="form-input" id="new-phonetic" placeholder="例：たべる" lang="ja" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label">羅馬拼音（可選）</label><input class="form-input" id="new-romaji" placeholder="例：taberu" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="new-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option>${level}</option>`).join('')}</select></div>
       <div class="modal-actions"><button class="modal-btn-cancel" id="cancel-add">取消</button><button class="modal-btn-confirm" id="confirm-add">新增</button></div>`);
     document.getElementById('cancel-add').addEventListener('click', () => Modal.hide());
     document.getElementById('confirm-add').addEventListener('click', () => {
       const en=document.getElementById('new-en').value.trim(); const pos=document.getElementById('new-pos').value;
       const zh=document.getElementById('new-zh').value.trim(); const phonetic=document.getElementById('new-phonetic').value.trim();
-      if (!en||!zh) { showToast('請填入英文和中文'); return; }
-      DB.addWord({english:en,partOfSpeech:pos,chinese:zh,phonetic}); Modal.hide(); showToast('✓ 單字已新增'); this.renderList(container);
+      const romaji=document.getElementById('new-romaji').value.trim(); const jlpt=document.getElementById('new-jlpt').value;
+      if (!en||!zh) { showToast('請填入日文語彙和繁體中文意思'); return; }
+      DB.addWord({english:en,partOfSpeech:pos,chinese:zh,phonetic,reading:phonetic,romaji,jlpt}); Modal.hide(); showToast('✓ 日文語彙已新增'); this.renderList(container);
     });
     setTimeout(() => document.getElementById('new-en')?.focus(), 100);
   },
   showEditModal(word, container) {
-    const posOptions = ['n.','v.','adj.','adv.','prep.','conj.','pron.','interj.','phrase'];
-    Modal.show(`<div class="modal-handle"></div><div class="modal-title">編輯單字</div>
-      <div class="form-group"><label class="form-label">英文單字</label><input class="form-input" id="edit-en" value="${escapeAttr(word.english)}" autocorrect="off" autocapitalize="off" spellcheck="false"></div>
+    const posOptions = ['名詞','五段動詞','一段動詞','不規則動詞','い形容詞','な形容詞','副詞','助詞','接續詞','慣用語'];
+    if (word.partOfSpeech && !posOptions.includes(word.partOfSpeech)) posOptions.unshift(word.partOfSpeech);
+    Modal.show(`<div class="modal-handle"></div><div class="modal-title">編輯日文語彙</div>
+      <div class="form-group"><label class="form-label">日文語彙</label><input class="form-input" id="edit-en" value="${escapeAttr(word.english)}" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false"></div>
       <div class="form-group"><label class="form-label">詞性</label><select class="form-select" id="edit-pos">${posOptions.map(p=>`<option ${p===word.partOfSpeech?'selected':''}>${p}</option>`).join('')}</select></div>
       <div class="form-group"><label class="form-label">中文意思</label><input class="form-input" id="edit-zh" value="${escapeAttr(word.chinese)}"></div>
-      <div class="form-group"><label class="form-label">音標（可選）</label><input class="form-input" id="edit-phonetic" value="${escapeAttr(word.phonetic||'')}" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label">假名讀音（可選）</label><input class="form-input" id="edit-phonetic" value="${escapeAttr(word.phonetic||'')}" lang="ja" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label">羅馬拼音（可選）</label><input class="form-input" id="edit-romaji" value="${escapeAttr(word.romaji||'')}" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="edit-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option ${level===(word.jlpt||'未分級')?'selected':''}>${level}</option>`).join('')}</select></div>
       <div class="form-group"><label class="form-label">頻率加權</label><select class="form-select" id="edit-weight">${[1,2,3,5].map(n=>`<option value="${n}" ${n===(word.frequencyWeight||1)?'selected':''}>${n}x${n===1?' (預設)':''}</option>`).join('')}</select></div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">答錯次數：${word.wrongCount||0} 次</div>
       <div class="modal-actions"><button class="modal-btn-cancel" id="cancel-edit">取消</button><button class="modal-btn-confirm" id="confirm-edit">儲存</button></div>`);
@@ -4350,9 +5594,10 @@ Views.database = {
     document.getElementById('confirm-edit').addEventListener('click', () => {
       const en=document.getElementById('edit-en').value.trim(); const pos=document.getElementById('edit-pos').value;
       const zh=document.getElementById('edit-zh').value.trim(); const phonetic=document.getElementById('edit-phonetic').value.trim();
+      const romaji=document.getElementById('edit-romaji').value.trim(); const jlpt=document.getElementById('edit-jlpt').value;
       const weight=parseInt(document.getElementById('edit-weight').value);
-      if (!en||!zh) { showToast('請填入英文和中文'); return; }
-      DB.updateWord(word.id,{english:en.toLowerCase(),partOfSpeech:pos,chinese:zh,phonetic,frequencyWeight:weight});
+      if (!en||!zh) { showToast('請填入日文語彙和繁體中文意思'); return; }
+      DB.updateWord(word.id,{english:en,japanese:en,partOfSpeech:pos,chinese:zh,phonetic,reading:phonetic,romaji,jlpt,frequencyWeight:weight});
       Modal.hide(); showToast('✓ 已儲存'); this.renderList(container);
     });
   }
@@ -4367,7 +5612,7 @@ Views.database = {
 // ===========================
 Views.essay = {
   _mode: 'vocab',   // 'vocab' | 'ai'
-  _topic: '',       // topic string (English)
+  _topic: '',       // topic string (Japanese)
   _topicZh: '',     // topic string (Chinese)
   _pool: [],        // selected vocab words
 
@@ -4380,11 +5625,17 @@ Views.essay = {
     const modeVocabActive = this._mode === 'vocab';
 
     container.innerHTML = `
-      <div class="section-header">
+      <div class="practice-compact-page essay-practice-page">
+      <div class="section-header practice-page-header">
         <button class="back-link" id="essay-back-btn">← 返回</button>
         <h1 class="section-title">文章撰寫</h1>
       </div>
       ${renderPracticeModeSelector('essay')}
+      <section class="practice-compact-card essay-practice-card">
+      <div class="practice-compact-heading">
+        <div class="practice-compact-mark" aria-hidden="true">文</div>
+        <div><h2>日文文章撰寫</h2><p>選擇單字題目或 AI 出題，在同一頁完成寫作並送出批改。</p></div>
+      </div>
       ${!hasKey ? '<div class="no-api-warning">請先在設定頁填入 Gemini API Key</div>' : ''}
 
       <div class="essay-mode-toggle">
@@ -4402,17 +5653,19 @@ Views.essay = {
           <span class="essay-char-count" id="essay-char-count">0 / 500</span>
         </div>
         <textarea class="essay-textarea" id="essay-textarea"
-          placeholder="${modeVocabActive ? '請以上方 3 個單字為主題，撰寫一篇 500 字以內的英文文章...' : '請依照 AI 出題撰寫英文文章（500 字以內）...'}"
+          placeholder="${modeVocabActive ? '請以上方 3 個單字為主題，撰寫一篇 500 字以內的日文文章...' : '請依照 AI 出題撰寫日文文章（500 字以內）...'}"
           maxlength="500"
           ${(modeVocabActive && words.length < 3) || !hasKey ? 'disabled' : ''}></textarea>
       </div>
       <button class="btn-primary" id="essay-submit-btn"
         ${(modeVocabActive && words.length < 3) || !hasKey || (!modeVocabActive && !this._topic) ? 'disabled' : ''}
-        style="margin-top:12px">
+        style="margin-top:8px">
         送出文章給 AI 批改
       </button>
+      </section>
       <div id="essay-result-area" style="margin-top:16px"></div>
       <div style="height:20px"></div>
+      </div>
     `;
 
     bindPracticeModeSelector(container, 'essay');
@@ -4446,48 +5699,28 @@ Views.essay = {
       const textarea = document.getElementById('essay-textarea');
       btn.disabled = true; btn.textContent = '⏳ 生成中...';
       if (topicBox) topicBox.textContent = '正在請 AI 出題...';
-      // Use built-in curated bilingual topic list — no API call needed
+      // Built-in Japanese/Traditional-Chinese topic list — no API call needed.
       const _TOPICS = [
-        {en:'What is one childhood memory that still makes you smile today?',zh:'哪一個童年記憶至今仍讓你微笑？'},
-        {en:'If you could live in any country for a year, where would you go and why?',zh:'如果你可以在任何一個國家住一年，你會選哪裡？為什麼？'},
-        {en:'How has technology changed the way people communicate with each other?',zh:'科技如何改變了人們互相溝通的方式？'},
-        {en:'What is the most important lesson you have learned from a mistake?',zh:'你從一次錯誤中學到最重要的一課是什麼？'},
-        {en:'Describe a food that reminds you of home or a special occasion.',zh:'描述一種讓你想起家鄉或特殊場合的食物。'},
-        {en:'What does a perfect weekend look like to you?',zh:'你理想中的完美週末是什麼樣子？'},
-        {en:'How do hobbies help people deal with stress in daily life?',zh:'嗜好如何幫助人們應對日常生活中的壓力？'},
-        {en:'What is one skill you would like to learn, and how would it change your life?',zh:'你想學習哪項技能？它會如何改變你的生活？'},
-        {en:'Do you think it is better to live in a big city or a small town? Why?',zh:'你認為住在大城市還是小鎮比較好？為什麼？'},
-        {en:'Who is the most influential person in your life, and what have you learned from them?',zh:'誰是你生命中影響最深的人？你從他身上學到了什麼？'},
-        {en:'How do you think the world will be different in 20 years from now?',zh:'你認為20年後的世界會有什麼不同？'},
-        {en:'What is your favourite book, film, or TV show, and why does it matter to you?',zh:'你最喜歡的書、電影或電視節目是什麼？它對你有什麼意義？'},
-        {en:'Is it more important to follow your passion or to earn a good salary?',zh:'追隨熱情更重要，還是賺取高薪更重要？'},
-        {en:'Describe a place in nature that you love and explain why it is special to you.',zh:'描述一個你喜愛的大自然地點，並解釋為什麼它對你很特別。'},
-        {en:'What does friendship mean to you, and what makes a good friend?',zh:'友誼對你意味著什麼？什麼樣的人才是好朋友？'},
-        {en:'How can small daily habits lead to big changes over time?',zh:'微小的日常習慣如何隨著時間帶來重大改變？'},
-        {en:'What is the best gift you have ever given or received, and why was it meaningful?',zh:'你送過或收過最好的禮物是什麼？為什麼它有意義？'},
-        {en:'Would you prefer to travel alone or with others? What are the benefits of each?',zh:'你喜歡獨自旅行還是與他人同行？各有什麼好處？'},
-        {en:'How important is it to learn from people who are different from you?',zh:'向與你不同的人學習有多重要？'},
-        {en:'What is one tradition or celebration in your culture that you are proud of?',zh:'你文化中有哪個傳統或節日讓你感到自豪？'},
-        {en:'If you could have dinner with anyone in history, who would you choose and what would you ask?',zh:'如果你可以與歷史上任何人共進晚餐，你會選誰？你會問什麼？'},
-        {en:'How does music affect your mood and daily life?',zh:'音樂如何影響你的情緒和日常生活？'},
-        {en:'What are the advantages and disadvantages of social media for young people?',zh:'社群媒體對年輕人有哪些優缺點？'},
-        {en:'Describe a challenge you faced and how you overcame it.',zh:'描述一個你曾面對的挑戰，以及你如何克服它。'},
-        {en:'What does success mean to you — and is it different from happiness?',zh:'成功對你意味著什麼——它和幸福有什麼不同嗎？'},
-        {en:'How has learning English changed or helped you in your life?',zh:'學習英文如何改變或幫助了你的生活？'},
-        {en:'What is one environmental issue you care about most, and what can individuals do to help?',zh:'你最關心哪個環境問題？個人可以做什麼來幫助？'},
-        {en:'Do you think working from home is better than working in an office? Why?',zh:'你認為在家工作比在辦公室工作更好嗎？為什麼？'},
-        {en:'What is something you believed as a child that you now know is not true?',zh:'你小時候相信的哪件事，現在才知道並不正確？'},
-        {en:'How do animals or pets contribute to people\'s happiness and wellbeing?',zh:'動物或寵物如何為人們的快樂和健康做出貢獻？'},
-        {en:'If you could change one thing about the education system, what would it be?',zh:'如果你可以改變教育制度中的一件事，那會是什麼？'},
-        {en:'What does a healthy lifestyle look like to you, and how do you try to achieve it?',zh:'在你看來，健康的生活方式是什麼樣的？你如何努力實現它？'},
-        {en:'Describe a moment when you felt truly proud of yourself.',zh:'描述一個讓你真正為自己感到驕傲的時刻。'},
-        {en:'How do books and reading shape the way we think and understand the world?',zh:'書籍和閱讀如何塑造我們思考和理解世界的方式？'},
-        {en:'What is the most interesting place you have ever visited, and what made it special?',zh:'你去過最有趣的地方是哪裡？是什麼讓它與眾不同？'},
-        {en:'Is competition always healthy, or can it sometimes be harmful?',zh:'競爭是否總是健康的，還是有時可能有害？'},
-        {en:'How can people maintain strong relationships with family and friends when they are busy?',zh:'忙碌的人如何維持與家人和朋友的緊密關係？'},
-        {en:'What is one invention from the last 50 years that you think has helped people the most?',zh:'過去50年中，哪項發明你認為對人類最有幫助？'},
-        {en:'How do you stay motivated when things get difficult or discouraging?',zh:'當事情變得困難或令人沮喪時，你如何保持動力？'},
-        {en:'What role does creativity play in everyday life, and how do you express your own creativity?',zh:'創造力在日常生活中扮演什麼角色？你如何表達自己的創造力？'}
+        {en:'子どものころの楽しい思い出について書いてください。',zh:'請寫一段童年時的快樂回憶。'},
+        {en:'あなたの理想の週末はどんな週末ですか。',zh:'你理想中的週末是什麼樣子？'},
+        {en:'好きな食べ物と、その理由を説明してください。',zh:'請介紹你喜歡的食物及原因。'},
+        {en:'毎日の生活で大切にしている習慣は何ですか。',zh:'日常生活中你重視哪一項習慣？'},
+        {en:'行ってみたい日本の場所と、その理由を書いてください。',zh:'請寫下想去的日本景點及原因。'},
+        {en:'あなたの趣味は生活にどんな影響を与えていますか。',zh:'你的興趣對生活帶來什麼影響？'},
+        {en:'最近がんばったことについて書いてください。',zh:'請寫下最近努力完成的一件事。'},
+        {en:'家族や友だちとの大切な思い出を紹介してください。',zh:'請介紹與家人或朋友的一段珍貴回憶。'},
+        {en:'都会と田舎では、どちらに住みたいですか。理由も書いてください。',zh:'你想住都市還是鄉下？請說明原因。'},
+        {en:'健康のためにしていることは何ですか。',zh:'你為健康做了哪些事？'},
+        {en:'日本語を勉強して、できるようになったことを書いてください。',zh:'請寫下學習日文後學會或做到的事。'},
+        {en:'好きな本、映画、またはドラマを紹介してください。',zh:'請介紹你喜歡的書、電影或戲劇。'},
+        {en:'失敗から学んだ大切なことについて書いてください。',zh:'請寫下你從失敗中學到的重要事情。'},
+        {en:'もし一年間外国に住めるなら、どこに住みたいですか。',zh:'如果能在國外住一年，你想住哪裡？'},
+        {en:'あなたにとって「幸せ」とは何ですか。',zh:'對你而言，「幸福」是什麼？'},
+        {en:'環境を守るために、私たちができることを書いてください。',zh:'請寫下我們能為環境保護做的事。'},
+        {en:'音楽はあなたの気持ちにどんな影響を与えますか。',zh:'音樂如何影響你的心情？'},
+        {en:'将来身につけたい技能と、その理由を説明してください。',zh:'請說明未來想學會的技能及原因。'},
+        {en:'忙しいとき、どのように気分転換をしますか。',zh:'忙碌時你如何轉換心情？'},
+        {en:'二十年後の生活はどう変わると思いますか。',zh:'你認為二十年後的生活會如何改變？'}
       ];
       // Pick a topic that hasn't been used recently (avoid repeats)
       if (!Views.essay._usedTopicIdxs) Views.essay._usedTopicIdxs = [];
@@ -4514,18 +5747,11 @@ Views.essay = {
 
     const textarea = document.getElementById('essay-textarea');
     const charCount = document.getElementById('essay-char-count');
-    const essayDraft = Drafts.get('essay');
-    if (textarea && essayDraft) {
-      textarea.value = essayDraft.slice(0, 500);
-      charCount.textContent = `${textarea.value.length} / 500`;
-      Router.essayActive = true;
-    }
     textarea?.addEventListener('input', () => {
       const len = textarea.value.length;
       charCount.textContent = `${len} / 500`;
       charCount.style.color = len > 450 ? 'var(--danger)' : 'var(--text-muted)';
       Router.essayActive = len > 0;
-      Drafts.save('essay', textarea.value);
     });
 
     document.getElementById('essay-submit-btn')?.addEventListener('click', async () => {
@@ -4548,7 +5774,6 @@ Views.essay = {
         this._renderFeedback(resultArea, feedback, essay, pool, container);
         const annotatedHtml = Views.essay._buildAnnotatedEssay(essay, (feedback.grammar||[]).map((g,i)=>({...g,idx:i})));
         DB.addEssaySession({ date: todayStr(), words: pool, essay, feedback: JSON.stringify(feedback), score: feedback.score, annotatedHtml, essayMode: isAiMode?'ai':'vocab', topic: isAiMode?topic:'' });
-        Drafts.remove('essay');
       } catch(e) {
         const raw = e.message || '';
         let msg = '❌ 批改失敗', detail = '';
@@ -4575,10 +5800,10 @@ Views.essay = {
         <div class="essay-chips-row">
           ${this._pool.map(w => `<div class="essay-chip-pill">
             <div class="essay-chip-top">
-              <span class="essay-chip-en">${escapeHTML(w.english)}</span>
-              ${w.partOfSpeech ? `<span class="essay-chip-pos">${escapeHTML(w.partOfSpeech)}</span>` : ''}
+              <span class="essay-chip-en">${w.english}</span>
+              ${w.partOfSpeech ? `<span class="essay-chip-pos">${w.partOfSpeech}</span>` : ''}
             </div>
-            <div class="essay-chip-zh">${escapeHTML(w.chinese)}</div>
+            <div class="essay-chip-zh">${w.chinese}</div>
           </div>`).join('')}
         </div>
       </div>`;
@@ -4595,7 +5820,7 @@ Views.essay = {
           ${hasTopic
             ? `<div style="font-weight:700;color:var(--text-primary);line-height:1.5;margin-bottom:5px">${escapeHTML(this._topic)}</div>`
               + (this._topicZh ? `<div style="font-size:13px;color:var(--text-secondary);line-height:1.5">${escapeHTML(this._topicZh)}</div>` : '')
-            : '<span style="color:var(--text-muted)">點擊下方按鈕隨機出一道英文寫作題目</span>'}
+            : '<span style="color:var(--text-muted)">點擊下方按鈕隨機出一道日文寫作題目</span>'}
         </div>
         <button class="btn-secondary" id="essay-gen-topic-btn" style="margin-top:8px;width:100%">
           ${hasTopic ? '🔄 換一題' : '🎲 隨機出題'}
@@ -4734,7 +5959,8 @@ Views.aiAsk = {
     const modelLabel = (Gemini.AVAILABLE_MODELS.find(m => m.id === model)?.label) || model;
 
     container.innerHTML = `
-      <div class="section-header">
+      <div class="practice-compact-page aiask-practice-page">
+      <div class="section-header practice-page-header">
         <button class="back-link" id="aiask-back-btn">← 返回</button>
         <h1 class="section-title">AI 詢問</h1>
       </div>
@@ -4742,10 +5968,14 @@ Views.aiAsk = {
 
       ${!hasKey ? '<div class="no-api-warning">請先在設定頁填入 Gemini API Key 才能使用 AI 詢問</div>' : ''}
 
-      <div class="settings-card" style="margin-bottom:14px">
+      <section class="settings-card practice-compact-card aiask-practice-card" style="margin-bottom:10px">
+        <div class="practice-compact-heading">
+          <div class="practice-compact-mark" aria-hidden="true">問</div>
+          <div><h2>AI 日文老師</h2><p>詢問日文文法、句子修改或單字用法，並保留查詢記錄。</p></div>
+        </div>
         <div class="aiask-input-label">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;flex-shrink:0"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          提問（英文文法、句子修改、單字用法…）
+          提問（日文文法、句子修改、單字用法…）
         </div>
         <div class="aiask-model-hint">模型：${escapeHTML(modelLabel)}</div>
         <textarea class="aiask-textarea" id="aiask-textarea"
@@ -4758,7 +5988,7 @@ Views.aiAsk = {
           </button>
         </div>
         <div id="aiask-result-area" style="margin-top:10px"></div>
-      </div>
+      </section>
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px;padding:0 2px">
         <span style="font-size:13px;font-weight:700;color:var(--text-primary)">詢問記錄 <span style="font-weight:400;color:var(--text-muted)">${history.length} 筆</span></span>
@@ -4769,6 +5999,7 @@ Views.aiAsk = {
       </div>
       <div id="aiask-history-list"></div>
       <div style="height:20px"></div>
+      </div>
     `;
 
     bindPracticeModeSelector(container, 'aiask');
@@ -4783,17 +6014,10 @@ Views.aiAsk = {
     const resultArea= document.getElementById('aiask-result-area');
     const submitBtn = document.getElementById('aiask-submit-btn');
 
-    const askDraft = Drafts.get('aiAsk');
-    if (textarea && askDraft) {
-      textarea.value = askDraft.slice(0, 800);
-      charCount.textContent = `${textarea.value.length} / 800`;
-    }
-
     textarea?.addEventListener('input', () => {
       const len = textarea.value.length;
       charCount.textContent = `${len} / 800`;
       charCount.style.color = len > 720 ? 'var(--danger)' : 'var(--text-muted)';
-      Drafts.save('aiAsk', textarea.value);
     });
 
     submitBtn?.addEventListener('click', async () => {
@@ -4805,7 +6029,7 @@ Views.aiAsk = {
       resultArea.innerHTML = '<div class="ai-loading"><span class="ai-spinner"></span>AI 回覆中...</div>';
 
       try {
-        const systemPrompt = `You are an English language tutor. Answer the user's English-related questions clearly and helpfully in Traditional Chinese (繁體中文), unless the user asks in English, in which case reply in English. When correcting sentences, show the corrected version and explain why. Be concise but thorough.`;
+        const systemPrompt = `You are a Japanese language tutor for a Traditional Chinese learner. Answer Japanese-learning questions clearly in Traditional Chinese (繁體中文). Include kana readings for uncommon kanji when useful. When correcting Japanese, show the corrected Japanese sentence, explain particles, conjugation, kanji/kana spelling and naturalness, and preserve the learner's intended meaning. Be concise but thorough.`;
         const apiKey = DB.getApiKey();
         if (!apiKey) throw new Error('NO_API_KEY');
         const fullPrompt = systemPrompt + '\n\nUser question:\n' + q;
@@ -4830,7 +6054,6 @@ Views.aiAsk = {
         if (!answer) throw (lastErr || new Error('API_ERROR'));
         const id = this._makeId();
         DB.addAiAskEntry({ id, question: q, answer, ts: Date.now() });
-        Drafts.remove('aiAsk');
 
         resultArea.innerHTML = `
           <div class="aiask-answer-box">
@@ -4941,6 +6164,8 @@ Views.stats = {
           <option value="quiz" ${this.mode==="quiz"?"selected":""}>📝 單字練習</option>
           <option value="essay" ${this.mode==="essay"?"selected":""}>✍️ 文章撰寫</option>
           <option value="reading" ${this.mode==="reading"?"selected":""}>📖 文章閱讀測驗</option>
+          <option value="kana" ${this.mode==="kana"?"selected":""}>🖌️ 五十音手寫</option>
+          <option value="kanaReading" ${this.mode==="kanaReading"?"selected":""}>🔤 五十音讀音</option>
           <option value="aiask" ${this.mode==="aiask"?"selected":""}>💬 AI 詢問</option>
         </select>
       </div>
@@ -4971,6 +6196,8 @@ Views.stats = {
       this.mode = e.target.value;
       if (this.mode === 'essay') this.renderEssayStats(container);
       else if (this.mode === 'reading') this.renderReadingStats(container);
+      else if (this.mode === 'kana') this.renderKanaStats(container);
+      else if (this.mode === 'kanaReading') this.renderKanaReadingStats(container);
       else if (this.mode === 'aiask') this.renderAiAskStats(container);
       else this.renderStats(container);
     });
@@ -5036,6 +6263,8 @@ Views.stats = {
           <option value="quiz">📝 單字練習</option>
           <option value="essay" selected>✍️ 文章撰寫</option>
           <option value="reading">📖 文章閱讀測驗</option>
+          <option value="kana">🖌️ 五十音手寫</option>
+          <option value="kanaReading">🔤 五十音讀音</option>
           <option value="aiask">💬 AI 詢問</option>
         </select>
       </div>
@@ -5085,6 +6314,8 @@ Views.stats = {
       this.mode = e.target.value;
       if (this.mode === 'quiz') this.renderStats(container);
       else if (this.mode === 'reading') this.renderReadingStats(container);
+      else if (this.mode === 'kana') this.renderKanaStats(container);
+      else if (this.mode === 'kanaReading') this.renderKanaReadingStats(container);
       else if (this.mode === 'aiask') this.renderAiAskStats(container);
     });
 
@@ -5183,6 +6414,8 @@ Views.stats = {
           <option value="quiz">📝 單字練習</option>
           <option value="essay">✍️ 文章撰寫</option>
           <option value="reading">📖 文章閱讀測驗</option>
+          <option value="kana">🖌️ 五十音手寫</option>
+          <option value="kanaReading">🔤 五十音讀音</option>
           <option value="aiask" selected>💬 AI 詢問</option>
         </select>
       </div>`;
@@ -5202,6 +6435,8 @@ Views.stats = {
         if (this.mode === 'quiz') this.renderStats(container);
         else if (this.mode === 'essay') this.renderEssayStats(container);
         else if (this.mode === 'reading') this.renderReadingStats(container);
+        else if (this.mode === 'kana') this.renderKanaStats(container);
+        else if (this.mode === 'kanaReading') this.renderKanaReadingStats(container);
       });
       return;
     }
@@ -5231,6 +6466,8 @@ Views.stats = {
       if (this.mode === 'quiz') this.renderStats(container);
       else if (this.mode === 'essay') this.renderEssayStats(container);
       else if (this.mode === 'reading') this.renderReadingStats(container);
+      else if (this.mode === 'kana') this.renderKanaStats(container);
+      else if (this.mode === 'kanaReading') this.renderKanaReadingStats(container);
     });
 
     let sortOrder = 'new';
@@ -5315,6 +6552,8 @@ Views.stats = {
           <option value="quiz">📝 單字練習</option>
           <option value="essay">✍️ 文章撰寫</option>
           <option value="reading" selected>📖 文章閱讀測驗</option>
+          <option value="kana">🖌️ 五十音手寫</option>
+          <option value="kanaReading">🔤 五十音讀音</option>
           <option value="aiask">💬 AI 詢問</option>
         </select>
       </div>
@@ -5354,6 +6593,8 @@ Views.stats = {
       this.mode = e.target.value;
       if (this.mode === 'quiz') this.renderStats(container);
       else if (this.mode === 'essay') this.renderEssayStats(container);
+      else if (this.mode === 'kana') this.renderKanaStats(container);
+      else if (this.mode === 'kanaReading') this.renderKanaReadingStats(container);
       else if (this.mode === 'aiask') this.renderAiAskStats(container);
       else this.renderReadingStats(container);
     });
@@ -5401,7 +6642,7 @@ Views.stats = {
         <div class="reading-article-zh-panel" id="reading-stat-article-zh-panel" hidden>
           <div class="reading-article-zh-panel-head">
             <span>中文翻譯</span>
-            <span>可與上方英文文章對照閱讀</span>
+            <span>可與上方日文文章對照閱讀</span>
           </div>
           <div class="reading-article reading-article-zh" id="reading-stat-article-zh-content"></div>
         </div>
@@ -5414,7 +6655,7 @@ Views.stats = {
             return `<div class="reading-history-q ${ok ? 'ok' : 'ng'}">
               <div class="reading-history-q-head"><strong>Q${i + 1}. ${escapeHTML(q.word || '')}</strong><span>${ok ? '✓ 20分' : '✗ 0分'}</span></div>
               <div class="reading-history-q-line">你的答案：${escapeHTML(selected || '—')}</div>
-              <div class="reading-history-q-line">正確同義字：${escapeHTML(correct || '—')}</div>
+              <div class="reading-history-q-line">正確答案：${escapeHTML(correct || '—')}</div>
             </div>`;
           }).join('')}
         </div>
@@ -5494,6 +6735,90 @@ Views.stats = {
     }
   },
 
+  renderKanaStats(container) {
+    const summary = KanaProgress.getSummary();
+    const progressMap = new Map(KanaProgress.getProgress().map(item => [item.key, item]));
+    const renderGrid = script => BASIC_KANA.filter(item => item.script === script).map(kana => {
+      const item = progressMap.get(kana.id);
+      const best = item?.bestScore || 0;
+      return `<div class="kana-stat-item ${best >= 80 ? 'is-mastered' : item ? 'is-practiced' : ''}" title="${kana.romaji}・${item?.attempts || 0} 次">
+        <b>${kana.character}</b><span>${escapeHTML(kana.romaji)}</span><strong>${item ? best : '—'}</strong>
+      </div>`;
+    }).join('');
+    container.innerHTML = `
+      <div class="section-header"><h1 class="section-title">練習統計</h1></div>
+      <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select">
+        <option value="quiz">📝 單字練習</option>
+        <option value="essay">✍️ 文章撰寫</option>
+        <option value="reading">📖 文章閱讀測驗</option>
+        <option value="kana" selected>🖌️ 五十音手寫</option>
+        <option value="kanaReading">🔤 五十音讀音</option>
+        <option value="aiask">💬 AI 詢問</option>
+      </select></div>
+      <div class="reading-stats-summary kana-stats-summary">
+        <div><strong>${summary.practiced}/92</strong><span>已練假名</span></div>
+        <div><strong>${summary.mastered}/92</strong><span>已熟練（80 分）</span></div>
+        <div><strong>${summary.averageScore}</strong><span>平均分數</span></div>
+        <div><strong>${summary.attempts}</strong><span>總練習次數</span></div>
+      </div>
+      <section class="kana-stat-card"><header><h2>平假名</h2><span>熟練 ${summary.hiraganaMastered} / 46</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
+      <section class="kana-stat-card"><header><h2>片假名</h2><span>熟練 ${summary.katakanaMastered} / 46</span></header><div class="kana-stat-grid">${renderGrid('katakana')}</div></section>
+      <button class="btn-primary" id="kana-stats-practice-btn">開始五十音手寫</button><div style="height:20px"></div>`;
+    document.getElementById('stats-mode-select')?.addEventListener('change', event => {
+      this.mode = event.target.value;
+      if (this.mode === 'quiz') this.renderStats(container);
+      else if (this.mode === 'essay') this.renderEssayStats(container);
+      else if (this.mode === 'reading') this.renderReadingStats(container);
+      else if (this.mode === 'kanaReading') this.renderKanaReadingStats(container);
+      else if (this.mode === 'aiask') this.renderAiAskStats(container);
+    });
+    document.getElementById('kana-stats-practice-btn')?.addEventListener('click', () => Router.navigate('kanaPractice'));
+  },
+
+  renderKanaReadingStats(container) {
+    const summary = KanaReadingProgress.getSummary();
+    const progressMap = new Map(KanaReadingProgress.getProgress().map(item => [item.key, item]));
+    const renderGrid = script => BASIC_KANA.filter(item => item.script === script).map(kana => {
+      const item = progressMap.get(kana.id);
+      const accuracy = item?.accuracy || 0;
+      return `<div class="kana-stat-item ${accuracy >= 80 ? 'is-mastered' : item ? 'is-practiced' : ''}" title="${escapeAttr(kana.romaji)}・${item?.correct || 0}/${item?.attempts || 0}">
+        <b>${kana.character}</b><span>${escapeHTML(kana.romaji)}</span><strong>${item ? accuracy + '%' : '—'}</strong>
+      </div>`;
+    }).join('');
+    container.innerHTML = `
+      <div class="section-header"><h1 class="section-title">練習統計</h1></div>
+      <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select">
+        <option value="quiz">📝 單字練習</option>
+        <option value="essay">✍️ 文章撰寫</option>
+        <option value="reading">📖 文章閱讀測驗</option>
+        <option value="kana">🖌️ 五十音手寫</option>
+        <option value="kanaReading" selected>🔤 五十音讀音</option>
+        <option value="aiask">💬 AI 詢問</option>
+      </select></div>
+      <div class="reading-stats-summary kana-stats-summary">
+        <div><strong>${summary.practiced}/92</strong><span>已練假名</span></div>
+        <div><strong>${summary.correct}</strong><span>答對題數</span></div>
+        <div><strong>${summary.accuracy}%</strong><span>整體正確率</span></div>
+        <div><strong>${summary.attempts}</strong><span>總答題數</span></div>
+      </div>
+      <div class="kana-reading-stat-note">每格顯示該假名的累積正確率；綠色代表正確率達 80%。</div>
+      <section class="kana-stat-card"><header><h2>平假名</h2><span>已練 ${summary.hiraganaPracticed} / 46</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
+      <section class="kana-stat-card"><header><h2>片假名</h2><span>已練 ${summary.katakanaPracticed} / 46</span></header><div class="kana-stat-grid">${renderGrid('katakana')}</div></section>
+      <button class="btn-primary" id="kana-reading-stats-practice-btn">開始五十音讀音練習</button><div style="height:20px"></div>`;
+    document.getElementById('stats-mode-select')?.addEventListener('change', event => {
+      this.mode = event.target.value;
+      if (this.mode === 'quiz') this.renderStats(container);
+      else if (this.mode === 'essay') this.renderEssayStats(container);
+      else if (this.mode === 'reading') this.renderReadingStats(container);
+      else if (this.mode === 'kana') this.renderKanaStats(container);
+      else if (this.mode === 'aiask') this.renderAiAskStats(container);
+    });
+    document.getElementById('kana-reading-stats-practice-btn')?.addEventListener('click', () => {
+      DB.saveLastPracticeMode('kanaReading');
+      Router.navigate('practice', { restoreLast: true });
+    });
+  },
+
   showWrongModal(date, wrongWordDetails) {
     Modal.show(`<div class="modal-handle"></div><div class="modal-title">${escapeHTML(date)} 答錯的單字</div><div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">共 ${wrongWordDetails.length} 個</div><div style="max-height:55vh;overflow-y:auto;">${wrongWordDetails.map(w=>`<div class="wrong-word-card" style="margin-bottom:8px"><div class="wrong-word-en">${escapeHTML(w.english)}</div><div class="wrong-word-meta"><span class="wrong-word-pos">${escapeHTML(w.partOfSpeech)}</span><span class="wrong-word-zh">${escapeHTML(w.chinese)}</span></div></div>`).join('')}</div><div style="margin-top:16px"><button class="modal-btn-cancel" id="close-wrong-modal" style="width:100%">關閉</button></div>`);
     document.getElementById('close-wrong-modal').addEventListener('click', () => Modal.hide());
@@ -5514,12 +6839,10 @@ Views.settings = {
     const sessionStatus = GDrive.getSessionStatus();
     const remembered  = sessionStatus === 'remembered';
     const email       = GDrive.getUserEmail();
-    const emailLabel  = email || 'Google 帳戶';
     const lastSync    = DB.getGDriveLastSync();
     const autoSync    = DB.getGDriveAutoSync();
     const versionState = AppUpdater.getState();
     const storageState = AppStorage.getStatus();
-    const themeMode = Theme.get();
     const soundState = Sound.getStatus();
     const reminderSettings = DailyReminder.getSettings();
     const reminderCapabilities = DailyReminder.getCapabilities();
@@ -5553,6 +6876,12 @@ Views.settings = {
     const essayHistoryAll   = DB.getEssayHistory();
     const totalEssay        = essayHistoryAll.reduce((s,h) => s + (h.sessions||[]).length, 0);
     const totalAiAsk        = DB.getAiAskHistory().length;
+    const handwritingHistory = KanaProgress.getHistory();
+    const kanaSummary       = KanaProgress.getSummary();
+    const kanaReadingHistory = KanaReadingProgress.getHistory();
+    const kanaReadingSummary = KanaReadingProgress.getSummary();
+    const jlptLevel         = DB.getJlptLevel();
+    const dailyLearningPreferences = DB.getDailyLearningPreferences();
     const studyDays         = StudyStreak.getDays();
     const streakSummary     = StudyStreak.getSummary();
     const streakSyncState   = StudyStreak.getSyncState();
@@ -5572,12 +6901,17 @@ Views.settings = {
           ${(signedIn || remembered) ? `
             <div class="fb-status-row">
               <div class="fb-status-dot ${signedIn ? 'connected' : 'disconnected'}"></div>
-              <span class="fb-status-text">${signedIn ? '已登入' : '已記住帳號，背景自動續登入'}：${escapeHTML(emailLabel)}</span>
+              <span class="fb-status-text">${signedIn ? '已登入' : '帳號已記住，雲端功能會自動續權'}：${escapeHTML(email || 'Google 帳戶')}</span>
             </div>
             ${lastSync ? '<div class="fb-last-sync" style="margin-bottom:10px">上次同步：' + lastSync + '</div>' : ''}
             <div class="settings-btn-row" style="margin-bottom:10px">
               <button class="btn-fb-upload" id="gd-upload-btn" style="flex:1">${svgUp} 上傳備份</button>
               <button class="btn-fb-download" id="gd-download-btn" style="flex:1">${svgDn} 還原備份</button>
+            </div>
+            <div class="drive-operation-status" id="gd-operation-status" role="status" aria-live="polite" hidden>
+              <span class="drive-operation-spinner" aria-hidden="true"></span>
+              <span id="gd-operation-text">準備中…</span>
+              <span id="gd-operation-percent"></span>
             </div>
             <label class="fb-auto-sync-row">
               <input type="checkbox" id="gd-auto-sync"${autoSync ? ' checked' : ''}>
@@ -5591,32 +6925,19 @@ Views.settings = {
               <button class="btn-secondary" id="gd-streak-sync-btn" type="button">立即同步</button>
             </div>
             <button class="btn-secondary" id="local-recovery-btn" style="width:100%;margin-top:9px">本機復原點</button>
-            ${remembered ? '<div class="settings-tip" style="margin-top:8px">開啟 APP 後會直接進入主畫面並嘗試無畫面續登入；上傳/還原也不需要先另外按登入。僅在 Google 判定授權已失效時才會顯示官方授權畫面。</div>' : ''}
+            ${remembered ? '<div class="settings-tip" style="margin-top:8px">開啟程式會直接進入主畫面，並在背景無提示恢復 Google 登入。只有 Google 工作階段失效或權限被撤銷時，下一次使用雲端功能才需要重新授權。</div>' : ''}
             <button class="btn-fb-signout-bottom" id="gd-signout-btn" style="margin-top:10px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              登出 Google（${escapeHTML(emailLabel)}）
+              登出 Google（${escapeHTML(email || '目前帳戶')}）
             </button>
           ` : `
             <div class="fb-status-row" style="margin-bottom:8px">
               <div class="fb-status-dot disconnected"></div>
               <span class="fb-status-text">${clientId ? '尚未登入 Google' : '請先在下方填入 OAuth Client ID'}</span>
             </div>
-            ${clientId ? '<button class="btn-fb-signin" id="gd-signin-btn" style="width:100%;padding:9px 12px;font-size:13px">' + svgG + ' 使用 Google 帳號登入</button>' : ''}
-            <div class="settings-tip" style="margin-top:8px;margin-bottom:0">登入後可將資料備份至 Google Drive，也可在雲端資料較多時自動同步到本機。設定請見下方。</div>
+            ${clientId ? '<button class="btn-fb-signin" id="gd-signin-btn" style="width:100%;padding:9px 12px;font-size:13px">' + svgG + ' 首次連結 Google 帳號</button>' : ''}
+            <div class="settings-tip" style="margin-top:8px;margin-bottom:0">首次連結並完成授權後，程式會記住帳號；之後開啟會直接進入主畫面並在背景恢復登入。</div>
           `}
-        </div>
-
-        <div class="settings-section-label" style="margin-top:16px">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.2 4.2l1.4 1.4m12.8 12.8 1.4 1.4M1 12h2m18 0h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
-          外觀主題
-        </div>
-        <div class="settings-card theme-setting-card">
-          <div><strong>介面顯示</strong><small>選擇後立即套用並記住設定</small></div>
-          <select id="ui-theme-select" class="form-select" aria-label="外觀主題">
-            <option value="dark" ${themeMode==='dark'?'selected':''}>深色</option>
-            <option value="light" ${themeMode==='light'?'selected':''}>淺色</option>
-            <option value="system" ${themeMode==='system'?'selected':''}>跟隨系統</option>
-          </select>
         </div>
 
         <!-- 2. 一鍵匯出全部 -->
@@ -5625,7 +6946,7 @@ Views.settings = {
           一鍵匯出全部
         </div>
         <div class="settings-card">
-          <div class="one-click-export-desc">同時匯出單字庫、例句庫、統計資料、練習天數、文章閱讀測驗、文章撰寫與 AI 詢問記錄，方便備份或跨裝置移轉。</div>
+          <div class="one-click-export-desc">同時匯出日文語彙、例句、測驗、練習天數、五十音手寫、五十音讀音、文章與 AI 詢問記錄，方便備份或跨裝置移轉。</div>
           <div class="one-click-summary-grid one-click-summary-grid-compact">
             <div class="oc-stat-cell">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
@@ -5654,6 +6975,14 @@ Views.settings = {
             <div class="oc-stat-cell">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2s1 4-2 6c-2 1-3-1-3-1s-4 4-2 9a6 6 0 0 0 12 0c1-4-2-7-5-8 1-2 0-4 0-6z"/></svg>
               <div class="oc-stat-num" id="settings-streak-total">${streakSummary.totalDays}</div><div class="oc-stat-label">練習天數</div>
+            </div>
+            <div class="oc-stat-cell">
+              <div style="font-size:22px;font-weight:900;color:var(--primary)">あ</div>
+              <div class="oc-stat-num">${handwritingHistory.length}</div><div class="oc-stat-label">手寫記錄</div>
+            </div>
+            <div class="oc-stat-cell">
+              <div style="font-size:20px;font-weight:900;color:var(--primary)">あ→a</div>
+              <div class="oc-stat-num">${kanaReadingHistory.length}</div><div class="oc-stat-label">讀音答題</div>
             </div>
           </div>
           <button class="btn-one-click-export" id="one-click-export-btn">
@@ -5761,6 +7090,46 @@ Views.settings = {
 
         <details class="settings-collapsible-card">
           <summary class="settings-collapse-summary">
+            <span class="settings-collapse-title"><span style="font-size:19px;font-weight:900;color:var(--primary)">あ</span>五十音手寫記錄</span>
+            <span class="settings-collapse-count">${handwritingHistory.length} 次</span>
+            <span class="settings-collapse-chevron">⌄</span>
+          </summary>
+          <div class="settings-card settings-collapse-body">
+            <div class="sentence-stats-row">
+              <div class="sentence-stat-box"><div class="sentence-stat-num">${kanaSummary.practiced}</div><div class="sentence-stat-label">已練假名</div></div>
+              <div class="sentence-stat-box"><div class="sentence-stat-num" style="color:var(--primary)">${kanaSummary.mastered}</div><div class="sentence-stat-label">已熟練</div></div>
+              <div class="sentence-stat-box"><div class="sentence-stat-num">${kanaSummary.averageScore}</div><div class="sentence-stat-label">平均分數</div></div>
+            </div>
+            <div class="settings-btn-row">
+              <button class="btn-icon btn-export" id="export-handwriting-btn" style="flex:1">匯出 CSV</button>
+              <button class="btn-danger-sm" id="clear-handwriting-btn">清除全部</button>
+            </div>
+            <div class="settings-tip" style="margin-top:9px;margin-bottom:0">手寫嘗試、分數與熟練度會納入 ZIP、完整備份及 Google Drive 跨裝置同步。</div>
+          </div>
+        </details>
+
+        <details class="settings-collapsible-card">
+          <summary class="settings-collapse-summary">
+            <span class="settings-collapse-title"><span style="font-size:16px;font-weight:900;color:var(--primary)">あ→a</span>五十音讀音記錄</span>
+            <span class="settings-collapse-count">${kanaReadingHistory.length} 題</span>
+            <span class="settings-collapse-chevron">⌄</span>
+          </summary>
+          <div class="settings-card settings-collapse-body">
+            <div class="sentence-stats-row">
+              <div class="sentence-stat-box"><div class="sentence-stat-num">${kanaReadingSummary.practiced}</div><div class="sentence-stat-label">已練假名</div></div>
+              <div class="sentence-stat-box"><div class="sentence-stat-num" style="color:var(--primary)">${kanaReadingSummary.correct}</div><div class="sentence-stat-label">答對題數</div></div>
+              <div class="sentence-stat-box"><div class="sentence-stat-num">${kanaReadingSummary.accuracy}%</div><div class="sentence-stat-label">正確率</div></div>
+            </div>
+            <div class="settings-btn-row">
+              <button class="btn-icon btn-export" id="export-kana-reading-btn" style="flex:1">匯出 CSV</button>
+              <button class="btn-danger-sm" id="clear-kana-reading-btn">清除全部</button>
+            </div>
+            <div class="settings-tip" style="margin-top:9px;margin-bottom:0">讀音作答記錄、正確率與模式選擇會納入 ZIP、完整備份及 Google Drive 還原。</div>
+          </div>
+        </details>
+
+        <details class="settings-collapsible-card">
+          <summary class="settings-collapse-summary">
             <span class="settings-collapse-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2s1 4-2 6c-2 1-3-1-3-1s-4 4-2 9a6 6 0 0 0 12 0c1-4-2-7-5-8 1-2 0-4 0-6z"/></svg>
               累積練習天數
@@ -5788,7 +7157,7 @@ Views.settings = {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M12 4v11m0 0-4-4m4 4 4-4"/><path d="M6 19h12"/></svg>匯出 CSV
               </button>
             </div>
-            <div class="settings-tip" style="margin-top:9px;margin-bottom:0">完成單字測驗、閱讀測驗、文章 AI 批改或 AI 詢問即記錄；同一天只計為 1 個練習日。</div>
+            <div class="settings-tip" style="margin-top:9px;margin-bottom:0">完成語彙測驗、五十音手寫、閱讀測驗、文章 AI 批改或 AI 詢問即記錄；同一天只計為 1 個練習日。</div>
           </div>
         </details>
 
@@ -5893,7 +7262,40 @@ Views.settings = {
           <div class="settings-tip" style="margin-top:10px;margin-bottom:0">需在 Google Cloud Console 建立 OAuth 2.0 用戶端 ID（類型：網頁應用程式），並將本站網址加入授權來源。資料夾 ID 可從 Drive 資料夾網址中取得（/folders/ 後面的部分）。</div>
         </div>
 
-        <!-- 7. Gemini API 金鑰設定 -->
+        <!-- 7. 每日推薦學習設定 -->
+        <div class="settings-section-label" style="margin-top:16px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M12 2l2.4 6.1L21 9l-5 4.3 1.5 6.5L12 16.4 6.5 19.8 8 13.3 3 9l6.6-.9L12 2z"/></svg>
+          每日推薦學習設定
+        </div>
+        <div class="settings-card daily-learning-settings-card">
+          <div class="model-dropdown-row">
+            <label class="model-dropdown-label">今日學習來源</label>
+            <select class="model-dropdown-select" id="daily-learning-source-select">
+              <option value="database" ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.DATABASE?'selected':''}>單字庫（原模式）</option>
+              <option value="level" ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.LEVEL?'selected':''}>依等級學習（AI 每日推薦）</option>
+            </select>
+          </div>
+          <div class="model-dropdown-row">
+            <label class="model-dropdown-label">目前日文等級</label>
+            <select class="model-dropdown-select" id="jlpt-level-select">
+              ${['N5','N4','N3','N2','N1'].map(level => `<option value="${level}" ${jlptLevel===level?'selected':''}>JLPT ${level}</option>`).join('')}
+            </select>
+          </div>
+          <div class="daily-learning-row-section ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.LEVEL?'':'is-disabled'}" id="daily-learning-row-section">
+            <div class="daily-learning-row-head">
+              <strong>想學習的五十音行</strong>
+              <small>可同時選擇多行；推薦單字的假名讀音會從所選行開始</small>
+            </div>
+            <div class="kana-row-grid daily-learning-row-grid" role="group" aria-label="選擇推薦單字的五十音行">
+              <button class="kana-row-chip ${dailyLearningPreferences.rows.includes('all')?'selected':''}" type="button" data-learning-row="all" aria-pressed="${dailyLearningPreferences.rows.includes('all')}">全部行</button>
+              ${LEARNING_KANA_ROWS.map(row => `<button class="kana-row-chip ${dailyLearningPreferences.rows.includes(row.id)?'selected':''}" type="button" data-learning-row="${row.id}" aria-pressed="${dailyLearningPreferences.rows.includes(row.id)}">${row.label}</button>`).join('')}
+            </div>
+            <div class="kana-row-summary" id="daily-learning-row-summary">目前選擇：${escapeHTML(selectedLearningRowLabel(dailyLearningPreferences.rows))}</div>
+          </div>
+          <div class="settings-tip" style="margin-bottom:0">「單字庫」保留原本從資料庫抽字並生成例句的方式；「依等級學習」每天依 JLPT 等級與所選五十音行推薦 1 個單字，包含假名、羅馬拼音、詞性及中文。</div>
+        </div>
+
+        <!-- 8. Gemini API 金鑰設定 -->
         <div class="settings-section-label" style="margin-top:16px">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           Gemini API 金鑰設定
@@ -5925,7 +7327,7 @@ Views.settings = {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             取得 Gemini Key（Google AI Studio）
           </a>
-          <div class="settings-tip" style="margin-bottom:0">免費方案每天有配額限制，每日例句每天只生成一次以節省配額。所有 Key 僅儲存於本機裝置。</div>
+          <div class="settings-tip" style="margin-bottom:0">目前日文等級會套用到每日推薦單字、AI 例句與閱讀文章。免費方案每天有配額限制；Gemini Key 僅儲存於本機裝置。</div>
         </div>
 
         <!-- 每日學習提醒 -->
@@ -5956,7 +7358,7 @@ Views.settings = {
           </div>
           ${!reminderCapabilities.backendConfigured ? '<div class="reminder-warning">部署完成後，請先在 <code>push-config.js</code> 填入 Worker 網址。</div>' : ''}
           ${reminderCapabilities.needsInstall ? '<div class="reminder-warning">iPhone 必須先從瀏覽器分享選單選擇「加入主畫面」，再由主畫面圖示開啟。</div>' : ''}
-          <div class="settings-tip reminder-tip">設定會綁定這台裝置，不會跟著 Google Drive 備份移轉。PWA 關閉後仍可通知；實際顯示時間可能受網路、專注模式或通知摘要影響。</div>
+          <div class="settings-tip reminder-tip">在提醒時間前完成任一練習，這台裝置當天會自動略過通知；隔天重新判斷。通知訂閱與完成判斷均綁定裝置，不會跟著 Google Drive 備份移轉。PWA 關閉後仍可通知；實際顯示時間可能受網路、專注模式或通知摘要影響。</div>
         </div>
 
         <!-- 版本號 + 檢查更新 -->
@@ -5978,7 +7380,7 @@ Views.settings = {
           <div id="update-status" style="font-size:12px;color:var(--text-muted);min-height:16px"></div>
         </div>
 
-        <!-- 8. 音效測試（設定頁最下方） -->
+        <!-- 8. 音效測試 -->
         <div class="settings-section-label" style="margin-top:16px">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
           音效測試
@@ -5992,19 +7394,27 @@ Views.settings = {
             <button class="btn-secondary sound-test-btn" id="test-wrong-sound-btn" type="button">✕ 答錯音效</button>
             <button class="btn-primary sound-test-btn sound-test-wide" id="test-result-sound-btn" type="button">♫ 總結音效（100%）</button>
           </div>
-          <div class="settings-tip sound-test-tip">請先將 iPhone 的媒體音量調高，再逐一點擊測試。狀態顯示為 running 但仍聽不到時，請關閉靜音模式後再測試。</div>
+          <div class="settings-tip sound-test-tip">請先將 iPhone 的媒體音量調高，再逐一點擊測試。iOS 會自動切換為 playback 音訊工作階段，避免靜音模式關閉學習提示音。</div>
         </div>
+
+        <!-- 資料保存（設定頁最下方） -->
+        <section class="settings-card storage-status-card" aria-label="資料保存狀態" style="margin-top:16px">
+          <strong>資料保存</strong>
+          <p data-storage-summary role="status" aria-live="polite"></p>
+          <div class="storage-status-actions">
+            <button type="button" data-storage-action="retry">重試儲存</button>
+            <button type="button" data-storage-action="export">匯出救援備份</button>
+            <button type="button" data-storage-action="import">匯入救援備份</button>
+          </div>
+          <input type="file" id="storage-recovery-file" accept=".json,application/json" hidden>
+          <p id="storage-operation-message" role="status" aria-live="polite"></p>
+        </section>
 
         <div style="height:12px"></div>
       </div>
 
       <input type="file" id="one-click-import-input" accept=".csv,.zip" multiple style="display:none">
     `;
-
-    document.getElementById('ui-theme-select')?.addEventListener('change',event=>{
-      Theme.set(event.target.value);
-      showToast('✓ 外觀主題已更新');
-    });
 
     // ── 每日 Web Push 提醒 ──
     const reminderStatusEl = document.getElementById('reminder-status');
@@ -6086,8 +7496,9 @@ Views.settings = {
         : status.state === 'not-created' ? '尚未建立'
         : status.state;
       const recent = status.lastPlayed ? `；最近播放：${status.lastPlayed}` : '';
+      const audioSession = status.audioSessionType !== 'unavailable' ? `；AudioSession：${status.audioSessionType}` : '';
       const error = status.lastError ? `；錯誤：${status.lastError}` : '';
-      soundStatusEl.textContent = `${prefix}${prefix ? '｜' : ''}AudioContext：${stateText}${recent}${error}`;
+      soundStatusEl.textContent = `${prefix}${prefix ? '｜' : ''}AudioContext：${stateText}${audioSession}${recent}${error}`;
       soundStatusEl.classList.toggle('is-running', status.state === 'running' && !status.lastError);
       soundStatusEl.classList.toggle('has-error', !!status.lastError || !status.supported);
     };
@@ -6134,6 +7545,41 @@ Views.settings = {
       DB.saveModel(e.target.value);
       showToast('✓ 模型：' + (Gemini.AVAILABLE_MODELS.find(m=>m.id===e.target.value)?.label || e.target.value));
     });
+    document.getElementById('jlpt-level-select')?.addEventListener('change', event => {
+      DB.saveDailyLearningPreferences({ level: event.target.value });
+      showToast(`✓ 學習等級：JLPT ${event.target.value}`);
+    });
+    document.getElementById('daily-learning-source-select')?.addEventListener('change', event => {
+      const preferences = DB.saveDailyLearningPreferences({ source: event.target.value });
+      const rowSection = document.getElementById('daily-learning-row-section');
+      rowSection?.classList.toggle('is-disabled', preferences.source !== DAILY_LEARNING_SOURCES.LEVEL);
+      showToast(preferences.source === DAILY_LEARNING_SOURCES.LEVEL ? '✓ 首頁改為依等級推薦單字' : '✓ 首頁改為從單字庫產生例句');
+    });
+    const refreshDailyLearningRowUI = preferences => {
+      document.querySelectorAll('[data-learning-row]').forEach(button => {
+        const selected = preferences.rows.includes(button.dataset.learningRow);
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+      const summary = document.getElementById('daily-learning-row-summary');
+      if (summary) summary.textContent = `目前選擇：${selectedLearningRowLabel(preferences.rows)}`;
+    };
+    document.querySelectorAll('[data-learning-row]').forEach(button => {
+      button.addEventListener('click', () => {
+        const row = button.dataset.learningRow;
+        const current = DB.getDailyLearningPreferences();
+        let rows;
+        if (row === 'all') rows = ['all'];
+        else {
+          const selected = new Set(current.rows.includes('all') ? [] : current.rows);
+          if (selected.has(row)) selected.delete(row); else selected.add(row);
+          rows = selected.size ? [...selected] : ['all'];
+          if (rows.length === LEARNING_KANA_ROWS.length) rows = ['all'];
+        }
+        const saved = DB.saveDailyLearningPreferences({ rows });
+        refreshDailyLearningRowUI(saved);
+      });
+    });
 
     // ── helper: confirm-clear modal ──
     const confirmClear = (title, desc, onConfirm) => {
@@ -6145,7 +7591,7 @@ Views.settings = {
     // ── 2. 單字庫 ──
     document.getElementById('export-vocab-btn').addEventListener('click', () => {
       if (!DB.getWords().length) { showToast('資料庫是空的'); return; }
-      downloadCSV(DB.exportCSV(), `vocab_${dateTag}.csv`);
+      downloadCSV(DB.exportCSV(), `japanese_vocab_${dateTag}.csv`);
       showToast('✓ 單字 CSV 已匯出');
     });
     document.getElementById('clear-vocab-btn')?.addEventListener('click', () => {
@@ -6177,6 +7623,30 @@ Views.settings = {
       confirmClear('清除練習統計',
         `確定要清除全部 ${totalStats} 筆練習記錄嗎？此操作無法復原。`,
         () => { DB.saveHistory([]); showToast('已清除練習統計'); this.render(container); });
+    });
+
+    // ── 五十音手寫 ──
+    document.getElementById('export-handwriting-btn')?.addEventListener('click', () => {
+      if (!handwritingHistory.length) { showToast('尚無五十音手寫記錄'); return; }
+      downloadCSV(KanaProgress.exportCSV(), `kana_handwriting_${dateTag}.csv`);
+      showToast('✓ 五十音手寫 CSV 已匯出');
+    });
+    document.getElementById('clear-handwriting-btn')?.addEventListener('click', () => {
+      confirmClear('清除五十音手寫記錄', `確定要清除全部 ${handwritingHistory.length} 次手寫記錄嗎？此操作無法復原。`, () => {
+        KanaProgress.saveHistory([]); showToast('已清除五十音手寫記錄'); this.render(container);
+      });
+    });
+
+    // ── 五十音讀音 ──
+    document.getElementById('export-kana-reading-btn')?.addEventListener('click', () => {
+      if (!kanaReadingHistory.length) { showToast('尚無五十音讀音記錄'); return; }
+      downloadCSV(KanaReadingProgress.exportCSV(), `kana_reading_${dateTag}.csv`);
+      showToast('✓ 五十音讀音 CSV 已匯出');
+    });
+    document.getElementById('clear-kana-reading-btn')?.addEventListener('click', () => {
+      confirmClear('清除五十音讀音記錄', `確定要清除全部 ${kanaReadingHistory.length} 題讀音記錄嗎？此操作無法復原。`, () => {
+        KanaReadingProgress.saveHistory([]); showToast('已清除五十音讀音記錄'); this.render(container);
+      });
     });
 
     // ── 累積練習天數 ──
@@ -6224,14 +7694,11 @@ Views.settings = {
     // ── 5. 一鍵匯出：打包成單一 ZIP 一次下載 ──
     document.getElementById('one-click-export-btn').addEventListener('click', async () => {
       const words = DB.getWords(); const sentCsv = DB.exportSentencesCSV(); const statHistory = DB.getHistory(); const readingHistory = DB.getReadingQuizHistory();
-      if (!words.length && !sentCsv.includes('\n') && !statHistory.length && !readingHistory.length && !DB.getEssayHistory().length && !DB.getAiAskHistory().length && !studyDays.length) { showToast('尚無資料可匯出'); return; }
-      let finishExport;
-      try { finishExport=Tasks.start('local-export',{exclusive:true}); }
-      catch(error) { showToast(readableError(error));return; }
+      if (!words.length && !sentCsv.includes('\n') && !statHistory.length && !readingHistory.length && !DB.getEssayHistory().length && !DB.getAiAskHistory().length && !studyDays.length && !handwritingHistory.length && !kanaReadingHistory.length) { showToast('尚無資料可匯出'); return; }
       showToast('⏳ 正在打包...', 1800);
       try {
         const zip = new window.JSZip();
-        if (words.length)           zip.file(`vocab_${dateTag}.csv`,     '\uFEFF' + DB.exportCSV());
+        if (words.length)           zip.file(`japanese_vocab_${dateTag}.csv`, '\uFEFF' + DB.exportCSV());
         if (sentCsv.includes('\n')) zip.file(`sentences_${dateTag}.csv`, '\uFEFF' + sentCsv);
         if (statHistory.length)     zip.file(`stats_${dateTag}.csv`,     '\uFEFF' + DB.exportStatsCSV());
         if (readingHistory.length)  zip.file(`reading_${dateTag}.csv`,   '\uFEFF' + DB.exportReadingQuizCSV());
@@ -6240,14 +7707,16 @@ Views.settings = {
         const aiAskHistory = DB.getAiAskHistory();
         if (aiAskHistory.length)    zip.file(`aiask_${dateTag}.csv`,     '\uFEFF' + DB.exportAiAskCSV());
         if (studyDays.length)       zip.file(`study_days_${compactDateTag}.csv`, '\uFEFF' + DB.exportStudyDaysCSV());
+        if (handwritingHistory.length) zip.file(`kana_handwriting_${dateTag}.csv`, '\uFEFF' + KanaProgress.exportCSV());
+        if (kanaReadingHistory.length) zip.file(`kana_reading_${dateTag}.csv`, '\uFEFF' + KanaReadingProgress.exportCSV());
         const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
         const url = URL.createObjectURL(blob); const a = document.createElement('a');
-        a.href = url; a.download = `vocab-backup_${dateTag}.zip`; a.click(); URL.revokeObjectURL(url);
-        const count = [words.length, sentCsv.includes('\n'), statHistory.length, readingHistory.length, essayHistory.length, aiAskHistory.length, studyDays.length].filter(Boolean).length;
+        a.href = url; a.download = `japanese-learning-backup_${dateTag}.zip`; a.click(); URL.revokeObjectURL(url);
+        const count = [words.length, sentCsv.includes('\n'), statHistory.length, readingHistory.length, essayHistory.length, aiAskHistory.length, studyDays.length, handwritingHistory.length, kanaReadingHistory.length].filter(Boolean).length;
         showToast(`✓ 已匯出 ${count} 個檔案（ZIP）`, 3000);
       } catch(err) {
         showToast('匯出失敗，請重試');
-      } finally { finishExport(); }
+      }
     });
 
     // ── 一鍵匯入（自動識別類型）──
@@ -6256,10 +7725,6 @@ Views.settings = {
     oneClickImportInput.addEventListener('change', async (e) => {
       const files = [...e.target.files]; e.target.value = '';
       if (!files.length) return;
-      let finishImport;
-      try { finishImport=Tasks.start('local-import',{exclusive:true}); }
-      catch(error) { showToast(readableError(error));return; }
-      try {
 
       const results = []; const errors = []; const unknown = [];
 
@@ -6289,6 +7754,12 @@ Views.settings = {
           } else if (type === 'studyDays') {
             const r = DB.importStudyDaysCSV(text);
             results.push(`🔥 練習天數（${name}）：新增 ${r.added} 天，共 ${r.total} 天`);
+          } else if (type === 'handwriting') {
+            const r = KanaProgress.importCSV(text);
+            results.push(`🖌️ 五十音手寫（${name}）：新增 ${r.added} 筆，共 ${r.total} 筆`);
+          } else if (type === 'kanaReading') {
+            const r = KanaReadingProgress.importCSV(text);
+            results.push(`🔤 五十音讀音（${name}）：新增 ${r.added} 筆，共 ${r.total} 筆`);
           }
         } catch(err) {
           errors.push(`${name}（${err.message||'格式錯誤'}）`);
@@ -6338,7 +7809,6 @@ Views.settings = {
 
       if (results.length > 0) {
         StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true });
-        await AppStorage.flush();
         GDrive.scheduleStudyStreakSync(300);
         refreshStudyStreakUI();
       }
@@ -6365,11 +7835,22 @@ Views.settings = {
         });
       }
       if (results.length > 0) this.render(container);
-      } catch(error) {
-        showToast('匯入未完成：'+readableError(error),5000);
-      } finally { finishImport(); }
     });
 
+    const setDriveOperation = (message = '', percent = 0, state = 'busy') => {
+      const status = document.getElementById('gd-operation-status');
+      const text = document.getElementById('gd-operation-text');
+      const value = document.getElementById('gd-operation-percent');
+      if (!status) return;
+      status.hidden = !message;
+      status.classList.toggle('is-done', state === 'done');
+      status.classList.toggle('has-error', state === 'error');
+      if (text) text.textContent = message;
+      if (value) value.textContent = percent > 0 ? `${Math.min(100, Math.round(percent))}%` : '';
+    };
+    const driveProgress = ({ message, percent }) => setDriveOperation(message, percent, percent >= 100 ? 'done' : 'busy');
+
+    StorageUI?.render();
     // ── Google Drive 設定儲存 ──
     document.getElementById('gd-save-cfg-btn')?.addEventListener('click', () => {
       const cid = document.getElementById('gd-client-id-input').value.trim();
@@ -6384,26 +7865,23 @@ Views.settings = {
     // ── Google 登入 ──
     document.getElementById('gd-signin-btn')?.addEventListener('click', async (e) => {
       const btn = e.currentTarget;
-      btn.disabled = true; btn.textContent = '登入中…';
+      const original = btn.innerHTML;
+      btn.disabled = true; btn.textContent = '正在開啟 Google 登入…';
       try {
-        await Tasks.run('google-signin', () => GDrive.signIn(), { exclusive: true });
-        showToast('✓ Google 登入完成；雲端同步將在背景執行', 3000);
+        await GDrive.signIn();
+        showToast('✓ Google 登入成功，雲端資料將在背景同步', 3000);
+        GDrive.scheduleStudyStreakSync(250);
         this.render(container);
-
-        // Do not make the user wait for profile lookup or the multi-request
-        // cross-device streak verification. Both are safe background work.
-        void GDrive.refreshUserEmail().finally(() => {
-          if (Router.currentView === 'settings') this.render(container);
-        });
-        GDrive.scheduleStudyStreakSync(500);
       } catch(err) {
-        let msg = readableError(err);
+        let msg = '登入失敗，請稍後再試';
         if (err.message === 'NO_CLIENT_ID')    msg = '請先填入並儲存 OAuth Client ID';
-        if (err.message === 'GIS_LOAD_FAILED') msg = 'GIS 載入失敗，請確認網路連線';
-        if (err.message === 'popup_closed_by_user') msg = '登入視窗已關閉';
+        if (['GIS_LOAD_FAILED', 'GIS_LOAD_TIMEOUT'].includes(err.message)) msg = 'Google 登入元件載入失敗，請確認網路連線';
+        if (['popup_closed_by_user', 'popup_closed'].includes(err.message)) msg = '登入視窗已關閉';
+        if (err.message === 'popup_failed_to_open') msg = '登入視窗被阻擋，請由設定頁重新點擊登入';
+        if (err.message === 'AUTH_TIMEOUT') msg = 'Google 登入逾時，請確認網路後重試';
         if (err.message === 'access_denied')   msg = '授權被拒絕，請確認 Client ID 設定';
         showToast(msg, 3500);
-        btn.disabled = false; btn.textContent = '使用 Google 帳號登入';
+        btn.disabled = false; btn.innerHTML = original;
       }
     });
 
@@ -6412,12 +7890,14 @@ Views.settings = {
       button.disabled = true;
       button.textContent = '同步中…';
       try {
-        const result = await Tasks.run('streak-sync', () => GDrive.syncStudyStreak({ interactive: true }), { exclusive: true });
+        setDriveOperation('正在同步練習天數…', 10);
+        const result = await GDrive.syncStudyStreak({ interactive: true, onProgress: driveProgress });
         showToast(`✓ 練習天數已同步，共 ${result.summary.totalDays} 天`, 3000);
         this.render(container);
       } catch (error) {
         StudyStreak.markPending();
-        showToast('練習天數同步失敗：' + readableError(error), 4000);
+        setDriveOperation('練習天數同步失敗', 0, 'error');
+        showToast('練習天數同步失敗：' + error.message, 3500);
         button.disabled = false;
         button.textContent = '立即同步';
       }
@@ -6434,31 +7914,30 @@ Views.settings = {
     document.getElementById('gd-upload-btn')?.addEventListener('click', async () => {
       const btn = document.getElementById('gd-upload-btn');
       const original = btn?.innerHTML || '';
-      if (btn) btn.disabled = true;
+      if (btn) { btn.disabled = true; btn.textContent = '準備備份…'; }
+      setDriveOperation('準備備份…', 5);
       try {
-        const ts = await Tasks.run('drive-upload', () => GDrive.upload({
-          interactive: true,
-          onProgress: message => { if (btn?.isConnected) btn.textContent = message; }
-        }), { exclusive: true });
+        const ts = await GDrive.upload({ interactive: true, onProgress: driveProgress });
         showToast('✓ 備份已上傳至 Google Drive（' + ts + '）');
         this.render(container);
       } catch(err) {
-        showToast('上傳失敗：' + readableError(err), 5000);
-      } finally {
-        if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = original; }
+        setDriveOperation(err.message === 'DRIVE_TIMEOUT' ? 'Google Drive 連線逾時' : '備份上傳失敗', 0, 'error');
+        if (err.message === 'NOT_SIGNED_IN')  showToast('請先登入 Google', 3000);
+        else if (err.message === 'TOKEN_EXPIRED') { showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
+        else if (err.message === 'DRIVE_TIMEOUT') showToast('Google Drive 上傳逾時，請確認網路後重試', 3500);
+        else showToast('上傳失敗：' + err.message, 3000);
       }
+      if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = original; }
     });
 
     // ── 還原備份（選擇 10 個檔案之一） ──
     document.getElementById('gd-download-btn')?.addEventListener('click', async () => {
       const btn = document.getElementById('gd-download-btn');
-      if (btn) btn.disabled = true;
       const original = btn?.innerHTML || '';
+      if (btn) { btn.disabled = true; btn.textContent = '讀取清單…'; }
+      setDriveOperation('正在讀取雲端備份清單…', 10);
       try {
-        const files = await Tasks.run('drive-list', () => GDrive.listBackups({
-          interactive: true,
-          onProgress: message => { if (btn?.isConnected) btn.textContent = message; }
-        }), { exclusive: true });
+        const files = await GDrive.listBackups({ interactive: true, onProgress: driveProgress });
         if (!files.length) { showToast('雲端尚無備份，請先上傳', 3000); if (btn) btn.disabled=false; return; }
         const rows = files.map((f, i) => {
           const ts  = f.createdTime ? new Date(f.createdTime).toLocaleString('zh-TW') : '—';
@@ -6488,13 +7967,11 @@ Views.settings = {
         document.querySelectorAll('.fb-slot-btn').forEach(b => {
           b.addEventListener('click', async () => {
             const fileId = b.dataset.fid;
-            const originalLabel = b.innerHTML;
             document.querySelectorAll('.fb-slot-btn').forEach(x => x.disabled = true);
+            const originalRow = b.innerHTML;
+            b.textContent = '正在下載此備份…';
             try {
-              const data = await Tasks.run('drive-download', () => GDrive.downloadFile(fileId, {
-                interactive: true,
-                onProgress: message => { if (b.isConnected) b.textContent = message; }
-              }), { exclusive: true });
+              const data = await GDrive.downloadFile(fileId, { interactive: true, onProgress: driveProgress });
               Modal.show(`<div class="modal-handle"></div>
                 <div class="modal-title">套用備份</div>
                 <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
@@ -6506,34 +7983,40 @@ Views.settings = {
                   <button class="btn-secondary" id="gd-dl-merge" style="width:100%">合併（保留本機 + 備份全部）</button>
                   <button class="modal-btn-cancel" id="gd-dl-cancel2" style="width:100%;margin-top:4px">取消</button>
                 </div>`);
-
-              const apply = async (mode, actionButton) => {
-                const buttons = [...document.querySelectorAll('#gd-dl-overwrite,#gd-dl-merge,#gd-dl-cancel2')];
-                buttons.forEach(button => button.disabled = true);
+              const apply = async (mode) => {
+                const buttons = document.querySelectorAll('#gd-dl-overwrite, #gd-dl-merge, #gd-dl-cancel2');
+                buttons.forEach(button => { button.disabled = true; });
+                const title = document.querySelector('#modal-content .modal-title');
+                if (title) title.textContent = '正在還原備份…';
+                await new Promise(resolve => requestAnimationFrame(() => resolve()));
                 try {
-                  await Tasks.run('backup-restore', () => GDrive.applyDownload(data, mode, {
-                    prevalidated: true,
-                    onProgress: message => { if (actionButton?.isConnected) actionButton.textContent = message; }
-                  }), { exclusive: true });
+                  await GDrive.applyDownload(data, mode);
                   Modal.hide();
                   showToast('✓ 備份已還原至本機');
                   this.render(container);
                 } catch (error) {
-                  showToast('還原失敗：' + readableError(error), 5000);
-                  buttons.forEach(button => button.disabled = false);
+                  if (title) title.textContent = '還原未完成';
+                  showToast(error.message, 4500);
+                  buttons.forEach(button => { button.disabled = false; });
                 }
               };
-              document.getElementById('gd-dl-overwrite').addEventListener('click', event => void apply('overwrite', event.currentTarget));
-              document.getElementById('gd-dl-merge').addEventListener('click', event => void apply('merge', event.currentTarget));
-              document.getElementById('gd-dl-cancel2').addEventListener('click', () => Modal.hide());
+              document.getElementById('gd-dl-overwrite').addEventListener('click', () => apply('overwrite'));
+              document.getElementById('gd-dl-merge').addEventListener('click',     () => apply('merge'));
+              document.getElementById('gd-dl-cancel2').addEventListener('click',   () => Modal.hide());
             } catch(err) {
-              if (b.isConnected) b.innerHTML = originalLabel;
-              showToast('下載失敗：' + readableError(err), 5000); Modal.hide();
+              b.innerHTML = originalRow;
+              if (err.message === 'TOKEN_EXPIRED') { Modal.hide(); showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
+              else if (err.message === 'DRIVE_TIMEOUT') { showToast('Google Drive 下載逾時，請確認網路後重試', 3500); Modal.hide(); }
+              else { showToast('下載失敗：' + err.message, 3000); Modal.hide(); }
             }
           });
         });
       } catch(err) {
-        showToast('讀取失敗：' + readableError(err), 5000);
+        setDriveOperation(err.message === 'DRIVE_TIMEOUT' ? 'Google Drive 連線逾時' : '備份清單讀取失敗', 0, 'error');
+        if (err.message === 'NOT_SIGNED_IN')   showToast('請先登入 Google');
+        else if (err.message === 'TOKEN_EXPIRED') { showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
+        else if (err.message === 'DRIVE_TIMEOUT') showToast('Google Drive 讀取逾時，請確認網路後重試', 3500);
+        else showToast('讀取失敗：' + err.message, 3000);
       }
       if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = original; }
     });
@@ -6565,19 +8048,15 @@ Views.settings = {
         button.addEventListener('click', async () => {
           const item = snapshots.find(snapshot => snapshot.id === button.dataset.snapshotId);
           if (!item) return;
-          const originalLabel = button.innerHTML;
-          document.querySelectorAll('.local-recovery-item').forEach(itemButton => itemButton.disabled = true);
+          button.disabled = true;
           try {
-            await Tasks.run('recovery-restore', () => GDrive.applyDownload(item.payload, 'overwrite', {
-              onProgress: message => { if (button.isConnected) button.textContent = message; }
-            }), { exclusive: true });
+            await GDrive.applyDownload(item.payload, 'overwrite');
             Modal.hide();
             showToast('✓ 已還原本機復原點');
             this.render(container);
           } catch (error) {
-            if (button.isConnected) button.innerHTML = originalLabel;
-            document.querySelectorAll('.local-recovery-item').forEach(itemButton => itemButton.disabled = false);
-            showToast('還原失敗：' + readableError(error), 5000);
+            showToast(error.message, 4500);
+            button.disabled = false;
           }
         });
       });
@@ -6618,22 +8097,21 @@ Views.settings = {
 // ===========================
 document.addEventListener('DOMContentLoaded', async () => {
   await AppStorage.init();
-  StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true });
-  void AppUpdater.register();
-
-  const storageBanner = document.getElementById('storage-banner');
-  const updateStorageBanner = () => {
-    const status=AppStorage.getStatus();
-    if (storageBanner) storageBanner.hidden = status.failed === 0;
-  };
-  window.addEventListener('vocabulary-storage', updateStorageBanner);
-  document.getElementById('retry-storage-btn')?.addEventListener('click', async event => {
-    const button=event.currentTarget;button.disabled=true;button.textContent='儲存中…';
-    try { await AppStorage.retryFailed();showToast('✓ 資料已重新儲存'); }
-    catch(error) { showToast(readableError(error),5000); }
-    finally { button.disabled=false;button.textContent='重新儲存';updateStorageBanner(); }
+  StorageUI = mountStorageStatus({
+    storage: AppStorage,
+    cloudState: () => StudyStreak.getSyncState(),
+    exportPayload: () => GDrive._buildPayload(),
+    restorePayload: async payload => {
+      await GDrive.applyDownload(payload, 'merge');
+      await AppStorage.flush();
+    },
+    onSafe: resumeAppUpdateWhenSafe
   });
-  updateStorageBanner();
+  StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true });
+  syncDailyReminderFromStudyDays();
+  // Service Worker registration may touch the network on iOS. It must not delay
+  // the first render or make app entry look like it is waiting for Google login.
+  void AppUpdater.register();
 
   // Keep the device subscription, time zone and next trigger in sync whenever
   // the PWA is opened. Permission is requested only from the Settings button.
@@ -6648,19 +8126,50 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
   window.addEventListener('online', () => {
     updateNetworkState();
+    void DailyReminder.syncPracticeCompletion();
     GDrive.scheduleStudyStreakSync(150);
   });
   window.addEventListener('offline', updateNetworkState);
   updateNetworkState();
 
   document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => Router.navigate(btn.dataset.view));
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.view;
+      Router.navigate(target, target === 'practice' ? { restoreLast: true } : {});
+    });
   });
 
-  // ── Google Drive startup ──
-  // Restore an existing session token synchronously from sessionStorage, but do
-  // not block first paint on GIS/OAuth or Drive network traffic.
-  GDrive.tryRestoreFromStorage();
+  // Google authorization and Drive comparison are deliberately deferred until
+  // after the first screen is painted. Network latency must never block app entry.
+  const runCloudStartup = async () => {
+    try {
+      const restored = await GDrive.tryRestoreToken();
+      if (restored && DB.getGDriveAutoSync()) {
+        showToast('☁️ 正在背景檢查雲端備份…', 1800);
+        try {
+          const syncResult = await GDrive.autoRestoreIfCloudHasMore();
+          if (syncResult.status === 'restored') {
+            showToast('✓ 已自動同步雲端最新備份', 2800);
+            if (Router.currentView === 'home' || Router.currentView === 'settings') Router._doNavigate(Router.currentView);
+          } else if (syncResult.status === 'conflict') {
+            console.warn('[GDrive] Auto-sync conflict detected.', syncResult);
+            showToast('雲端與本機資料各有差異，為保護資料未自動覆寫', 3800);
+          } else if (syncResult.status === 'same') {
+            console.info('[GDrive] Local and cloud backup are identical.');
+          } else if (syncResult.status === 'safety_blocked') {
+            showToast('本機復原點無法使用，為保護資料未自動覆寫', 3600);
+          } else if (syncResult.status === 'skipped') {
+            console.info('[GDrive] Auto-sync skipped. Local:', GDrive._formatCounts(syncResult.localCounts), 'Cloud:', GDrive._formatCounts(syncResult.cloudCounts));
+          }
+        } catch (error) {
+          console.warn('[GDrive] Background auto-sync skipped:', error.message);
+        }
+      }
+      if (restored) GDrive.scheduleStudyStreakSync(250);
+    } catch (error) {
+      console.warn('[GDrive] Background login restore skipped:', error.message);
+    }
+  };
 
   // ── Global quick-scroll FABs (all pages except active spelling / essay; bottom button is Settings + Reading quiz) ──
   const _backTopBtn = document.getElementById('global-back-top');
@@ -6702,96 +8211,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   Router._doNavigate('home');
-
-  // Warm the Google Identity script after the UI is already usable. The script
-  // also starts loading asynchronously from index.html, so this call doubles as
-  // a readiness gate before we arm the first-gesture no-UI reconnect.
-  setTimeout(() => {
-    void GDrive.preloadGIS().then(ready => {
-      if (ready) armSeamlessGoogleReconnect();
-    });
-  }, 0);
-
-  // V7.4.2 seamless reconnect:
-  // - The home screen is already usable before any Google work starts.
-  // - Never open an account chooser/consent dialog just because the PWA launched.
-  // - If a Google account was previously remembered, use the user's first normal
-  //   tap/click as the required browser gesture and attempt prompt:'none'.
-  // - Failure is intentionally silent; a later Drive button reuses that button
-  //   click for the normal Google token flow, so there is no separate login step.
-  const armSeamlessGoogleReconnect = () => {
-    if (!navigator.onLine || !DB.getGDriveClientId() || !GDrive.hasRememberedSession()) return;
-    if (GDrive.isSignedIn() || GDrive.tryRestoreFromStorage()) return;
-
-    let attempted = false;
-    const attempt = (event) => {
-      if (attempted) return;
-
-      // A Drive/login button already provides its own explicit OAuth gesture.
-      // Do not start a prompt:'none' request in capture phase and race it.
-      const target = event?.target;
-      if (target instanceof Element && target.closest('#gd-upload-btn,#gd-download-btn,#gd-streak-sync-btn,#gd-signin-btn')) return;
-
-      attempted = true;
-      document.removeEventListener('pointerdown', attempt, true);
-      document.removeEventListener('keydown', attempt, true);
-      void GDrive.tryRestoreToken({ noUi: true }).then(restored => {
-        if (!restored) return;
-        GDrive.scheduleStudyStreakSync(500);
-        if (DB.getGDriveAutoSync()) {
-          setTimeout(() => { void bootstrapGDriveInBackground(); }, 0);
-        }
-        if (Router.currentView === 'settings') Router._doNavigate('settings');
-      }).catch(() => {});
-    };
-
-    document.addEventListener('pointerdown', attempt, { capture: true, passive: true });
-    document.addEventListener('keydown', attempt, { capture: true });
-  };
-
-  const bootstrapGDriveInBackground = async () => {
-    if (!navigator.onLine || !DB.getGDriveClientId()) return;
-    try {
-      // V7.4.2: page startup must never launch Google OAuth UI. Only reuse an
-      // access token that is already valid in this PWA session. If the app was
-      // fully closed, a no-UI reconnect is armed on the user's first normal tap.
-      const restored = GDrive.isSignedIn() || GDrive.tryRestoreFromStorage();
-      if (!restored) return;
-
-      if (DB.getGDriveAutoSync()) {
-        showToast('☁️ 背景檢查雲端備份中…', 1800);
-        try {
-          const syncResult = await Tasks.run('auto-cloud-sync', () => GDrive.autoRestoreIfCloudHasMore(), { exclusive: true });
-          if (syncResult.status === 'restored') {
-            showToast('✓ 已自動同步雲端最新備份', 2800);
-            if (!Router.quizActive && !Router.essayActive && ['home', 'settings'].includes(Router.currentView)) {
-              Router._doNavigate(Router.currentView);
-            }
-          } else if (syncResult.status === 'conflict') {
-            console.warn('[GDrive] Auto-sync conflict detected.', syncResult);
-            showToast('雲端與本機資料各有差異，為保護資料未自動覆寫', 3800);
-          } else if (syncResult.status === 'same') {
-            console.info('[GDrive] Local and cloud backup are identical.');
-          } else if (syncResult.status === 'safety_blocked') {
-            showToast('本機復原點無法使用，為保護資料未自動覆寫', 3600);
-          } else if (syncResult.status === 'local_changed') {
-            console.info('[GDrive] Local data changed during background comparison; auto-sync deferred.');
-          } else if (syncResult.status === 'skipped') {
-            console.info('[GDrive] Auto-sync skipped. Local:', GDrive._formatCounts(syncResult.localCounts), 'Cloud:', GDrive._formatCounts(syncResult.cloudCounts));
-          }
-        } catch (error) {
-          console.warn('[GDrive] Background auto-sync check failed:', error.message);
-        }
-      }
-
-      // Cross-device study streak verification can involve several Drive calls;
-      // keep it behind the startup/backup critical path.
-      GDrive.scheduleStudyStreakSync(700);
-    } catch (error) {
-      console.warn('[GDrive] Background startup init failed:', error.message);
-    }
-  };
-  setTimeout(() => { void bootstrapGDriveInBackground(); }, 180);
+  GDrive.preload();
+  setTimeout(() => { void runCloudStartup(); }, 350);
 
   // Check during idle time and never install/reload while an exercise is active.
   const checkForStartupUpdate = async () => {
@@ -6817,9 +8238,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (document.visibilityState === 'hidden') {
       Views.practice?._persistPendingSession?.();
       Views.practice?._flushWrongCounts?.();
-      Drafts.flush();
-      void AppStorage.flush().catch(error => console.warn('[Storage] Deferred write failed.', error));
+      void AppStorage.flush().catch(() => {});
     }
   });
-  window.addEventListener('pagehide', () => { Drafts.flush();void AppStorage.flush().catch(()=>{}); });
 });

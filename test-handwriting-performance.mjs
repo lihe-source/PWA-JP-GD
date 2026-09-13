@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import { readFileSync } from 'node:fs';
 
 class MockContext {
-  constructor() { this.fullPaints = 0; this.segmentPaints = 0; }
+  constructor() { this.fullPaints = 0; this.segmentPaints = 0; this.contacts = 0; }
   save() {}
   restore() {}
   setTransform() {}
@@ -15,7 +17,7 @@ class MockContext {
   stroke() { this.segmentPaints += 1; }
   strokeRect() {}
   arc() {}
-  fill() {}
+  fill() { this.contacts += 1; }
   fillText() {}
 }
 
@@ -28,6 +30,7 @@ class MockCanvas {
     this.listenerOptions = new Map();
   }
   getContext() { return this.context; }
+  setAttribute() {}
   getBoundingClientRect() { return { left: 0, top: 0, width: 400, height: 400 }; }
   addEventListener(type, listener, options) {
     this.listeners.set(type, listener);
@@ -38,6 +41,57 @@ class MockCanvas {
   releasePointerCapture() {}
   emit(type, event) { this.listeners.get(type)?.(event); }
 }
+
+test('actual writer handlers score and pronounce current questions across 50 advances', async () => {
+  const { canvas, event } = await makeEngine();
+  const { HandwritingEngine } = await import('./handwriting-engine.js');
+  const elements = new Map();
+  const element = key => {
+    if (!elements.has(key)) elements.set(key, { textContent: '', innerHTML: '', style: {}, dataset: {},
+      classList: { add() {}, remove() {}, toggle() {} }, listeners: {},
+      addEventListener(type, fn) { this.listeners[type] = fn; } });
+    return elements.get(key);
+  };
+  document.getElementById = id => id === 'kana-writing-canvas' ? canvas : element(id);
+  const container = { innerHTML: '', querySelector: element };
+  const said = [], recorded = [];
+  const context = { Views: {}, document, HandwritingEngine, escapeHTML: String,
+    TTS: { stop() {}, speakKana: ch => said.push(ch) },
+    KanaProgress: { recordAttempt: ch => recorded.push(ch.character) },
+    recordStudyActivity() {}, STUDY_ACTIVITY_TYPES: { KANA_HANDWRITING: 'kana' },
+    showToast() {}, Router: {}, todayStr: () => '2026-09-13' };
+  const source = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+  vm.runInNewContext(source.slice(source.indexOf('Views.kanaPractice ='), source.indexOf('Views.kanaReadingPractice =')), context);
+  const view = context.Views.kanaPractice;
+  view._bindViewportLayout = () => {};
+  view._resolveLayout = () => 'tablet';
+  let completed = false;
+  view.renderResult = () => { completed = true; view.engine.destroy(); };
+  view.state.items = Array.from({length:50}, (_, i) => ({ id:String(i), character:String(i), romaji:'a', scriptLabel:'平假名', rowLabel:'あ行', strokes:['M0 0L10 10'], starts:[] }));
+  view.state.index = 0; view.state.results = []; view.state.mode = 'recall'; view.state.autoSpeak = true;
+  view.renderWriter(container);
+  const originalEngine = view.engine;
+  const click = id => element(id).listeners.click({ currentTarget: element(id) });
+  for (let i = 0; i < 50; i++) {
+    assert.equal(view.engine, originalEngine);
+    assert.equal(view.engine.strokes.length, 0);
+    assert.equal(said.at(-1), String(i));
+    click('kana-listen-btn'); assert.equal(said.at(-1), String(i));
+    click('kana-reveal-btn'); assert.equal(element('kana-reference-character').textContent, String(i));
+    canvas.emit('pointerdown', event({pointerId:i+1}));
+    canvas.emit('pointerup', event({pointerId:i+1,clientX:100}));
+    click('kana-score-btn');
+    assert.equal(recorded.at(-1), String(i));
+    assert.equal(view.state.results.length, i+1);
+    click('kana-score-btn');
+    if(i<49) {
+      assert.equal(element('kana-reference-character').textContent,'？');
+      assert.equal(element('kana-reveal-btn').hidden,false);
+    }
+  }
+  assert.equal(completed, true);
+  assert.equal(canvas.listeners.size, 0);
+});
 
 test('handwriting batches pointer samples and avoids full-canvas repaint while drawing', async () => {
   const frames = new Map();
@@ -68,6 +122,7 @@ test('handwriting batches pointer samples and avoids full-canvas repaint while d
     clientX: 10, clientY: 10, preventDefault() {}
   };
   canvas.emit('pointerdown', baseEvent);
+  assert.equal(canvas.context.contacts, 1, 'contact appears before any move or frame');
 
   const samples = Array.from({ length: 40 }, (_, index) => ({
     ...baseEvent, clientX: 12 + index * 2, clientY: 12 + index * 1.5, timeStamp: index + 2
@@ -104,6 +159,55 @@ async function makeEngine() {
   const event = (overrides = {}) => ({ pointerId: 1, pointerType: 'touch', pressure: 0.5, clientX: 20, clientY: 20, timeStamp: 1, preventDefault() {}, ...overrides });
   return { engine, canvas, frames, event };
 }
+
+test('input modes isolate Pencil from palm and retain touch/mouse support', async () => {
+  const { engine, canvas, event } = await makeEngine();
+  engine.inputMode = 'pen';
+  canvas.emit('pointerdown', event());
+  assert.equal(engine.pointerId, null);
+  canvas.emit('pointerdown', event({ pointerType: 'pen' }));
+  assert.equal(engine.pointerId, 1);
+  canvas.emit('pointerup', event({ pointerType: 'pen', clientX: 100 }));
+  engine.inputMode = 'touch'; engine.penRecentlyActiveUntil = 0;
+  canvas.emit('pointerdown', event({ pointerId: 2, pointerType: 'pen' }));
+  assert.equal(engine.pointerId, null);
+  canvas.emit('pointerdown', event({ pointerId: 3 }));
+  canvas.emit('pointerup', event({ pointerId: 3, clientX: 90 }));
+  assert.equal(engine.strokes.length, 2);
+  engine.destroy();
+});
+
+test('50 questions reuse backing canvas and clear all previous strokes and reveals', async () => {
+  const { engine, canvas, event } = await makeEngine();
+  const listeners = [...canvas.listeners.values()];
+  for (let i = 0; i < 50; i++) {
+    engine.setKana({ character: String(i), strokes: [], starts: [] });
+    assert.equal(engine.strokes.length, 0);
+    assert.equal(engine.reveal, false);
+    canvas.emit('pointerdown', event({ pointerId: i + 1 }));
+    canvas.emit('pointerup', event({ pointerId: i + 1, clientX: 90 }));
+    engine.revealGuide();
+    assert.equal(engine.strokes.length, 1);
+    assert.deepEqual([...canvas.listeners.values()], listeners);
+  }
+  engine.destroy();
+});
+
+test('cached reference samples produce identical scores for identical input', async () => {
+  const { engine, canvas, event } = await makeEngine();
+  let sampled = 0;
+  document.createElementNS = () => ({ setAttribute() {}, getTotalLength: () => 10,
+    getPointAtLength: length => { sampled++; return { x: length, y: length }; } });
+  engine.setKana({ strokes: ['M1 1L9 9'], starts: [] });
+  canvas.emit('pointerdown', event());
+  canvas.emit('pointerup', event({ clientX: 90 }));
+  const first = engine.score();
+  const count = sampled;
+  assert.ok(count > 0);
+  assert.deepEqual(engine.score(), first);
+  assert.equal(sampled, count);
+  engine.destroy();
+});
 
 test('lost capture releases the input lock and the next stroke works', async () => {
   const { engine, canvas, event } = await makeEngine();

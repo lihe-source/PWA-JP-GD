@@ -120,12 +120,23 @@ export class KanaProgressManager {
   }
 
   getHistory() {
-    try { return mergeHandwritingHistory(JSON.parse(this.storage.getItem(this.historyKey) || '[]')); }
+    try {
+      const raw = this.storage.getItem(this.historyKey) || '[]';
+      if (raw !== this._historyRaw) {
+        this._historyCache = mergeHandwritingHistory(JSON.parse(raw));
+        this._historyRaw = raw;
+      }
+      return this._historyCache.map(entry => ({ ...entry }));
+    }
     catch { return []; }
   }
 
   saveHistory(history) {
-    this.storage.setItem(this.historyKey, JSON.stringify(mergeHandwritingHistory(history)));
+    const normalized = mergeHandwritingHistory(history);
+    const raw = JSON.stringify(normalized);
+    this.storage.setItem(this.historyKey, raw);
+    this._historyRaw = raw;
+    this._historyCache = normalized;
   }
 
   recordAttempt(kana, scoreResult, mode = 'trace') {

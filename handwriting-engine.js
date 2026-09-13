@@ -1,5 +1,6 @@
 const VIEWBOX_SIZE = 109;
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const referenceCache = new Map();
 
 function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 
@@ -73,6 +74,9 @@ export class HandwritingEngine {
     this.canvas = canvas;
     this.context = canvas.getContext('2d', { alpha: false, desynchronized: true });
     this.options = options;
+    this.inputMode = ['auto', 'pen', 'touch'].includes(options.inputMode) ? options.inputMode : 'auto';
+    this.diagnostics = options.diagnostics === true;
+    this.metrics = { frames: 0, maxDrawMs: 0, maxSampleAgeMs: 0, interruptions: 0, resizes: 0 };
     this.kana = null;
     this.mode = 'trace';
     this.strokes = [];
@@ -110,6 +114,8 @@ export class HandwritingEngine {
   _bindEvents() {
     this._pointerDown = event => {
       if (this.destroyed || !this.kana) return;
+      if (this.inputMode === 'pen' && event.pointerType !== 'pen') return;
+      if (this.inputMode === 'touch' && event.pointerType === 'pen') return;
       if (event.pointerType === 'touch' && Date.now() < this.penRecentlyActiveUntil) return;
       if (event.pointerType === 'pen' && this.activePointerType === 'touch') this._finishStroke(null, true, true);
       if (this.pointerId !== null) return;
@@ -129,6 +135,8 @@ export class HandwritingEngine {
       this.activeStroke = [point];
       this.drawnPointIndex = 0;
       this.strokes.push(this.activeStroke);
+      // Show contact immediately; do not wait for a move event or a frame.
+      this._drawContact(point);
       this.options.onStrokeStart?.(this.strokes.length);
     };
     this._pointerMove = event => {
@@ -163,6 +171,7 @@ export class HandwritingEngine {
   _finishStroke(event, interrupted = false, discard = false) {
     if (this.pointerId === null) return;
     const pointerId = this.pointerId;
+    if (this.diagnostics && interrupted) this.metrics.interruptions += 1;
     if (event) this._appendPointerSamples(event);
     if (this.activePointerType === 'pen') this.penRecentlyActiveUntil = Date.now() + 1200;
     if (!interrupted && this.activeStroke?.length === 1) {
@@ -183,6 +192,7 @@ export class HandwritingEngine {
     try { this.canvas.releasePointerCapture?.(pointerId); } catch {}
     this.options.onStrokeEnd?.(this.strokes.length);
     this.options.onChange?.(this.strokes.length);
+    if (this.diagnostics) this.options.onDiagnostic?.({ ...this.metrics });
     if (this.resizePending) this._scheduleResize();
     else if (this.fullRenderPending) this._render();
   }
@@ -190,6 +200,18 @@ export class HandwritingEngine {
   _refreshCanvasRect() {
     this.canvasRect = this.canvas.getBoundingClientRect();
     return this.canvasRect;
+  }
+
+  _drawContact(point) {
+    const context = this.context;
+    if (!context) return;
+    context.save();
+    context.setTransform(this.canvas.width / VIEWBOX_SIZE, 0, 0, this.canvas.height / VIEWBOX_SIZE, 0, 0);
+    context.fillStyle = '#102a43';
+    context.beginPath();
+    context.arc(point.x, point.y, this._lineWidth(point, point) / 2, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
   }
 
   _eventPoint(event) {
@@ -269,6 +291,7 @@ export class HandwritingEngine {
     const stroke = this.activeStroke;
     const startIndex = Math.max(1, this.drawnPointIndex + 1);
     if (!stroke || startIndex >= stroke.length || !this.context || !this.canvas.width || !this.canvas.height) return;
+    const startedAt = this.diagnostics ? performance.now() : 0;
     const context = this.context;
     context.save();
     context.setTransform(this.canvas.width / VIEWBOX_SIZE, 0, 0, this.canvas.height / VIEWBOX_SIZE, 0, 0);
@@ -278,6 +301,11 @@ export class HandwritingEngine {
     this._drawStrokeRange(context, stroke, startIndex);
     context.restore();
     this.drawnPointIndex = stroke.length - 1;
+    if (this.diagnostics) {
+      this.metrics.frames += 1;
+      this.metrics.maxDrawMs = Math.max(this.metrics.maxDrawMs, performance.now() - startedAt);
+      this.metrics.maxSampleAgeMs = Math.max(this.metrics.maxSampleAgeMs, Math.max(0, startedAt - stroke.at(-1).time));
+    }
   }
 
   _scheduleResize() {
@@ -309,6 +337,7 @@ export class HandwritingEngine {
       return;
     }
     this.pixelRatio = ratio;
+    if (this.diagnostics) this.metrics.resizes += 1;
     this.canvas.width = width;
     this.canvas.height = height;
     this._render();
@@ -445,7 +474,16 @@ export class HandwritingEngine {
     this._interrupt();
     this.stopAnimation();
     this.animationStroke = -1;
-    const reference = (this.kana?.strokes || []).map(path => sampleSvgPath(path));
+    const paths = this.kana?.strokes || [];
+    const key = JSON.stringify(paths);
+    let reference = referenceCache.get(key);
+    if (!reference) {
+      reference = paths.map(path => sampleSvgPath(path));
+      if (reference.every(points => points.length)) {
+        if (referenceCache.size >= 128) referenceCache.delete(referenceCache.keys().next().value);
+        referenceCache.set(key, reference);
+      }
+    }
     const user = this.strokes.filter(stroke => stroke.length >= 2).map(stroke => resample(stroke));
     const expectedStrokeCount = reference.length;
     const strokeCount = user.length;

@@ -1,4 +1,4 @@
-name = "japanese-daily-reminder"
+name = "vocabulary-daily-reminder"
 main = "worker.js"
 compatibility_date = "2026-08-07"
 compatibility_flags = ["nodejs_compat"]
@@ -8,7 +8,7 @@ workers_dev = true
 crons = ["* * * * *"]
 
 [vars]
-APP_URL = "https://lihe-source.github.io/PWA-JP-GD/"
+APP_URL = "https://lihe-source.github.io/PWA-Vocabulary-GD/"
 ALLOWED_ORIGINS = "https://lihe-source.github.io"
 
 [[d1_databases]]

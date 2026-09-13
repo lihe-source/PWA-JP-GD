@@ -4,70 +4,28 @@ import { readFile, readdir } from 'node:fs/promises';
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-test('Japanese defaults and separate push deployment are packaged', async () => {
-  const [defaults, pushConfig, wrangler, worker, schema] = await Promise.all([
-    text('japanese-learning.js'), text('push-config.js'), text('wrangler.toml'), text('worker.js'), text('schema.sql')
+test('current Worker, Pages, cron and D1 settings are retained', async () => {
+  const [pushConfig, wrangler, worker] = await Promise.all([
+    text('push-config.js'), text('wrangler.toml'), text('worker.js')
   ]);
-  assert.match(defaults, /171837667604-mtcf91qudt6ff79u382v37rjqpp7l51q\.apps\.googleusercontent\.com/);
-  assert.match(defaults, /1kAtVOK2qqhK0BY9vmp8Sm4NhQaWMJYeb/);
-  assert.match(pushConfig, /japanese-daily-reminder\.rexchre\.workers\.dev/);
-  assert.match(wrangler, /name = "japanese-daily-reminder"/);
-  assert.match(wrangler, /PWA-JP-GD/);
+  assert.match(pushConfig, /https:\/\/vocabulary-daily-reminder\.rexchre\.workers\.dev/);
+  assert.match(pushConfig, /defaultTime: '22:00'/);
+  assert.match(wrangler, /name = "vocabulary-daily-reminder"/);
   assert.match(wrangler, /crons = \["\* \* \* \* \*"\]/);
-  assert.match(worker, /SERVICE_VERSION = 'V1\.3\.6'/);
-  assert.match(worker, /Japanese Daily Reminder/);
-  assert.match(worker, /SELECT 1 FROM japanese_reminders/);
-  assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminders/);
-  assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminder_scopes/);
-  assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_practice_days/);
-  assert.doesNotMatch(schema, /CREATE TABLE IF NOT EXISTS reminders\s*\(/);
+  assert.match(wrangler, /APP_URL = "https:\/\/lihe-source\.github\.io\/PWA-Vocabulary-GD\/"/);
+  assert.match(wrangler, /ALLOWED_ORIGINS = "https:\/\/lihe-source\.github\.io"/);
+  assert.match(wrangler, /database_id = "8886068d-480d-45ca-af8b-2c679d0fc150"/);
+  assert.match(worker, /SERVICE_VERSION = 'V7\.4\.2'/);
 });
 
-test('the GitHub release directory is completely flat', async () => {
+test('the release directory is completely flat', async () => {
   const entries = await readdir(new URL('.', import.meta.url), { withFileTypes: true });
-  const releaseEntries = entries.filter(entry => entry.name !== 'node_modules');
-  assert.deepEqual(releaseEntries.filter(entry => entry.isDirectory()).map(entry => entry.name), []);
-  assert.equal(releaseEntries.length, 46, 'review deployment inventory before adding a file');
-  for (const doc of ['README.md', 'ARCHITECTURE.md', 'CHANGELOG.md']) assert.ok(releaseEntries.some(entry => entry.name === doc));
-  assert.ok(!releaseEntries.some(entry => /^(ARCHITECTURE_V|CHANGELOG_V|QA_V|UPDATE_V|icon-source|indexl\.html)/.test(entry.name)));
+  assert.deepEqual(entries.filter(entry => entry.isDirectory()).map(entry => entry.name), []);
 });
 
-test('new install icons are opaque square PNGs and versioned in the manifest', async () => {
-  const manifest = JSON.parse(await text('manifest.json'));
-  for (const size of [192, 512]) {
-    const png = await readFile(new URL(`./icon-${size}.png`, import.meta.url));
-    assert.equal(png.subarray(1,4).toString(), 'PNG');
-    assert.equal(png.readUInt32BE(16), size);
-    assert.equal(png.readUInt32BE(20), size);
-    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_3_6`));
-  }
-  assert.match(await text('THIRD_PARTY_NOTICES.md'), /icons.*add a blue|icons add a blue/);
-});
-
-test('Japanese data uses an isolated IndexedDB and storage prefix', async () => {
+test('V7.2 keeps the existing IndexedDB identity', async () => {
   const storage = await text('storage.js');
-  assert.match(storage, /DB_NAME = 'pwa_japanese_v1'/);
-  assert.match(storage, /LOCAL_PREFIX = 'pwa_japanese:'/);
-  assert.match(storage, /LEGACY_ENGLISH_DB = 'pwa_vocabulary_v7'/);
+  assert.match(storage, /DB_NAME = 'pwa_vocabulary_v7'/);
+  assert.match(storage, /DB_VERSION = 1/);
   assert.doesNotMatch(storage, /indexedDB\.deleteDatabase/);
-});
-
-test('every frontend module dependency uses this release and is precached for offline launch', async () => {
-  const version = JSON.parse(await text('version.json'));
-  const shellSource = (await text('sw.js')).match(/const APP_SHELL = \[([\s\S]*?)\];/)[1];
-  const shell = new Set([...shellSource.matchAll(/'([^']+)'/g)].map(match => match[1]));
-  const entries = await readdir(new URL('.', import.meta.url));
-  for (const entry of entries.filter(name => name.endsWith('.js'))) {
-    const source = await text(entry);
-    for (const match of source.matchAll(/\b(?:from\s*|import\s*)['"](\.\/[^'"\n]+)['"]/g)) {
-      const reference = match[1];
-      const url = new URL(reference, 'https://example.test/PWA-JP-GD/');
-      assert.equal(url.searchParams.get('v'), version.version, `${entry}: outdated module ${reference}`);
-      assert.ok(shell.has(reference), `${entry}: missing offline cache entry ${reference}`);
-    }
-  }
-  for (const reference of shell) {
-    if (reference === './') continue;
-    assert.ok(entries.includes(reference.replace(/^\.\//, '').split('?')[0]), `missing cached file ${reference}`);
-  }
 });

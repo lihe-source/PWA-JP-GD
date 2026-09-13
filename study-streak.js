@@ -1,11 +1,9 @@
-// Study streak domain logic for PWA Japanese GD V1.1.0.
+// Study streak domain logic for V7.2.2.
 // The module is deliberately UI-independent so date math, migration and
 // cross-device union merges can be verified with Node tests.
 
 export const STUDY_ACTIVITY_TYPES = Object.freeze({
   WORD_QUIZ: 'word_quiz',
-  KANA_HANDWRITING: 'kana_handwriting',
-  KANA_READING: 'kana_reading',
   READING_QUIZ: 'reading_quiz',
   ESSAY_REVIEW: 'essay_review',
   AI_ASK: 'ai_ask'
@@ -156,13 +154,13 @@ export function computeStudyStreak(days, { now = new Date(), timeZone = getCurre
   };
 }
 
-function migrationEvent(type, date, suffix = '', timeZone = getCurrentTimeZone()) {
-  const normalizedDate = dateKeyFor(date, timeZone);
+function migrationEvent(type, date, suffix = '') {
+  const normalizedDate = dateKeyFor(date);
   if (!normalizedDate) return null;
   const stamp = `${normalizedDate}T12:00:00.000Z`;
   return {
     date: normalizedDate,
-    timezone: timeZone,
+    timezone: getCurrentTimeZone(),
     activities: [type],
     eventIds: [`legacy:${type}:${normalizedDate}${suffix ? `:${suffix}` : ''}`],
     sessionCount: 1,
@@ -171,37 +169,27 @@ function migrationEvent(type, date, suffix = '', timeZone = getCurrentTimeZone()
   };
 }
 
-export function deriveStudyDays({ history = [], readingQuizHistory = [], essayHistory = [], aiAskHistory = [], handwritingHistory = [], kanaReadingHistory = [] } = {}, { timeZone = getCurrentTimeZone() } = {}) {
+export function deriveStudyDays({ history = [], readingQuizHistory = [], essayHistory = [], aiAskHistory = [] } = {}) {
   const derived = [];
   safeArray(history).forEach((entry, index) => {
-    const day = migrationEvent(STUDY_ACTIVITY_TYPES.WORD_QUIZ, entry?.date, String(entry?.id || index), timeZone);
+    const day = migrationEvent(STUDY_ACTIVITY_TYPES.WORD_QUIZ, entry?.date, String(entry?.id || index));
     if (day && Number(entry?.total || 0) > 0) derived.push(day);
   });
   safeArray(readingQuizHistory).forEach((group, groupIndex) => {
     safeArray(group?.sessions).forEach((session, index) => {
-      const day = migrationEvent(STUDY_ACTIVITY_TYPES.READING_QUIZ, group?.date || session?.ts, String(session?.id || session?.ts || `${groupIndex}-${index}`), timeZone);
+      const day = migrationEvent(STUDY_ACTIVITY_TYPES.READING_QUIZ, group?.date || session?.ts, String(session?.id || session?.ts || `${groupIndex}-${index}`));
       if (day) derived.push(day);
     });
   });
   safeArray(essayHistory).forEach((group, groupIndex) => {
     safeArray(group?.sessions).forEach((session, index) => {
-      const day = migrationEvent(STUDY_ACTIVITY_TYPES.ESSAY_REVIEW, group?.date || session?.ts, String(session?.id || session?.ts || `${groupIndex}-${index}`), timeZone);
+      const day = migrationEvent(STUDY_ACTIVITY_TYPES.ESSAY_REVIEW, group?.date || session?.ts, String(session?.id || session?.ts || `${groupIndex}-${index}`));
       if (day) derived.push(day);
     });
   });
   safeArray(aiAskHistory).forEach((entry, index) => {
     const suffix = `${entry?.id || 'entry'}-${entry?.ts || index}`;
-    const day = migrationEvent(STUDY_ACTIVITY_TYPES.AI_ASK, entry?.ts || entry?.date, suffix, timeZone);
-    if (day) derived.push(day);
-  });
-  safeArray(handwritingHistory).forEach((entry, index) => {
-    const suffix = `${entry?.id || 'kana'}-${entry?.ts || index}`;
-    const day = migrationEvent(STUDY_ACTIVITY_TYPES.KANA_HANDWRITING, entry?.ts || entry?.date, suffix, timeZone);
-    if (day) derived.push(day);
-  });
-  safeArray(kanaReadingHistory).forEach((entry, index) => {
-    const suffix = `${entry?.id || 'kana-reading'}-${entry?.ts || index}`;
-    const day = migrationEvent(STUDY_ACTIVITY_TYPES.KANA_READING, entry?.ts || entry?.date, suffix, timeZone);
+    const day = migrationEvent(STUDY_ACTIVITY_TYPES.AI_ASK, entry?.ts || entry?.date, suffix);
     if (day) derived.push(day);
   });
   return mergeStudyDays(derived);
@@ -312,7 +300,7 @@ export class StudyStreakManager {
     const merged = mergeStudyDays(current, derived);
     const changed = JSON.stringify(current) !== JSON.stringify(merged);
     if (changed) this.saveDays(merged, { markPending });
-    this.storage.setItem('studyStreakMigrationJapaneseV1', new Date().toISOString());
+    this.storage.setItem('studyStreakMigrationV8', new Date().toISOString());
     return { changed, addedDays: Math.max(0, merged.length - current.length), days: merged, summary: this.getSummary() };
   }
 

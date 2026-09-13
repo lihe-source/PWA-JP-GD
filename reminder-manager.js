@@ -1,7 +1,5 @@
 const SETTINGS_KEY = 'dailyReminderSettingsV1';
 const TOKEN_KEY = 'dailyReminderManagementTokenV1';
-const DEVICE_SCOPE_KEY = 'dailyReminderDeviceScopeV1';
-const PENDING_PRACTICE_KEY = 'dailyReminderPendingPracticeV1';
 
 function normalizeApiBase(value) {
   const raw = String(value || '').trim().replace(/\/+$/, '');
@@ -47,28 +45,9 @@ function equalApplicationServerKey(existing, expected) {
   return current.every((value, index) => value === expected[index]);
 }
 
-function bytesToBase64Url(bytes) {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function randomDeviceScope() {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  return bytesToBase64Url(bytes);
-}
-
-async function scopeHash(value) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
-  return `s1_${bytesToBase64Url(new Uint8Array(digest))}`;
-}
-
-function makeError(code, detail = '', metadata = {}) {
+function makeError(code, detail = '') {
   const error = new Error(detail || code);
   error.code = code;
-  error.detail = detail || '';
-  Object.assign(error, metadata);
   return error;
 }
 
@@ -78,16 +57,13 @@ export function reminderErrorMessage(error) {
     UNSUPPORTED: '此瀏覽器不支援 Web Push 通知',
     NOT_INSTALLED: '請先將網站加入 iPhone 主畫面，再從主畫面開啟 PWA',
     BACKEND_NOT_CONFIGURED: '尚未設定推播服務網址，請先完成部署說明中的 Cloudflare 設定',
-    PERMISSION_DENIED: '通知權限未開啟，請到 iPhone／iPad「設定 → 通知 → 日文練習」允許通知',
+    PERMISSION_DENIED: '通知權限未開啟，請到 iPhone「設定 → 通知 → 英文複習」允許通知',
     INVALID_TIME: '請選擇有效的提醒時間',
     INVALID_SERVER_CONFIG: '推播後端設定不完整，請檢查 VAPID 公開金鑰',
     AUTH_EXPIRED: '提醒憑證已失效，請重新按下「儲存並啟用」',
     TIMEOUT: '推播服務連線逾時，請確認網路後再試',
     NETWORK_ERROR: '無法連線推播服務，請檢查 Worker 網址與網路',
-    SUBSCRIBE_FAILED: '無法建立通知訂閱，請重新開啟 PWA 後再試',
-    SUBSCRIPTION_INVALID: 'iPhone 通知訂閱已失效，系統重新建立後仍失敗，請關閉 PWA 再重試',
-    PUSH_REJECTED: 'Apple 推播服務拒絕通知，系統已嘗試重建訂閱',
-    PUSH_FAILED: '測試通知傳送失敗，請確認網路後再試'
+    SUBSCRIBE_FAILED: '無法建立通知訂閱，請重新開啟 PWA 後再試'
   };
   return messages[code] || error?.message || '提醒設定失敗，請稍後再試';
 }
@@ -130,8 +106,8 @@ export class ReminderManager {
       enabled: saved.enabled === true,
       time,
       timeZone: saved.timeZone || currentTimeZone(),
-      title: saved.title || this.config.defaultTitle || '日本語練習時間到了',
-      body: saved.body || this.config.defaultBody || '每天練習一點日文，保持學習節奏！',
+      title: saved.title || this.config.defaultTitle || '英文單字複習時間到了',
+      body: saved.body || this.config.defaultBody || '每天複習一點點，保持英文學習節奏！',
       nextFireAt: Number(saved.nextFireAt) || 0,
       updatedAt: saved.updatedAt || ''
     };
@@ -174,13 +150,8 @@ export class ReminderManager {
       let payload = {};
       try { payload = await response.json(); } catch {}
       if (!response.ok) {
-        const code = (response.status === 401 || response.status === 403)
-          ? 'AUTH_EXPIRED'
-          : (payload.code || 'NETWORK_ERROR');
-        throw makeError(code, payload.error || `HTTP ${response.status}`, {
-          status: response.status,
-          providerReason: payload.providerReason || ''
-        });
+        if (response.status === 401 || response.status === 403) throw makeError('AUTH_EXPIRED', payload.error || 'Unauthorized');
+        throw makeError(payload.code || 'NETWORK_ERROR', payload.error || `HTTP ${response.status}`);
       }
       return payload;
     } catch (error) {
@@ -200,7 +171,7 @@ export class ReminderManager {
     return config;
   }
 
-  async _ensureSubscription({ forceRenew = false } = {}) {
+  async _ensureSubscription() {
     const server = await this._getServerConfig();
     const expectedKey = base64UrlToBytes(server.vapidPublicKey);
     if (expectedKey.length !== 65) throw makeError('INVALID_SERVER_CONFIG');
@@ -212,7 +183,7 @@ export class ReminderManager {
       })
     ]).finally(() => clearTimeout(readyTimer));
     let subscription = await registration.pushManager.getSubscription();
-    if (subscription && (forceRenew || !equalApplicationServerKey(subscription.options?.applicationServerKey, expectedKey))) {
+    if (subscription && !equalApplicationServerKey(subscription.options?.applicationServerKey, expectedKey)) {
       await subscription.unsubscribe().catch(() => false);
       subscription = null;
     }
@@ -229,51 +200,8 @@ export class ReminderManager {
     return subscription;
   }
 
-  async _unsubscribeLocal() {
-    if (!('serviceWorker' in navigator)) return false;
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      return subscription ? await subscription.unsubscribe() : true;
-    } catch {
-      return false;
-    }
-  }
-
   _authorizationHeaders(token) {
     return token ? { Authorization: `Bearer ${token}` } : {};
-  }
-
-  _pendingPractice() {
-    try {
-      const saved = JSON.parse(this.storage.getItem(PENDING_PRACTICE_KEY) || 'null');
-      const occurredAt = new Date(saved?.occurredAt || '');
-      if (Number.isNaN(occurredAt.getTime())) return null;
-      return {
-        occurredAt: occurredAt.toISOString(),
-        activityType: String(saved?.activityType || 'practice').slice(0, 40)
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  _savePendingPractice(practice) {
-    this.storage.setItem(PENDING_PRACTICE_KEY, JSON.stringify(practice));
-  }
-
-  _clearPendingPractice(occurredAt) {
-    const current = this._pendingPractice();
-    if (!current || current.occurredAt === occurredAt) this.storage.removeItem(PENDING_PRACTICE_KEY);
-  }
-
-  async _scopeKey() {
-    let deviceScope = this.storage.getItem(DEVICE_SCOPE_KEY) || '';
-    if (!deviceScope) {
-      deviceScope = randomDeviceScope();
-      this.storage.setItem(DEVICE_SCOPE_KEY, deviceScope);
-    }
-    return scopeHash(`device:${deviceScope}`);
   }
 
   async _register({ time, subscription, allowTokenReset = true }) {
@@ -284,9 +212,7 @@ export class ReminderManager {
       reminderTime: time,
       timeZone: currentTimeZone(),
       title: settings.title,
-      body: settings.body,
-      scopeKey: await this._scopeKey(),
-      practice: this._pendingPractice()
+      body: settings.body
     };
     try {
       return await this._request('/api/reminders', {
@@ -303,24 +229,6 @@ export class ReminderManager {
     }
   }
 
-  _storeRegistration(result, time) {
-    if (result.managementToken) this.storage.setItem(TOKEN_KEY, result.managementToken);
-    if (result.practice?.occurredAt) this._clearPendingPractice(result.practice.occurredAt);
-    return this._saveSettings({
-      enabled: true,
-      time,
-      timeZone: result.timeZone || currentTimeZone(),
-      nextFireAt: Number(result.nextFireAt) || 0
-    });
-  }
-
-  async _renewAndRegister(time) {
-    const subscription = await this._ensureSubscription({ forceRenew: true });
-    const result = await this._register({ time, subscription });
-    this._storeRegistration(result, time);
-    return result;
-  }
-
   async enable(time) {
     if (!validTime(time)) throw makeError('INVALID_TIME');
     const capabilities = this.getCapabilities();
@@ -331,12 +239,15 @@ export class ReminderManager {
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') throw makeError('PERMISSION_DENIED');
 
-    // An explicit save is also the recovery action for Apple subscriptions.
-    // Reusing an APNs device token that Apple has rejected only repeats HTTP 400.
-    const shouldRenew = this.getSettings().enabled || !!this.storage.getItem(TOKEN_KEY);
-    const subscription = await this._ensureSubscription({ forceRenew: shouldRenew });
+    const subscription = await this._ensureSubscription();
     const result = await this._register({ time, subscription });
-    return this._storeRegistration(result, time);
+    if (result.managementToken) this.storage.setItem(TOKEN_KEY, result.managementToken);
+    return this._saveSettings({
+      enabled: true,
+      time,
+      timeZone: result.timeZone || currentTimeZone(),
+      nextFireAt: Number(result.nextFireAt) || 0
+    });
   }
 
   async disable() {
@@ -353,19 +264,7 @@ export class ReminderManager {
         this.storage.removeItem(TOKEN_KEY);
       }
     }
-    await this._unsubscribeLocal();
-    this.storage.removeItem(TOKEN_KEY);
     return this._saveSettings({ enabled: false, nextFireAt: 0 });
-  }
-
-  async _sendTestOnce() {
-    const token = this.storage.getItem(TOKEN_KEY) || '';
-    if (!token) throw makeError('AUTH_EXPIRED');
-    return this._request('/api/reminders/test', {
-      method: 'POST',
-      headers: this._authorizationHeaders(token),
-      body: '{}'
-    });
   }
 
   async sendTest() {
@@ -373,43 +272,13 @@ export class ReminderManager {
     if (!capabilities.supported) throw makeError('UNSUPPORTED');
     if (capabilities.needsInstall) throw makeError('NOT_INSTALLED');
     if (capabilities.permission !== 'granted') throw makeError('PERMISSION_DENIED');
-    try {
-      return await this._sendTestOnce();
-    } catch (error) {
-      const repairable = ['AUTH_EXPIRED', 'SUBSCRIPTION_INVALID', 'PUSH_REJECTED'].includes(error?.code);
-      if (!repairable) throw error;
-      const settings = this.getSettings();
-      await this._renewAndRegister(settings.time);
-      return this._sendTestOnce();
-    }
-  }
-
-  async syncPracticeCompletion() {
-    const practice = this._pendingPractice();
     const token = this.storage.getItem(TOKEN_KEY) || '';
-    if (!practice || !token || !this.isBackendConfigured()) return false;
-    try {
-      const result = await this._request('/api/reminders/activity', {
-        method: 'POST',
-        headers: this._authorizationHeaders(token),
-        body: JSON.stringify({ ...practice, scopeKey: await this._scopeKey() })
-      });
-      if (result?.practice?.occurredAt) this._clearPendingPractice(result.practice.occurredAt);
-      return result?.ok === true;
-    } catch (error) {
-      console.info('[DailyReminder] Practice completion sync deferred:', error?.message || error);
-      return false;
-    }
-  }
-
-  recordPracticeCompletion({ occurredAt = new Date(), activityType = 'practice' } = {}) {
-    const instant = occurredAt instanceof Date ? occurredAt : new Date(occurredAt);
-    if (Number.isNaN(instant.getTime())) return false;
-    const practice = { occurredAt: instant.toISOString(), activityType: String(activityType || 'practice').slice(0, 40) };
-    const current = this._pendingPractice();
-    if (!current || new Date(current.occurredAt).getTime() <= instant.getTime()) this._savePendingPractice(practice);
-    void this.syncPracticeCompletion();
-    return true;
+    if (!token) throw makeError('AUTH_EXPIRED');
+    return this._request('/api/reminders/test', {
+      method: 'POST',
+      headers: this._authorizationHeaders(token),
+      body: '{}'
+    });
   }
 
   async reconcile() {

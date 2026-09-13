@@ -1,33 +1,27 @@
-const CACHE_PREFIX = 'Japanese-PWA-';
-const CACHE_NAME = 'Japanese-PWA-V1_3_6';
+const CACHE_PREFIX = 'Voc-PWA-';
+const CACHE_NAME = 'Voc-PWA-V7_4_2';
 const APP_SHELL = [
-  './learning-sync.js?v=V1_3_6',
-  './practice-lifecycle.js?v=V1_3_6',
-  './storage-status-ui.js?v=V1_3_6',
   './',
   './index.html',
-  './style.css?v=V1_3_6',
-  './app.js?v=V1_3_6',
-  './manifest.json?v=V1_3_6',
+  './style.css?v=V7_4_2',
+  './app.js?v=V7_4_2',
+  './manifest.json?v=V7_4_2',
   './version.json',
-  './storage.js?v=V1_3_6',
-  './backup-schema.js?v=V1_3_6',
-  './study-streak.js?v=V1_3_6',
-  './japanese-learning.js?v=V1_3_6',
-  './kana-data.js?v=V1_3_6',
-  './kana-strokes.js?v=V1_3_6',
-  './handwriting-engine.js?v=V1_3_6',
-  './version-manager.js?v=V1_3_6',
-  './chart-renderer.js?v=V1_3_6',
-  './push-config.js?v=V1_3_6',
-  './reminder-manager.js?v=V1_3_6',
-  './daily-learning.js?v=V1_3_6',
-  './kana-reading.js?v=V1_3_6',
+  './storage.js?v=V7_4_2',
+  './backup-schema.js?v=V7_4_2',
+  './study-streak.js?v=V7_4_2',
+  './version-manager.js?v=V7_4_2',
+  './chart-renderer.js?v=V7_4_2',
+  './push-config.js?v=V7_4_2',
+  './reminder-manager.js?v=V7_4_2',
+  './task-manager.js?v=V7_4_2',
+  './network.js?v=V7_4_2',
+  './backup-worker-client.js?v=V7_4_2',
+  './backup-worker.js?v=V7_4_2',
+  './draft-manager.js?v=V7_4_2',
   './jszip.min.js?v=3_10_1',
   './icon-192.png',
-  './icon-512.png',
-  './icon-192.png?v=V1_3_6',
-  './icon-512.png?v=V1_3_6'
+  './icon-512.png'
 ];
 
 self.addEventListener('install', event => {
@@ -84,17 +78,17 @@ self.addEventListener('push', event => {
   let payload = {};
   try { payload = event.data?.json() || {}; }
   catch {
-    try { payload = { title: '日本語練習時間到了', options: { body: event.data?.text() || '' } }; }
+    try { payload = { title: '英文單字複習時間到了', options: { body: event.data?.text() || '' } }; }
     catch { payload = {}; }
   }
 
   const declarative = payload.notification || {};
-  const title = payload.title || declarative.title || '日本語練習時間到了';
+  const title = payload.title || declarative.title || '英文單字複習時間到了';
   const options = payload.options || {
-    body: declarative.body || '每天複習一點點，保持日文學習節奏！',
+    body: declarative.body || '每天複習一點點，保持英文學習節奏！',
     icon: declarative.icon,
     badge: declarative.badge,
-    tag: declarative.tag || 'japanese-daily-reminder',
+    tag: declarative.tag || 'vocabulary-daily-reminder',
     data: declarative.data || payload.data || { url: './' }
   };
   event.waitUntil(self.registration.showNotification(title, options));

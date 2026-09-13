@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 
-const SERVICE_VERSION = 'V1.3.6';
+const SERVICE_VERSION = 'V7.4.2';
 const MAX_DUE_PER_RUN = 25;
 const formatterCache = new Map();
 
@@ -67,10 +67,6 @@ function isValidTimeZone(value) {
   }
 }
 
-function isValidScopeKey(value) {
-  return /^s1_[A-Za-z0-9_-]{43}$/.test(String(value || ''));
-}
-
 function getFormatter(timeZone) {
   if (!formatterCache.has(timeZone)) {
     formatterCache.set(timeZone, new Intl.DateTimeFormat('en-US', {
@@ -98,18 +94,6 @@ function zonedParts(timestamp, timeZone) {
     minute: values.minute,
     second: values.second
   };
-}
-
-export function localDateKey(timestamp, timeZone) {
-  const parts = zonedParts(timestamp, timeZone);
-  return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
-}
-
-export function shouldSkipReminder(row, practice, scheduledAt = Number(row?.next_fire_at) || 0) {
-  if (!row || !practice || !scheduledAt) return false;
-  const completedAt = Number(practice.completed_at) || 0;
-  if (!completedAt || completedAt > scheduledAt) return false;
-  return String(practice.practice_date || '') === localDateKey(scheduledAt, row.time_zone);
 }
 
 function plusLocalDays(parts, days) {
@@ -191,46 +175,7 @@ async function findByToken(request, env) {
   const token = bearerToken(request);
   if (!token || token.length > 256) return null;
   const hash = await tokenHash(token);
-  return env.DB.prepare('SELECT * FROM japanese_reminders WHERE token_hash = ? LIMIT 1').bind(hash).first();
-}
-
-async function reminderScopeState(row, env) {
-  const mapping = await env.DB.prepare('SELECT scope_key, scheduled_for FROM japanese_reminder_scopes WHERE reminder_id = ? LIMIT 1')
-    .bind(row.id).first();
-  return {
-    scopeKey: isValidScopeKey(mapping?.scope_key) ? mapping.scope_key : `reminder_${row.id}`,
-    scheduledFor: Number(mapping?.scheduled_for) || Number(row.next_fire_at) || 0
-  };
-}
-
-async function reminderScopeKey(row, env) {
-  return (await reminderScopeState(row, env)).scopeKey;
-}
-
-function normalizePractice(value, now = Date.now()) {
-  const completedAt = new Date(value?.occurredAt || '').getTime();
-  if (!Number.isFinite(completedAt)) return null;
-  if (completedAt > now + 5 * 60 * 1000 || completedAt < now - 8 * 24 * 60 * 60 * 1000) return null;
-  return {
-    completedAt,
-    occurredAt: new Date(completedAt).toISOString(),
-    activityType: String(value?.activityType || 'practice').trim().slice(0, 40) || 'practice'
-  };
-}
-
-async function savePracticeCompletion(row, scopeKey, practice, env, now = Date.now()) {
-  if (!practice) return null;
-  const key = isValidScopeKey(scopeKey) ? scopeKey : await reminderScopeKey(row, env);
-  const practiceDate = localDateKey(practice.completedAt, row.time_zone);
-  await env.DB.prepare(`
-    INSERT INTO japanese_practice_days (scope_key, practice_date, completed_at, activity_type, updated_at)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(scope_key, practice_date) DO UPDATE SET
-      completed_at = MAX(japanese_practice_days.completed_at, excluded.completed_at),
-      activity_type = CASE WHEN excluded.completed_at >= japanese_practice_days.completed_at THEN excluded.activity_type ELSE japanese_practice_days.activity_type END,
-      updated_at = excluded.updated_at
-  `).bind(key, practiceDate, practice.completedAt, practice.activityType, now).run();
-  return { date: practiceDate, occurredAt: practice.occurredAt, activityType: practice.activityType };
+  return env.DB.prepare('SELECT * FROM reminders WHERE token_hash = ? LIMIT 1').bind(hash).first();
 }
 
 function configureWebPush(env) {
@@ -244,10 +189,10 @@ function notificationPayload(row, env, isTest = false) {
   return JSON.stringify({
     title: isTest ? '測試通知成功' : row.title,
     options: {
-      body: isTest ? `每日 ${row.reminder_time} 的日文練習提醒已設定完成。` : row.body,
+      body: isTest ? `每日 ${row.reminder_time} 的英文複習提醒已設定完成。` : row.body,
       icon,
       badge: icon,
-      tag: isTest ? 'japanese-reminder-test' : 'japanese-daily-reminder',
+      tag: isTest ? 'vocabulary-reminder-test' : 'vocabulary-daily-reminder',
       renotify: true,
       data: { url: appUrl, source: isTest ? 'test' : 'daily-reminder' }
     }
@@ -263,32 +208,8 @@ async function sendPush(row, env, isTest = false) {
   return webpush.sendNotification(subscription, notificationPayload(row, env, isTest), {
     TTL: isTest ? 300 : 3600,
     urgency: isTest ? 'high' : 'normal',
-    contentEncoding: 'aes128gcm'
+    topic: isTest ? 'vocab-test' : 'vocab-daily'
   });
-}
-
-function pushErrorDetails(error) {
-  const rawBody = typeof error?.body === 'string'
-    ? error.body
-    : error?.body ? String(error.body) : '';
-  let providerReason = '';
-  try {
-    const parsed = JSON.parse(rawBody || '{}');
-    providerReason = String(parsed.reason || parsed.error || '').slice(0, 100);
-  } catch {}
-  return {
-    status: Number(error?.statusCode) || 500,
-    providerReason,
-    rawBody: rawBody.slice(0, 300)
-  };
-}
-
-function subscriptionIsInvalid(status, providerReason) {
-  return status === 404 || status === 410 || [
-    'BadDeviceToken',
-    'DeviceTokenNotForTopic',
-    'Unregistered'
-  ].includes(providerReason);
 }
 
 async function handleRegister(request, env) {
@@ -296,10 +217,8 @@ async function handleRegister(request, env) {
   const subscription = validateSubscription(input?.subscription);
   const reminderTime = String(input?.reminderTime || '');
   const timeZone = String(input?.timeZone || '');
-  const title = String(input?.title || '日本語練習時間到了').trim().slice(0, 80);
-  const body = String(input?.body || '每天複習一點點，保持日文學習節奏！').trim().slice(0, 180);
-  const scopeKey = isValidScopeKey(input?.scopeKey) ? String(input.scopeKey) : '';
-  const practice = normalizePractice(input?.practice);
+  const title = String(input?.title || '英文單字複習時間到了').trim().slice(0, 80);
+  const body = String(input?.body || '每天複習一點點，保持英文學習節奏！').trim().slice(0, 180);
 
   if (!subscription) return jsonResponse(request, env, { error: '推播訂閱資料不完整', code: 'INVALID_SUBSCRIPTION' }, 400);
   if (!isValidTime(reminderTime)) return jsonResponse(request, env, { error: '提醒時間格式錯誤', code: 'INVALID_TIME' }, 400);
@@ -311,23 +230,27 @@ async function handleRegister(request, env) {
   const presentedToken = bearerToken(request);
   let managementToken = '';
   let row = null;
-  let reminderId = '';
 
   if (presentedToken) {
     row = await findByToken(request, env);
     if (!row) return jsonResponse(request, env, { error: '提醒憑證無效', code: 'AUTH_EXPIRED' }, 401);
   } else {
-    row = await env.DB.prepare('SELECT * FROM japanese_reminders WHERE endpoint = ? LIMIT 1').bind(subscription.endpoint).first();
+    row = await env.DB.prepare('SELECT * FROM reminders WHERE endpoint = ? LIMIT 1').bind(subscription.endpoint).first();
+    // A Push endpoint is visible to the push service and must not be treated as
+    // the sole ownership proof. A client recovering a lost management token
+    // must also present the exact subscription key pair already stored in D1.
+    if (row && (row.p256dh !== subscription.p256dh || row.auth !== subscription.auth)) {
+      return jsonResponse(request, env, { error: '推播訂閱驗證失敗', code: 'SUBSCRIPTION_MISMATCH' }, 409);
+    }
     managementToken = randomToken();
   }
 
   if (row) {
-    reminderId = row.id;
     const nextHash = managementToken ? await tokenHash(managementToken) : row.token_hash;
-    await env.DB.prepare('DELETE FROM japanese_reminders WHERE endpoint = ? AND id <> ?')
+    await env.DB.prepare('DELETE FROM reminders WHERE endpoint = ? AND id <> ?')
       .bind(subscription.endpoint, row.id).run();
     await env.DB.prepare(`
-      UPDATE japanese_reminders
+      UPDATE reminders
       SET token_hash = ?, endpoint = ?, p256dh = ?, auth = ?, reminder_time = ?, time_zone = ?,
           title = ?, body = ?, enabled = 1, next_fire_at = ?, failure_count = 0,
           last_error = NULL, updated_at = ?
@@ -339,29 +262,16 @@ async function handleRegister(request, env) {
   } else {
     managementToken = randomToken();
     const hash = await tokenHash(managementToken);
-    reminderId = crypto.randomUUID();
     await env.DB.prepare(`
-      INSERT INTO japanese_reminders (
+      INSERT INTO reminders (
         id, token_hash, endpoint, p256dh, auth, reminder_time, time_zone, title, body,
         enabled, next_fire_at, failure_count, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0, ?, ?)
     `).bind(
-      reminderId, hash, subscription.endpoint, subscription.p256dh, subscription.auth,
+      crypto.randomUUID(), hash, subscription.endpoint, subscription.p256dh, subscription.auth,
       reminderTime, timeZone, title, body, nextFireAt, now, now
     ).run();
   }
-
-
-  const effectiveScopeKey = scopeKey || `reminder_${reminderId}`;
-  await env.DB.prepare(`
-    INSERT INTO japanese_reminder_scopes (reminder_id, scope_key, scheduled_for, updated_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(reminder_id) DO UPDATE SET
-      scope_key = excluded.scope_key, scheduled_for = excluded.scheduled_for, updated_at = excluded.updated_at
-  `).bind(reminderId, effectiveScopeKey, nextFireAt, now).run();
-  const savedPractice = practice
-    ? await savePracticeCompletion({ id: reminderId, time_zone: timeZone }, effectiveScopeKey, practice, env, now)
-    : null;
 
   return jsonResponse(request, env, {
     ok: true,
@@ -369,34 +279,14 @@ async function handleRegister(request, env) {
     reminderTime,
     timeZone,
     nextFireAt,
-    ...(savedPractice ? { practice: savedPractice } : {}),
     ...(managementToken ? { managementToken } : {})
   });
-}
-
-async function handleActivity(request, env) {
-  const row = await findByToken(request, env);
-  if (!row) return jsonResponse(request, env, { error: '提醒憑證無效', code: 'AUTH_EXPIRED' }, 401);
-  const input = await parseJson(request);
-  const practice = normalizePractice(input);
-  if (!practice) return jsonResponse(request, env, { error: '練習完成時間格式錯誤', code: 'INVALID_ACTIVITY' }, 400);
-  const currentScope = await reminderScopeKey(row, env);
-  const requestedScope = isValidScopeKey(input?.scopeKey) ? String(input.scopeKey) : currentScope;
-  if (requestedScope !== currentScope) {
-    await env.DB.prepare(`
-      INSERT INTO japanese_reminder_scopes (reminder_id, scope_key, scheduled_for, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(reminder_id) DO UPDATE SET scope_key = excluded.scope_key, updated_at = excluded.updated_at
-    `).bind(row.id, requestedScope, row.next_fire_at, Date.now()).run();
-  }
-  const savedPractice = await savePracticeCompletion(row, requestedScope, practice, env);
-  return jsonResponse(request, env, { ok: true, practice: savedPractice });
 }
 
 async function handleDisable(request, env) {
   const row = await findByToken(request, env);
   if (!row) return jsonResponse(request, env, { error: '提醒憑證無效', code: 'AUTH_EXPIRED' }, 401);
-  await env.DB.prepare('UPDATE japanese_reminders SET enabled = 0, updated_at = ? WHERE id = ?')
+  await env.DB.prepare('UPDATE reminders SET enabled = 0, updated_at = ? WHERE id = ?')
     .bind(Date.now(), row.id).run();
   return jsonResponse(request, env, { ok: true, enabled: false });
 }
@@ -421,39 +311,27 @@ async function handleTest(request, env) {
     await sendPush(row, env, true);
     return jsonResponse(request, env, { ok: true });
   } catch (error) {
-    const { status, providerReason, rawBody } = pushErrorDetails(error);
-    if (subscriptionIsInvalid(status, providerReason)) {
-      await env.DB.prepare('DELETE FROM japanese_reminders WHERE id = ?').bind(row.id).run();
-      console.warn('[WebPush] Invalid subscription removed:', status, providerReason || 'expired');
-      return jsonResponse(request, env, {
-        error: '裝置訂閱已失效，正在要求重新建立',
-        code: 'SUBSCRIPTION_INVALID',
-        providerReason
-      }, 410);
+    const status = Number(error?.statusCode) || 500;
+    if (status === 404 || status === 410) {
+      await env.DB.prepare('DELETE FROM reminders WHERE id = ?').bind(row.id).run();
+      return jsonResponse(request, env, { error: '裝置訂閱已失效，請重新啟用提醒', code: 'AUTH_EXPIRED' }, 410);
     }
-    console.error('[WebPush] Test failed:', status, error?.message || error, providerReason || rawBody);
-    return jsonResponse(request, env, {
-      error: providerReason ? `Apple 推播拒絕：${providerReason}` : '測試通知傳送失敗',
-      code: status === 400 ? 'PUSH_REJECTED' : 'PUSH_FAILED',
-      providerReason
-    }, 502);
+    console.error('[WebPush] Test failed:', status, error?.message || error);
+    return jsonResponse(request, env, { error: '測試通知傳送失敗', code: 'PUSH_FAILED' }, 502);
   }
 }
 
 async function handleDelete(request, env) {
   const row = await findByToken(request, env);
   if (!row) return jsonResponse(request, env, { error: '提醒憑證無效', code: 'AUTH_EXPIRED' }, 401);
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM japanese_reminder_scopes WHERE reminder_id = ?').bind(row.id),
-    env.DB.prepare('DELETE FROM japanese_reminders WHERE id = ?').bind(row.id)
-  ]);
+  await env.DB.prepare('DELETE FROM reminders WHERE id = ?').bind(row.id).run();
   return jsonResponse(request, env, { ok: true });
 }
 
 async function processDueReminders(env, scheduledTime = Date.now()) {
   const now = Number(scheduledTime) || Date.now();
   const due = await env.DB.prepare(`
-    SELECT * FROM japanese_reminders
+    SELECT * FROM reminders
     WHERE enabled = 1 AND next_fire_at <= ?
     ORDER BY next_fire_at ASC
     LIMIT ?
@@ -462,49 +340,23 @@ async function processDueReminders(env, scheduledTime = Date.now()) {
   for (const row of due.results || []) {
     const retryLock = now + 5 * 60 * 1000;
     const claim = await env.DB.prepare(`
-      UPDATE japanese_reminders SET next_fire_at = ?, updated_at = ?
+      UPDATE reminders SET next_fire_at = ?, updated_at = ?
       WHERE id = ? AND enabled = 1 AND next_fire_at <= ?
     `).bind(retryLock, now, row.id, now).run();
     if (!claim.meta?.changes) continue;
 
     try {
-      const scope = await reminderScopeState(row, env);
-      const scopeKey = scope.scopeKey;
-      const scheduledFor = scope.scheduledFor;
-      const dueDate = localDateKey(scheduledFor, row.time_zone);
-      const practice = await env.DB.prepare(`
-        SELECT practice_date, completed_at FROM japanese_practice_days
-        WHERE scope_key = ? AND practice_date = ? LIMIT 1
-      `).bind(scopeKey, dueDate).first();
-      if (shouldSkipReminder(row, practice, scheduledFor)) {
-        const next = computeNextFireAt(now + 60000, row.reminder_time, row.time_zone);
-        await env.DB.batch([
-          env.DB.prepare(`
-            UPDATE japanese_reminders
-            SET next_fire_at = ?, failure_count = 0, last_error = NULL, updated_at = ?
-            WHERE id = ?
-          `).bind(next, now, row.id),
-          env.DB.prepare('UPDATE japanese_reminder_scopes SET scheduled_for = ?, updated_at = ? WHERE reminder_id = ?')
-            .bind(next, now, row.id)
-        ]);
-        console.info('[WebPush] Daily reminder skipped after completed practice:', row.id, dueDate);
-        continue;
-      }
       await sendPush(row, env, false);
       const next = computeNextFireAt(now + 60000, row.reminder_time, row.time_zone);
-      await env.DB.batch([
-        env.DB.prepare(`
-          UPDATE japanese_reminders
-          SET next_fire_at = ?, last_sent_at = ?, failure_count = 0, last_error = NULL, updated_at = ?
-          WHERE id = ?
-        `).bind(next, now, now, row.id),
-        env.DB.prepare('UPDATE japanese_reminder_scopes SET scheduled_for = ?, updated_at = ? WHERE reminder_id = ?')
-          .bind(next, now, row.id)
-      ]);
+      await env.DB.prepare(`
+        UPDATE reminders
+        SET next_fire_at = ?, last_sent_at = ?, failure_count = 0, last_error = NULL, updated_at = ?
+        WHERE id = ?
+      `).bind(next, now, now, row.id).run();
     } catch (error) {
-      const { status, providerReason } = pushErrorDetails(error);
-      if (subscriptionIsInvalid(status, providerReason)) {
-        await env.DB.prepare('DELETE FROM japanese_reminders WHERE id = ?').bind(row.id).run();
+      const status = Number(error?.statusCode) || 0;
+      if (status === 404 || status === 410) {
+        await env.DB.prepare('DELETE FROM reminders WHERE id = ?').bind(row.id).run();
         continue;
       }
       const failures = Number(row.failure_count || 0) + 1;
@@ -512,20 +364,13 @@ async function processDueReminders(env, scheduledTime = Date.now()) {
         ? now + 5 * 60 * 1000
         : computeNextFireAt(now + 60000, row.reminder_time, row.time_zone);
       await env.DB.prepare(`
-        UPDATE japanese_reminders
+        UPDATE reminders
         SET next_fire_at = ?, failure_count = ?, last_error = ?, updated_at = ?
         WHERE id = ?
-      `).bind(next, failures, String(providerReason || error?.message || 'PUSH_FAILED').slice(0, 300), now, row.id).run();
-      if (failures >= 3) {
-        await env.DB.prepare('UPDATE japanese_reminder_scopes SET scheduled_for = ?, updated_at = ? WHERE reminder_id = ?')
-          .bind(next, now, row.id).run();
-      }
-      console.error('[WebPush] Scheduled send failed:', row.id, status, providerReason || error?.message || error);
+      `).bind(next, failures, String(error?.message || 'PUSH_FAILED').slice(0, 300), now, row.id).run();
+      console.error('[WebPush] Scheduled send failed:', row.id, status, error?.message || error);
     }
   }
-
-  await env.DB.prepare('DELETE FROM japanese_practice_days WHERE updated_at < ?')
-    .bind(now - 40 * 24 * 60 * 60 * 1000).run();
 }
 
 async function handleFetch(request, env) {
@@ -537,33 +382,11 @@ async function handleFetch(request, env) {
   }
 
   if (url.pathname === '/' && request.method === 'GET') {
-    let databaseReady = false;
-    if (env.DB) {
-      try {
-        await env.DB.batch([
-          env.DB.prepare('SELECT 1 FROM japanese_reminders LIMIT 1'),
-          env.DB.prepare('SELECT 1 FROM japanese_reminder_scopes LIMIT 1'),
-          env.DB.prepare('SELECT 1 FROM japanese_practice_days LIMIT 1')
-        ]);
-        databaseReady = true;
-      } catch {
-        databaseReady = false;
-      }
-    }
-    const checks = {
-      database: databaseReady,
-      vapidPublicKey: !!env.VAPID_PUBLIC_KEY,
-      vapidPrivateKey: !!env.VAPID_PRIVATE_KEY,
-      vapidSubject: !!env.VAPID_SUBJECT,
-      appUrl: !!cleanAppUrl(env.APP_URL),
-      allowedOrigins: allowedOrigins(env).length > 0
-    };
     return jsonResponse(request, env, {
       ok: true,
-      service: 'Japanese Daily Reminder',
+      service: 'Vocabulary Daily Reminder',
       version: SERVICE_VERSION,
-      configured: Object.values(checks).every(Boolean),
-      checks
+      configured: !!(env.DB && env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT && cleanAppUrl(env.APP_URL))
     });
   }
 
@@ -580,7 +403,6 @@ async function handleFetch(request, env) {
   if (url.pathname === '/api/reminders/disable' && request.method === 'POST') return handleDisable(request, env);
   if (url.pathname === '/api/reminders/status' && request.method === 'GET') return handleStatus(request, env);
   if (url.pathname === '/api/reminders/test' && request.method === 'POST') return handleTest(request, env);
-  if (url.pathname === '/api/reminders/activity' && request.method === 'POST') return handleActivity(request, env);
   return jsonResponse(request, env, { error: 'Not found' }, 404);
 }
 

@@ -14,7 +14,7 @@ function compareVersions(a, b) {
 }
 
 export class VersionManager {
-  constructor({ currentVersion, displayVersion, cachePrefix = 'Japanese-PWA-', versionUrl = './version.json', storage, canActivate = () => true }) {
+  constructor({ currentVersion, displayVersion, cachePrefix = 'Voc-PWA-', versionUrl = './version.json', storage, canActivate = () => true }) {
     this.currentVersion = currentVersion;
     this.displayVersion = displayVersion;
     this.cachePrefix = cachePrefix;
@@ -49,7 +49,7 @@ export class VersionManager {
 
   async activateWaitingIfSafe(worker = this.registration?.waiting) {
     if (!worker || !this._isSafeToActivate()) return false;
-    if (!(await this._flushStorage())) return false;
+    if (!await this._flushStorage()) return false;
     if (!this._isSafeToActivate()) return false;
     worker.postMessage({ type: 'SKIP_WAITING' });
     return true;
@@ -57,7 +57,7 @@ export class VersionManager {
 
   async reloadIfSafe() {
     if (!this.reloadPending || this.reloadTriggered || !this._isSafeToActivate()) return false;
-    if (!(await this._flushStorage())) return false;
+    if (!await this._flushStorage()) return false;
     if (!this._isSafeToActivate()) return false;
     this.reloadPending = false;
     this.reloadTriggered = true;
@@ -100,9 +100,17 @@ export class VersionManager {
   }
 
   async check({ autoApply = false } = {}) {
-    const response = await fetch(`${this.versionUrl}?t=${Date.now()}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`VERSION_HTTP_${response.status}`);
-    const data = await response.json();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    let data;
+    try {
+      const response = await fetch(`${this.versionUrl}?t=${Date.now()}`, { cache: 'no-store', signal: controller.signal });
+      if (!response.ok) throw new Error(`VERSION_HTTP_${response.status}`);
+      data = await response.json();
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error('VERSION_TIMEOUT');
+      throw error;
+    } finally { clearTimeout(timer); }
     const remoteVersion = data.version || data.displayVersion || '';
     const remoteDisplay = data.displayVersion || remoteVersion;
     if (!remoteVersion) throw new Error('VERSION_INVALID');
@@ -118,7 +126,7 @@ export class VersionManager {
   async applyUpdate() {
     if (!('serviceWorker' in navigator)) {
       if (!this._isSafeToActivate()) return false;
-      if (!(await this._flushStorage())) return false;
+      if (!await this._flushStorage()) return false;
       if (!this._isSafeToActivate()) return false;
       await this.clearAppCaches();
       if (!this._isSafeToActivate()) return false;
@@ -128,7 +136,7 @@ export class VersionManager {
     const reg = this.registration || await navigator.serviceWorker.getRegistration('./') || await this.register();
     if (!reg) {
       if (!this._isSafeToActivate()) return false;
-      if (!(await this._flushStorage())) return false;
+      if (!await this._flushStorage()) return false;
       if (!this._isSafeToActivate()) return false;
       await this.clearAppCaches();
       if (!this._isSafeToActivate()) return false;
@@ -154,7 +162,7 @@ export class VersionManager {
     if (reg.active) return false;
 
     if (!this._isSafeToActivate()) return false;
-    if (!(await this._flushStorage())) return false;
+    if (!await this._flushStorage()) return false;
     if (!this._isSafeToActivate()) return false;
     await this.clearAppCaches();
     if (!this._isSafeToActivate()) return false;

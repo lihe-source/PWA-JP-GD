@@ -83,6 +83,7 @@ export class HandwritingEngine {
     this.activeStroke = null;
     this.pointerId = null;
     this.activePointerType = '';
+    this.captureLost = false;
     this.fullRenderPending = false;
     this.penRecentlyActiveUntil = 0;
     this.reveal = false;
@@ -92,7 +93,6 @@ export class HandwritingEngine {
     this.canvasRect = null;
     this.pixelRatio = 1;
     this.drawnPointIndex = 0;
-    this.segmentFrame = null;
     this.resizeFrame = null;
     this.resizePending = false;
     this.destroyed = false;
@@ -118,6 +118,9 @@ export class HandwritingEngine {
       if (this.inputMode === 'touch' && event.pointerType === 'pen') return;
       if (event.pointerType === 'touch' && Date.now() < this.penRecentlyActiveUntil) return;
       if (event.pointerType === 'pen' && this.activePointerType === 'touch') this._finishStroke(null, true, true);
+      // A new primary down is a fresh contact, even if an old capture was lost
+      // outside the window and its up event could not be delivered.
+      if (this.captureLost && event.isPrimary) this._finishStroke(null, true);
       if (this.pointerId !== null) return;
       if (event.pointerType === 'mouse' && event.button !== undefined && event.button !== 0) return;
       if (event.pointerType === 'pen') this.penRecentlyActiveUntil = Date.now() + 1200;
@@ -129,6 +132,7 @@ export class HandwritingEngine {
       event.preventDefault();
       this.pointerId = event.pointerId;
       this.activePointerType = event.pointerType;
+      this.captureLost = false;
       try { this.canvas.setPointerCapture?.(event.pointerId); } catch {}
       this._refreshCanvasRect();
       const point = this._eventPoint(event);
@@ -151,6 +155,20 @@ export class HandwritingEngine {
     this._pointerCancel = event => {
       if (event.pointerId === this.pointerId) this._finishStroke(null, true);
     };
+    // Capture loss is not cancellation. Keep receiving the same stroke through
+    // window bubbling; never end it solely because capture changed.
+    this._captureLost = event => {
+      if (event.pointerId === this.pointerId) this.captureLost = true;
+    };
+    this._windowMove = event => {
+      if (event.target !== this.canvas) this._pointerMove(event);
+    };
+    this._windowUp = event => {
+      if (event.target !== this.canvas) this._pointerUp(event);
+    };
+    this._windowCancel = event => {
+      if (event.target !== this.canvas) this._pointerCancel(event);
+    };
     this._interrupt = () => this._finishStroke(null, true);
     this._visibilityChange = () => {
       if (globalThis.document?.visibilityState === 'hidden') this._interrupt();
@@ -162,7 +180,10 @@ export class HandwritingEngine {
     this.canvas.addEventListener('pointermove', this._pointerMove, { passive: true });
     this.canvas.addEventListener('pointerup', this._pointerUp, { passive: true });
     this.canvas.addEventListener('pointercancel', this._pointerCancel, { passive: true });
-    this.canvas.addEventListener('lostpointercapture', this._pointerCancel, { passive: true });
+    this.canvas.addEventListener('lostpointercapture', this._captureLost, { passive: true });
+    globalThis.window?.addEventListener?.('pointermove', this._windowMove, { passive: true });
+    globalThis.window?.addEventListener?.('pointerup', this._windowUp, { passive: true });
+    globalThis.window?.addEventListener?.('pointercancel', this._windowCancel, { passive: true });
     globalThis.window?.addEventListener?.('blur', this._interrupt);
     globalThis.window?.addEventListener?.('pagehide', this._interrupt);
     globalThis.document?.addEventListener?.('visibilitychange', this._visibilityChange);
@@ -182,11 +203,11 @@ export class HandwritingEngine {
       this.strokes = this.strokes.filter(stroke => stroke !== this.activeStroke);
       this.fullRenderPending = true;
     } else this._flushActiveStrokeSegments();
-    this._cancelSegmentRender();
     this.activeStroke = null;
     this.drawnPointIndex = 0;
     this.pointerId = null;
     this.activePointerType = '';
+    this.captureLost = false;
     // Reset state before releasing capture: WebKit may dispatch the loss event
     // immediately. A cancellation never contributes a synthetic (0, 0) point.
     try { this.canvas.releasePointerCapture?.(pointerId); } catch {}
@@ -226,10 +247,14 @@ export class HandwritingEngine {
 
   _appendPointerSamples(event) {
     if (!this.activeStroke) return;
-    const coalesced = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
-    const samples = coalesced?.length ? coalesced : [event];
+    let coalesced = [];
+    try { coalesced = event.getCoalescedEvents?.() || []; } catch {}
+    // Always include the dispatch endpoint. Some implementations return an
+    // empty/stale coalesced list. Position/time filtering removes duplicates.
+    const samples = coalesced.length ? [...coalesced, event] : [event];
     let added = false;
     for (const item of samples) {
+      if (!Number.isFinite(item.clientX) || !Number.isFinite(item.clientY)) continue;
       const point = this._eventPoint(item);
       const previous = this.activeStroke[this.activeStroke.length - 1];
       if (previous && point.time < previous.time) continue;
@@ -241,20 +266,10 @@ export class HandwritingEngine {
       this.activeStroke.push(point);
       added = true;
     }
-    if (added) this._scheduleSegmentRender();
-  }
-
-  _scheduleSegmentRender() {
-    if (this.segmentFrame !== null || this.destroyed) return;
-    this.segmentFrame = requestAnimationFrame(() => {
-      this.segmentFrame = null;
-      this._flushActiveStrokeSegments();
-    });
-  }
-
-  _cancelSegmentRender() {
-    if (this.segmentFrame !== null) cancelAnimationFrame(this.segmentFrame);
-    this.segmentFrame = null;
+    // Draw one incremental batch per delivered input event. An additional rAF
+    // wait makes ink depend on the page's animation cadence, particularly when
+    // that cadence is throttled. No full repaint, DOM writes or storage here.
+    if (added) this._flushActiveStrokeSegments();
   }
 
   _lineWidth(before, current) {
@@ -287,7 +302,6 @@ export class HandwritingEngine {
   }
 
   _flushActiveStrokeSegments() {
-    this._cancelSegmentRender();
     const stroke = this.activeStroke;
     const startIndex = Math.max(1, this.drawnPointIndex + 1);
     if (!stroke || startIndex >= stroke.length || !this.context || !this.canvas.width || !this.canvas.height) return;
@@ -409,7 +423,6 @@ export class HandwritingEngine {
   _render() {
     if (this.pointerId !== null) { this.fullRenderPending = true; return; }
     this.fullRenderPending = false;
-    this._cancelSegmentRender();
     const context = this.context;
     if (!context || !this.canvas.width || !this.canvas.height) return;
     const sx = this.canvas.width / VIEWBOX_SIZE;
@@ -523,7 +536,6 @@ export class HandwritingEngine {
     this._interrupt();
     this.destroyed = true;
     this.stopAnimation();
-    this._cancelSegmentRender();
     if (this.resizeFrame !== null) cancelAnimationFrame(this.resizeFrame);
     this.resizeFrame = null;
     this.resizeObserver?.disconnect();
@@ -531,7 +543,10 @@ export class HandwritingEngine {
     this.canvas.removeEventListener('pointermove', this._pointerMove);
     this.canvas.removeEventListener('pointerup', this._pointerUp);
     this.canvas.removeEventListener('pointercancel', this._pointerCancel);
-    this.canvas.removeEventListener('lostpointercapture', this._pointerCancel);
+    this.canvas.removeEventListener('lostpointercapture', this._captureLost);
+    globalThis.window?.removeEventListener?.('pointermove', this._windowMove);
+    globalThis.window?.removeEventListener?.('pointerup', this._windowUp);
+    globalThis.window?.removeEventListener?.('pointercancel', this._windowCancel);
     globalThis.window?.removeEventListener?.('blur', this._interrupt);
     globalThis.window?.removeEventListener?.('pagehide', this._interrupt);
     globalThis.document?.removeEventListener?.('visibilitychange', this._visibilityChange);

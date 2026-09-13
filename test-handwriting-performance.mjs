@@ -93,7 +93,7 @@ test('actual writer handlers score and pronounce current questions across 50 adv
   assert.equal(canvas.listeners.size, 0);
 });
 
-test('handwriting batches pointer samples and avoids full-canvas repaint while drawing', async () => {
+test('ink is drawn immediately even when animation frames never run', async () => {
   const frames = new Map();
   let nextFrame = 1;
   globalThis.window = { devicePixelRatio: 3 };
@@ -130,12 +130,10 @@ test('handwriting batches pointer samples and avoids full-canvas repaint while d
   canvas.emit('pointermove', { ...baseEvent, getCoalescedEvents: () => samples });
   canvas.emit('pointermove', { ...baseEvent, getCoalescedEvents: () => samples.slice(-3) });
 
-  assert.equal(frames.size, 1, 'multiple pointer events share one animation frame');
+  assert.equal(frames.size, 0, 'ink never waits for an animation frame');
   assert.equal(canvas.context.fullPaints, paintsBeforeWriting, 'pointer movement does not clear the canvas');
-  for (const callback of [...frames.values()]) callback();
-  frames.clear();
   assert.equal(canvas.context.segmentPaints - strokesBeforeWriting, 1,
-    'many touch samples are painted as one batched Canvas path');
+    'coalesced samples are painted immediately as one batched Canvas path');
   assert.equal(canvas.context.fullPaints, paintsBeforeWriting);
 
   canvas.emit('pointerup', { ...baseEvent, clientX: 90, clientY: 72, timeStamp: 50 });
@@ -209,16 +207,52 @@ test('cached reference samples produce identical scores for identical input', as
   engine.destroy();
 });
 
-test('lost capture releases the input lock and the next stroke works', async () => {
+test('lost capture preserves a stroke and window events continue it without duplication', async () => {
   const { engine, canvas, event } = await makeEngine();
   canvas.emit('pointerdown', event());
   canvas.emit('pointermove', event({ clientX: 90 }));
   canvas.emit('lostpointercapture', event({ clientX: 0, clientY: 0 }));
-  assert.equal(engine.pointerId, null);
+  assert.equal(engine.pointerId, 1);
   assert.equal(engine.strokes[0].length, 2, 'capture loss adds no fake coordinate');
+  const outside = (type, fields) => {
+    const e = new Event(type);
+    Object.assign(e, { pointerId: 1, pointerType: 'touch', clientX: 110, clientY: 20, pressure: .5 }, fields);
+    window.dispatchEvent(e);
+  };
+  outside('pointermove');
+  assert.equal(engine.strokes.length, 1);
+  assert.equal(engine.strokes[0].length, 3);
+  outside('pointerup', { clientX: 120 });
+  assert.equal(engine.pointerId, null);
   canvas.emit('pointerdown', event({ pointerId: 2 }));
   canvas.emit('pointerup', event({ pointerId: 2, clientX: 100 }));
   assert.equal(engine.strokes.length, 2);
+  engine.destroy();
+  outside('pointermove');
+  assert.equal(engine.pointerId, null);
+});
+
+test('fresh primary contact recovers after capture and up were both lost', async () => {
+  const { engine, canvas, event } = await makeEngine();
+  canvas.emit('pointerdown', event());
+  canvas.emit('pointermove', event({ clientX: 90 }));
+  canvas.emit('lostpointercapture', event());
+  canvas.emit('pointerdown', event({ pointerId: 2, isPrimary: true }));
+  assert.equal(engine.pointerId, 2);
+  assert.equal(engine.strokes.length, 2);
+  canvas.emit('pointerup', event({ pointerId: 2, clientX: 100 }));
+  engine.destroy();
+});
+
+test('coalesced failures and stale lists retain the latest real endpoint', async () => {
+  const { engine, canvas, event } = await makeEngine();
+  canvas.emit('pointerdown', event());
+  canvas.emit('pointermove', event({ timeStamp: 2, clientX: 80, getCoalescedEvents() { throw Error('unavailable'); } }));
+  canvas.emit('pointermove', event({ timeStamp: 4, clientX: 120, getCoalescedEvents: () => [event({timeStamp:3,clientX:100})] }));
+  assert.equal(engine.strokes[0].length, 4);
+  assert.equal(engine.strokes[0].at(-1).x, 120 / 400 * 109);
+  canvas.emit('pointerup', event({ timeStamp: 5, clientX: 120 }));
+  assert.equal(engine.strokes[0].length, 4, 'duplicate endpoint is not appended');
   engine.destroy();
 });
 

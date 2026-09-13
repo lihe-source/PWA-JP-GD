@@ -41,7 +41,7 @@ test('new install icons are opaque square PNGs and versioned in the manifest', a
     assert.equal(png.subarray(1,4).toString(), 'PNG');
     assert.equal(png.readUInt32BE(16), size);
     assert.equal(png.readUInt32BE(20), size);
-    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_3_7`));
+    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_3_8`));
   }
   assert.match(await text('THIRD_PARTY_NOTICES.md'), /icons.*add a blue|icons add a blue/);
 });
@@ -59,7 +59,10 @@ test('every frontend module dependency uses this release and is precached for of
   const shellSource = (await text('sw.js')).match(/const APP_SHELL = \[([\s\S]*?)\];/)[1];
   const shell = new Set([...shellSource.matchAll(/'([^']+)'/g)].map(match => match[1]));
   const entries = await readdir(new URL('.', import.meta.url));
-  for (const entry of entries.filter(name => name.endsWith('.js'))) {
+  // Validate the shipped app shell, not unrelated legacy English files left
+  // by earlier manual uploads. Every imported dependency must also be cached.
+  const frontendEntries = [...shell].map(ref => ref.replace(/^\.\//, '').split('?')[0]).filter(name => name.endsWith('.js'));
+  for (const entry of new Set(frontendEntries)) {
     const source = await text(entry);
     for (const match of source.matchAll(/\b(?:from\s*|import\s*)['"](\.\/[^'"\n]+)['"]/g)) {
       const reference = match[1];

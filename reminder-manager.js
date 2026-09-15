@@ -24,6 +24,18 @@ function currentTimeZone() {
   catch { return 'Asia/Taipei'; }
 }
 
+function localDateKey(value, timeZone = currentTimeZone()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(date);
+    const valueOf = type => parts.find(part => part.type === type)?.value || '';
+    return `${valueOf('year')}-${valueOf('month')}-${valueOf('day')}`;
+  } catch { return date.toLocaleDateString('en-CA'); }
+}
+
 function isAppleMobile() {
   const ua = navigator.userAgent || '';
   return /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -83,11 +95,11 @@ export function reminderErrorMessage(error) {
     INVALID_SERVER_CONFIG: '推播後端設定不完整，請檢查 VAPID 公開金鑰',
     AUTH_EXPIRED: '提醒憑證已失效，請重新按下「儲存並啟用」',
     TIMEOUT: '推播服務連線逾時，請確認網路後再試',
-    NETWORK_ERROR: '無法連線推播服務，請檢查 Worker 網址與網路',
+    NETWORK_ERROR: '無法連線推播服務，請先檢查 Worker 網址、CORS 與服務狀態',
     SUBSCRIBE_FAILED: '無法建立通知訂閱，請重新開啟 PWA 後再試',
     SUBSCRIPTION_INVALID: 'iPhone 通知訂閱已失效，系統重新建立後仍失敗，請關閉 PWA 再重試',
     PUSH_REJECTED: 'Apple 推播服務拒絕通知，系統已嘗試重建訂閱',
-    PUSH_FAILED: '測試通知傳送失敗，請確認網路後再試'
+    PUSH_FAILED: '推播端拒絕測試通知，請重新「儲存並啟用」以建立新訂閱'
   };
   return messages[code] || error?.message || '提醒設定失敗，請稍後再試';
 }
@@ -244,27 +256,44 @@ export class ReminderManager {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
-  _pendingPractice() {
+  _pendingPractices() {
     try {
       const saved = JSON.parse(this.storage.getItem(PENDING_PRACTICE_KEY) || 'null');
-      const occurredAt = new Date(saved?.occurredAt || '');
-      if (Number.isNaN(occurredAt.getTime())) return null;
-      return {
-        occurredAt: occurredAt.toISOString(),
-        activityType: String(saved?.activityType || 'practice').slice(0, 40)
-      };
-    } catch {
-      return null;
-    }
+      const source = Array.isArray(saved) ? saved : (saved ? [saved] : []);
+      const byDate = new Map();
+      source.forEach(item => {
+        const occurredAt = new Date(item?.occurredAt || '');
+        if (Number.isNaN(occurredAt.getTime())) return;
+        const normalized = {
+          occurredAt: occurredAt.toISOString(),
+          activityType: String(item?.activityType || 'practice').slice(0, 40)
+        };
+        const dateKey = localDateKey(occurredAt);
+        const existing = byDate.get(dateKey);
+        if (!existing || occurredAt.getTime() < new Date(existing.occurredAt).getTime()) byDate.set(dateKey, normalized);
+      });
+      return [...byDate.values()].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).slice(-31);
+    } catch { return []; }
   }
 
+  _pendingPractice() { return this._pendingPractices()[0] || null; }
+
   _savePendingPractice(practice) {
-    this.storage.setItem(PENDING_PRACTICE_KEY, JSON.stringify(practice));
+    const merged = [...this._pendingPractices(), practice];
+    const byDate = new Map();
+    merged.forEach(item => {
+      const dateKey = localDateKey(item.occurredAt);
+      if (!dateKey) return;
+      const existing = byDate.get(dateKey);
+      if (!existing || item.occurredAt < existing.occurredAt) byDate.set(dateKey, item);
+    });
+    this.storage.setItem(PENDING_PRACTICE_KEY, JSON.stringify([...byDate.values()].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).slice(-31)));
   }
 
   _clearPendingPractice(occurredAt) {
-    const current = this._pendingPractice();
-    if (!current || current.occurredAt === occurredAt) this.storage.removeItem(PENDING_PRACTICE_KEY);
+    const remaining = this._pendingPractices().filter(item => item.occurredAt !== occurredAt);
+    if (remaining.length) this.storage.setItem(PENDING_PRACTICE_KEY, JSON.stringify(remaining));
+    else this.storage.removeItem(PENDING_PRACTICE_KEY);
   }
 
   async _scopeKey() {
@@ -305,7 +334,10 @@ export class ReminderManager {
 
   _storeRegistration(result, time) {
     if (result.managementToken) this.storage.setItem(TOKEN_KEY, result.managementToken);
-    if (result.practice?.occurredAt) this._clearPendingPractice(result.practice.occurredAt);
+    if (result.practice?.occurredAt) {
+      this._clearPendingPractice(result.practice.occurredAt);
+      void this.syncPracticeCompletion();
+    }
     return this._saveSettings({
       enabled: true,
       time,
@@ -385,29 +417,33 @@ export class ReminderManager {
   }
 
   async syncPracticeCompletion() {
-    const practice = this._pendingPractice();
     const token = this.storage.getItem(TOKEN_KEY) || '';
-    if (!practice || !token || !this.isBackendConfigured()) return false;
-    try {
-      const result = await this._request('/api/reminders/activity', {
-        method: 'POST',
-        headers: this._authorizationHeaders(token),
-        body: JSON.stringify({ ...practice, scopeKey: await this._scopeKey() })
-      });
-      if (result?.practice?.occurredAt) this._clearPendingPractice(result.practice.occurredAt);
-      return result?.ok === true;
-    } catch (error) {
-      console.info('[DailyReminder] Practice completion sync deferred:', error?.message || error);
-      return false;
+    const practices = this._pendingPractices();
+    if (!practices.length || !token || !this.isBackendConfigured()) return false;
+    const scopeKey = await this._scopeKey();
+    let synced = 0;
+    for (const practice of practices) {
+      try {
+        const result = await this._request('/api/reminders/activity', {
+          method: 'POST',
+          headers: this._authorizationHeaders(token),
+          body: JSON.stringify({ ...practice, scopeKey })
+        });
+        if (result?.practice?.occurredAt) this._clearPendingPractice(result.practice.occurredAt);
+        if (result?.ok === true) synced += 1;
+      } catch (error) {
+        console.info('[DailyReminder] Practice completion sync deferred:', error?.message || error);
+        break;
+      }
     }
+    return synced === practices.length;
   }
 
   recordPracticeCompletion({ occurredAt = new Date(), activityType = 'practice' } = {}) {
     const instant = occurredAt instanceof Date ? occurredAt : new Date(occurredAt);
     if (Number.isNaN(instant.getTime())) return false;
     const practice = { occurredAt: instant.toISOString(), activityType: String(activityType || 'practice').slice(0, 40) };
-    const current = this._pendingPractice();
-    if (!current || new Date(current.occurredAt).getTime() <= instant.getTime()) this._savePendingPractice(practice);
+    this._savePendingPractice(practice);
     void this.syncPracticeCompletion();
     return true;
   }

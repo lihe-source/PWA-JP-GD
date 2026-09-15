@@ -74,7 +74,7 @@ export function mergeHandwritingHistory(...collections) {
     const existing = byId.get(id);
     if (!existing || normalized.ts >= existing.ts) byId.set(id, normalized);
   });
-  return [...byId.values()].sort((a, b) => b.ts - a.ts).slice(0, 2500);
+  return [...byId.values()].sort((a, b) => b.ts - a.ts);
 }
 
 export function buildKanaProgress(history = []) {
@@ -121,6 +121,9 @@ export class KanaProgressManager {
 
   getHistory() {
     try {
+      if (typeof this.storage.getRecordCollection === 'function') {
+        return mergeHandwritingHistory(this.storage.getRecordCollection(this.historyKey));
+      }
       const raw = this.storage.getItem(this.historyKey) || '[]';
       if (raw !== this._historyRaw) {
         this._historyCache = mergeHandwritingHistory(JSON.parse(raw));
@@ -133,6 +136,12 @@ export class KanaProgressManager {
 
   saveHistory(history) {
     const normalized = mergeHandwritingHistory(history);
+    if (typeof this.storage.replaceRecordCollection === 'function') {
+      this.storage.replaceRecordCollection(this.historyKey, normalized);
+      this._historyRaw = null;
+      this._historyCache = normalized;
+      return;
+    }
     const raw = JSON.stringify(normalized);
     this.storage.setItem(this.historyKey, raw);
     this._historyRaw = raw;
@@ -153,7 +162,8 @@ export class KanaProgressManager {
       ts: now,
       date: new Date(now).toLocaleDateString('en-CA')
     };
-    this.saveHistory([entry, ...this.getHistory()]);
+    if (typeof this.storage.appendRecord === 'function') this.storage.appendRecord(this.historyKey, entry);
+    else this.saveHistory([entry, ...this.getHistory()]);
     return entry;
   }
 

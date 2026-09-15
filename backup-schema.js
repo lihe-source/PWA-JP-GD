@@ -5,6 +5,9 @@ const V1_COLLECTION_KEYS = Object.freeze([
   'handwritingHistory', 'kanaProgress', 'preferences'
 ]);
 const COLLECTION_KEYS = Object.freeze([...V1_COLLECTION_KEYS, 'kanaReadingHistory']);
+const SUPPORTED_SCHEMA_VERSIONS = new Set([1, 2]);
+const MAX_BACKUP_BYTES = 25 * 1024 * 1024;
+const MAX_COLLECTION_ITEMS = 100000;
 
 function stableStringify(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -66,17 +69,39 @@ export const BackupSchema = {
   validate(data) {
     if (!data || typeof data !== 'object') return { valid: false, reason: 'INVALID_OBJECT' };
     if (data.product !== PRODUCT_ID) return { valid: false, reason: 'WRONG_PRODUCT' };
+    const sourceSchemaVersion = Number(data.schemaVersion) || 1;
+    if (!SUPPORTED_SCHEMA_VERSIONS.has(sourceSchemaVersion)) {
+      return { valid: false, reason: sourceSchemaVersion > this.schemaVersion ? 'UNSUPPORTED_FUTURE_SCHEMA' : 'UNSUPPORTED_SCHEMA' };
+    }
+    try {
+      const serialized = JSON.stringify(data);
+      const bytes = typeof TextEncoder === 'function' ? new TextEncoder().encode(serialized).byteLength : serialized.length * 2;
+      if (bytes > MAX_BACKUP_BYTES) return { valid: false, reason: 'BACKUP_TOO_LARGE' };
+    } catch { return { valid: false, reason: 'INVALID_SERIALIZATION' }; }
     const source = data.collections || data;
     if (!COLLECTION_KEYS.some(key => Array.isArray(source[key]))) return { valid: false, reason: 'NO_COLLECTIONS' };
+    if (COLLECTION_KEYS.some(key => source[key] !== undefined && !Array.isArray(source[key]))) {
+      return { valid: false, reason: 'INVALID_COLLECTION_TYPE' };
+    }
     const collections = this.normalize(data);
+    if (COLLECTION_KEYS.some(key => collections[key].length > MAX_COLLECTION_ITEMS)) {
+      return { valid: false, reason: 'COLLECTION_TOO_LARGE' };
+    }
+    if (sourceSchemaVersion >= 2 && !data.payloadChecksum) return { valid: false, reason: 'CHECKSUM_REQUIRED' };
     if (data.payloadChecksum && data.payloadChecksum !== this.checksum(collections)) {
       const legacyCollections = Object.fromEntries(V1_COLLECTION_KEYS.map(key => [key, safeArray(source[key])]));
       const legacyChecksum = hashString(stableStringify(legacyCollections));
-      if (Number(data.schemaVersion) > 1 || data.payloadChecksum !== legacyChecksum) {
+      if (sourceSchemaVersion > 1 || data.payloadChecksum !== legacyChecksum) {
         return { valid: false, reason: 'CHECKSUM_MISMATCH', actual: this.checksum(collections) };
       }
     }
-    return { valid: true, collections, legacy: false, sourceSchemaVersion: Number(data.schemaVersion) || 1 };
+    if (data.collectionCounts && typeof data.collectionCounts === 'object') {
+      const actualCounts = this.counts(collections);
+      const mismatched = Object.keys(data.collectionCounts).some(key =>
+        key in actualCounts && Number(data.collectionCounts[key]) !== Number(actualCounts[key]));
+      if (mismatched) return { valid: false, reason: 'COUNT_MISMATCH' };
+    }
+    return { valid: true, collections, legacy: sourceSchemaVersion === 1, sourceSchemaVersion };
   },
 
   attach(collections, { appVersion, deviceId, revision } = {}) {

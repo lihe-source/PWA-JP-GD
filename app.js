@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_3_8';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_3_8';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_3_8';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_0';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_0';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_0';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_3_8';
-import { BackupSchema } from './backup-schema.js?v=V1_3_8';
-import { VersionManager } from './version-manager.js?v=V1_3_8';
-import { TrendChart } from './chart-renderer.js?v=V1_3_8';
-import { PUSH_CONFIG } from './push-config.js?v=V1_3_8';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_3_8';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_3_8';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_3_8';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_3_8';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_3_8';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_3_8';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_3_8';
+import { AppStorage } from './storage.js?v=V1_4_0';
+import { BackupSchema } from './backup-schema.js?v=V1_4_0';
+import { VersionManager } from './version-manager.js?v=V1_4_0';
+import { TrendChart } from './chart-renderer.js?v=V1_4_0';
+import { PUSH_CONFIG } from './push-config.js?v=V1_4_0';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_0';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_0';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_0';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_0';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_0';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_4_0';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_0';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_3_8
-// V1.3.8：完成練習後同步通知抑制、藍墨 UI、精簡扁平化交付
+// 日本語練習 PWA - app.js V1_4_0
+// V1.4.0：完成練習後同步通知抑制、藍墨 UI、精簡扁平化交付
 // ===========================
 
-const APP_VERSION = 'V1_3_8';
-const APP_DISPLAY_VERSION = 'V1.3.8';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_3_8';
+const APP_VERSION = 'V1_4_0';
+const APP_DISPLAY_VERSION = 'V1.4.0';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_0';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -1882,6 +1882,7 @@ const GDrive = {
   _silentRestorePromise: null,
   _streakSyncTimer: null,
   _streakSyncPromise: null,
+  _learningFileCache: new Map(),
   STUDY_STREAK_FILE: 'japanese_learning_state.json',
   SESSION_KEYS: {
     token: 'japaneseGdriveToken',
@@ -2151,6 +2152,7 @@ const GDrive = {
     this._silentRestorePromise = null;
     clearTimeout(this._streakSyncTimer);
     this._streakSyncTimer = null;
+    this._learningFileCache.clear();
     this._clearSession();
   },
 
@@ -2239,7 +2241,11 @@ const GDrive = {
     return files;
   },
 
-  async _downloadStudyStreakFile(fileId, ready = async () => {}) {
+  async _downloadStudyStreakFile(fileId, ready = async () => {}, metadata = {}) {
+    fileId = String(fileId || '');
+    const modifiedTime = String(metadata?.modifiedTime || '');
+    const cached = this._learningFileCache.get(fileId);
+    if (cached && modifiedTime && cached.modifiedTime === modifiedTime) return cached.data;
     const response = await this._fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
       headers: { Authorization: 'Bearer ' + this._token }
     });
@@ -2251,6 +2257,7 @@ const GDrive = {
     await ready();
     const data = JSON.parse(raw);
     if (!data || data.dataType !== 'japanese-learning-state' || !Array.isArray(data.studyDays)) throw new Error('STREAK_FILE_INVALID');
+    this._learningFileCache.set(fileId, { modifiedTime, data });
     return data;
   },
 
@@ -2309,7 +2316,16 @@ const GDrive = {
   },
 
   async _readStudyStreakFiles(files, ready = async () => {}) {
-    const results = await Promise.allSettled(files.map(file => this._downloadStudyStreakFile(file.id, ready)));
+    const results = new Array(files.length);
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < files.length) {
+        const index = nextIndex++;
+        try { results[index] = { status: 'fulfilled', value: await this._downloadStudyStreakFile(files[index].id, ready, files[index]) }; }
+        catch (reason) { results[index] = { status: 'rejected', reason }; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, Math.max(1, files.length)) }, worker));
     if (results.some(result => result.status === 'rejected')) {
       throw new Error('部分雲端學習資料暫時無法讀取，已保留原資料，請稍後重試。');
     }
@@ -2534,6 +2550,10 @@ const GDrive = {
       throw new Error('等待還原期間本機資料已變更，已停止覆蓋，請重新比較。');
     }
     data = normalized;
+    const applyAtomically = typeof AppStorage.atomicUpdate === 'function'
+      ? mutator => AppStorage.atomicUpdate(mutator)
+      : async mutator => { mutator(); await AppStorage.flush(); };
+    await applyAtomically(() => {
     if (mode === 'overwrite') {
       if (Array.isArray(data.words))        AppStorage.setItem('vocabWords',        JSON.stringify(data.words.map(normalizeJapaneseWord)));
       if (Array.isArray(data.history))      AppStorage.setItem('practiceHistory',   JSON.stringify(data.history));
@@ -2600,8 +2620,8 @@ const GDrive = {
       }
       StudyStreak.merge(data.studyDays || [], { markPending: true });
     }
+    });
     const now = new Date().toLocaleString('zh-TW');
-    await AppStorage.flush();
     DB.setGDriveLastSync(now);
     await AppStorage.flush();
     refreshStudyStreakUI();
@@ -2795,7 +2815,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_3_8" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_0" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">

@@ -4,7 +4,10 @@ import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './lear
 import { StorageBridge } from './storage.js';
 import { VersionManager } from './version-manager.js';
 import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js';
-import { normalizeJapaneseAnswer } from './japanese-learning.js';
+import { KanaProgressManager, mergeHandwritingHistory, normalizeJapaneseAnswer } from './japanese-learning.js';
+import { KanaReadingProgressManager, mergeKanaReadingHistory } from './kana-reading.js';
+import { BackupSchema } from './backup-schema.js';
+import { ReminderManager } from './reminder-manager.js';
 
 const attempt = (id, ts = 1) => ({ id, ts, character: 'あ', script: 'hiragana', score: 85 });
 const state = (...ids) => mergeLearningStates({ handwritingHistory: ids.map((id, i) => attempt(id, i + 1)) });
@@ -192,7 +195,7 @@ test('updates require durable storage and no running cloud operation', () => {
 test('failed flush prevents worker activation and reload; retry succeeds when safe', async () => {
   let fail = true, messages = 0, reloads = 0;
   globalThis.location = { reload() { reloads++; } };
-  const updater = new VersionManager({ currentVersion: 'V1_3_8', storage: { async flush() { if (fail) throw new Error('quota'); } } });
+  const updater = new VersionManager({ currentVersion: 'V1_4_0', storage: { async flush() { if (fail) throw new Error('quota'); } } });
   updater.registration = { waiting: { postMessage() { messages++; } } };
   updater.reloadPending = true;
   assert.equal(await updater.activateWaitingIfSafe(), false);
@@ -206,7 +209,7 @@ test('failed flush prevents worker activation and reload; retry succeeds when sa
 
 test('starting a practice while flush is pending cancels activation', async () => {
   let active = false, activated = false;
-  const updater = new VersionManager({ currentVersion: 'V1_3_8', canActivate: () => !active, storage: { async flush() { active = true; } } });
+  const updater = new VersionManager({ currentVersion: 'V1_4_0', canActivate: () => !active, storage: { async flush() { active = true; } } });
   assert.equal(await updater.activateWaitingIfSafe({ postMessage() { activated = true; } }), false);
   assert.equal(activated, false);
 });
@@ -214,4 +217,57 @@ test('starting a practice while flush is pending cancels activation', async () =
 test('Japanese long vowels, small kana and voicing remain meaningful', () => {
   for (const [a, b] of [['ビール', 'ビル'], ['コート', 'コト'], ['おばあさん', 'おばさん'], ['きゃ', 'きや'], ['か', 'が']]) assert.notEqual(normalizeJapaneseAnswer(a), normalizeJapaneseAnswer(b));
   assert.equal(normalizeJapaneseAnswer(' ﾋﾞｰﾙ。 '), 'ビール');
+});
+
+test('V1.4.0 retains more than ten thousand incremental practice records', () => {
+  const handwriting = Array.from({ length: 10001 }, (_, index) => ({ ...attempt(`h-${index}`, index + 1), romaji: 'a' }));
+  const reading = handwriting.map((item, index) => ({
+    id: `r-${index}`, character: 'あ', script: 'hiragana', row: 'a', romaji: 'a', answer: 'a', correct: true, ts: item.ts
+  }));
+  assert.equal(mergeHandwritingHistory(handwriting).length, 10001);
+  assert.equal(mergeKanaReadingHistory(reading).length, 10001);
+});
+
+test('each kana answer uses one incremental record write', () => {
+  const writes = [];
+  const storage = {
+    getRecordCollection: () => [],
+    appendRecord: (collection, value) => writes.push([collection, value]),
+    replaceRecordCollection() { throw new Error('full rewrite must not run for one answer'); }
+  };
+  new KanaProgressManager(storage).recordAttempt({ character: 'あ', script: 'hiragana', romaji: 'a' }, { score: 88, strokeCount: 3, expectedStrokeCount: 3 });
+  new KanaReadingProgressManager(storage).recordAttempt({ character: 'ア', script: 'katakana', row: 'a', romaji: 'a' }, 'a', true);
+  assert.deepEqual(writes.map(([collection]) => collection), ['handwritingHistory', 'kanaReadingHistory']);
+});
+
+test('backup validation rejects future schemas, missing checksums and inconsistent counts', () => {
+  const valid = BackupSchema.attach({ words: [{ english: '傘' }] });
+  assert.equal(BackupSchema.validate(valid).valid, true);
+  assert.equal(BackupSchema.validate({ ...valid, schemaVersion: 999 }).reason, 'UNSUPPORTED_FUTURE_SCHEMA');
+  const { payloadChecksum, ...withoutChecksum } = valid;
+  assert.equal(BackupSchema.validate(withoutChecksum).reason, 'CHECKSUM_REQUIRED');
+  assert.equal(BackupSchema.validate({ ...valid, collectionCounts: { ...valid.collectionCounts, words: 99 } }).reason, 'COUNT_MISMATCH');
+});
+
+test('pending reminder activity keeps the earliest completion for each local day', () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  const manager = new ReminderManager({ storage, config: {} });
+  manager.recordPracticeCompletion({ occurredAt: '2026-09-15T10:00:00.000Z', activityType: 'late' });
+  manager.recordPracticeCompletion({ occurredAt: '2026-09-15T08:00:00.000Z', activityType: 'early' });
+  manager.recordPracticeCompletion({ occurredAt: '2026-09-16T09:00:00.000Z', activityType: 'next' });
+  const queued = JSON.parse(values.get('dailyReminderPendingPracticeV1'));
+  assert.equal(queued.length, 2);
+  assert.equal(queued[0].occurredAt, '2026-09-15T08:00:00.000Z');
+  assert.equal(queued[0].activityType, 'early');
+});
+
+test('no-op cross-device sync does not upload an identical union', async () => {
+  const current = state('same');
+  let writes = 0;
+  await syncLearningState({
+    readLocal: () => current, writeLocal() {}, readRemote: async () => current,
+    writeRemote: async () => { writes += 1; }, flush: async () => {}, markPending() {}, markSynced() {}
+  });
+  assert.equal(writes, 0);
 });

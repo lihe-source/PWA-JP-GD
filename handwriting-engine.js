@@ -76,7 +76,13 @@ export class HandwritingEngine {
     this.options = options;
     this.inputMode = ['auto', 'pen', 'touch'].includes(options.inputMode) ? options.inputMode : 'auto';
     this.diagnostics = options.diagnostics === true;
-    this.metrics = { frames: 0, maxDrawMs: 0, maxSampleAgeMs: 0, interruptions: 0, resizes: 0 };
+    this.metrics = {
+      frames: 0, maxDrawMs: 0, maxSampleAgeMs: 0, maxInputGapMs: 0,
+      maxHandlerMs: 0, delayedInputs: 0, longTasks: 0, maxLongTaskMs: 0,
+      lastScoreMs: 0, interruptions: 0, resizes: 0
+    };
+    this.lastInputTime = 0;
+    this.longTaskObserver = null;
     this.kana = null;
     this.mode = 'trace';
     this.strokes = [];
@@ -96,6 +102,17 @@ export class HandwritingEngine {
     this.resizeFrame = null;
     this.resizePending = false;
     this.destroyed = false;
+    if (this.diagnostics && typeof PerformanceObserver === 'function') {
+      try {
+        this.longTaskObserver = new PerformanceObserver(list => {
+          list.getEntries().forEach(entry => {
+            this.metrics.longTasks += 1;
+            this.metrics.maxLongTaskMs = Math.max(this.metrics.maxLongTaskMs, entry.duration || 0);
+          });
+        });
+        this.longTaskObserver.observe({ type: 'longtask', buffered: true });
+      } catch { this.longTaskObserver = null; }
+    }
     this._bindEvents();
     this.resizeObserver = new ResizeObserver(() => {
       // Safari can report visual-viewport changes while a finger/Pencil is
@@ -136,6 +153,7 @@ export class HandwritingEngine {
       try { this.canvas.setPointerCapture?.(event.pointerId); } catch {}
       this._refreshCanvasRect();
       const point = this._eventPoint(event);
+      this.lastInputTime = point.time;
       this.activeStroke = [point];
       this.drawnPointIndex = 0;
       this.strokes.push(this.activeStroke);
@@ -145,8 +163,18 @@ export class HandwritingEngine {
     };
     this._pointerMove = event => {
       if (event.pointerId !== this.pointerId || !this.activeStroke) return;
+      const handlerStartedAt = this.diagnostics ? performance.now() : 0;
+      if (this.diagnostics && Number.isFinite(event.timeStamp)) {
+        const gap = this.lastInputTime ? Math.max(0, event.timeStamp - this.lastInputTime) : 0;
+        this.metrics.maxInputGapMs = Math.max(this.metrics.maxInputGapMs, gap);
+        if (gap > 50) this.metrics.delayedInputs += 1;
+        this.lastInputTime = event.timeStamp;
+        const age = handlerStartedAt - event.timeStamp;
+        if (age >= 0 && age < 60000) this.metrics.maxSampleAgeMs = Math.max(this.metrics.maxSampleAgeMs, age);
+      }
       if (this.activePointerType === 'pen') this.penRecentlyActiveUntil = Date.now() + 1200;
       this._appendPointerSamples(event);
+      if (this.diagnostics) this.metrics.maxHandlerMs = Math.max(this.metrics.maxHandlerMs, performance.now() - handlerStartedAt);
     };
     this._pointerUp = event => {
       if (event.pointerId !== this.pointerId) return;
@@ -281,23 +309,16 @@ export class HandwritingEngine {
 
   _drawStrokeRange(context, points, startIndex = 1) {
     if (!points || startIndex >= points.length) return;
-    let runWidth = this._lineWidth(points[startIndex - 1], points[startIndex]);
-    let runStart = startIndex;
     context.beginPath();
     context.moveTo(points[startIndex - 1].x, points[startIndex - 1].y);
+    let widthTotal = 0;
     for (let index = startIndex; index < points.length; index++) {
-      const width = this._lineWidth(points[index - 1], points[index]);
-      if (index > runStart && Math.abs(width - runWidth) >= 0.5) {
-        context.lineWidth = runWidth;
-        context.stroke();
-        context.beginPath();
-        context.moveTo(points[index - 1].x, points[index - 1].y);
-        runWidth = width;
-        runStart = index;
-      }
+      widthTotal += this._lineWidth(points[index - 1], points[index]);
       context.lineTo(points[index].x, points[index].y);
     }
-    context.lineWidth = runWidth;
+    // One Canvas stroke per input batch avoids dozens of GPU state flushes on
+    // iOS while retaining the batch's average Pencil pressure.
+    context.lineWidth = widthTotal / Math.max(1, points.length - startIndex);
     context.stroke();
   }
 
@@ -484,6 +505,7 @@ export class HandwritingEngine {
   }
 
   score() {
+    const scoreStartedAt = this.diagnostics ? performance.now() : 0;
     this._interrupt();
     this.stopAnimation();
     this.animationStroke = -1;
@@ -501,6 +523,7 @@ export class HandwritingEngine {
     const expectedStrokeCount = reference.length;
     const strokeCount = user.length;
     if (!expectedStrokeCount || !strokeCount) {
+      if (this.diagnostics) this.metrics.lastScoreMs = performance.now() - scoreStartedAt;
       return { score: 0, strokeCount, expectedStrokeCount, shape: 0, strokeCountScore: 0, order: 0, direction: 0, endpoints: 0, balance: 0 };
     }
 
@@ -528,6 +551,10 @@ export class HandwritingEngine {
     const score = clamp(shape + order + direction + endpoints + balance, 0, 100);
     this.reveal = true;
     this._render();
+    if (this.diagnostics) {
+      this.metrics.lastScoreMs = performance.now() - scoreStartedAt;
+      this.options.onDiagnostic?.({ ...this.metrics });
+    }
     // `order` remains a legacy API alias, not a claim of stroke-order recognition.
     return { score, strokeCount, expectedStrokeCount, shape, strokeCountScore: order, order, direction, endpoints, balance };
   }
@@ -539,6 +566,7 @@ export class HandwritingEngine {
     if (this.resizeFrame !== null) cancelAnimationFrame(this.resizeFrame);
     this.resizeFrame = null;
     this.resizeObserver?.disconnect();
+    this.longTaskObserver?.disconnect();
     this.canvas.removeEventListener('pointerdown', this._pointerDown);
     this.canvas.removeEventListener('pointermove', this._pointerMove);
     this.canvas.removeEventListener('pointerup', this._pointerUp);

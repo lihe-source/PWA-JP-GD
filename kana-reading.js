@@ -52,7 +52,7 @@ export function mergeKanaReadingHistory(...collections) {
     const existing = byId.get(id);
     if (!existing || normalized.ts >= existing.ts) byId.set(id, normalized);
   });
-  return [...byId.values()].sort((a, b) => b.ts - a.ts).slice(0, 5000);
+  return [...byId.values()].sort((a, b) => b.ts - a.ts);
 }
 
 export function buildKanaReadingProgress(history = []) {
@@ -112,12 +112,17 @@ export class KanaReadingProgressManager {
   }
 
   getHistory() {
+    if (typeof this.storage.getRecordCollection === 'function') {
+      return mergeKanaReadingHistory(this.storage.getRecordCollection(this.historyKey));
+    }
     try { return mergeKanaReadingHistory(JSON.parse(this.storage.getItem(this.historyKey) || '[]')); }
     catch { return []; }
   }
 
   saveHistory(history) {
-    this.storage.setItem(this.historyKey, JSON.stringify(mergeKanaReadingHistory(history)));
+    const normalized = mergeKanaReadingHistory(history);
+    if (typeof this.storage.replaceRecordCollection === 'function') this.storage.replaceRecordCollection(this.historyKey, normalized);
+    else this.storage.setItem(this.historyKey, JSON.stringify(normalized));
   }
 
   recordAttempt(kana, answer, correct) {
@@ -133,7 +138,8 @@ export class KanaReadingProgressManager {
       ts: now,
       date: new Date(now).toLocaleDateString('en-CA')
     };
-    this.saveHistory([entry, ...this.getHistory()]);
+    if (typeof this.storage.appendRecord === 'function') this.storage.appendRecord(this.historyKey, entry);
+    else this.saveHistory([entry, ...this.getHistory()]);
     return entry;
   }
 

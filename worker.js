@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 
-const SERVICE_VERSION = 'V1.3.7';
+const SERVICE_VERSION = 'V1.4.0';
 const MAX_DUE_PER_RUN = 25;
 const formatterCache = new Map();
 
@@ -226,8 +226,8 @@ async function savePracticeCompletion(row, scopeKey, practice, env, now = Date.n
     INSERT INTO japanese_practice_days (scope_key, practice_date, completed_at, activity_type, updated_at)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(scope_key, practice_date) DO UPDATE SET
-      completed_at = MAX(japanese_practice_days.completed_at, excluded.completed_at),
-      activity_type = CASE WHEN excluded.completed_at >= japanese_practice_days.completed_at THEN excluded.activity_type ELSE japanese_practice_days.activity_type END,
+      completed_at = MIN(japanese_practice_days.completed_at, excluded.completed_at),
+      activity_type = CASE WHEN excluded.completed_at <= japanese_practice_days.completed_at THEN excluded.activity_type ELSE japanese_practice_days.activity_type END,
       updated_at = excluded.updated_at
   `).bind(key, practiceDate, practice.completedAt, practice.activityType, now).run();
   return { date: practiceDate, occurredAt: practice.occurredAt, activityType: practice.activityType };

@@ -1,8 +1,8 @@
-# 日文練習架構 · V1.3.8
+# 日文練習架構 · V1.4.0
 
-V1.3.8：手寫輸入事件內直接增量繪圖，不再經過第二次 requestAnimationFrame 等待。合併座標與事件終點共同去重；getCoalescedEvents 不可用或拋錯時退回事件座標。lostpointercapture 不等於 pointercancel，前者保留當筆並透過 window 的移動／抬筆事件接續，後者、blur、pagehide 及背景切換仍結束當筆。所有補充事件在 destroy 時移除。既有評分、資料儲存及貼底排版不變。
+V1.4.0 將即時輸入、持久化與雲端同步分成三條路徑。手寫期間只在 Canvas 增量繪圖；每題完成後，手寫／讀音紀錄各追加一筆 IndexedDB record；練習結束後才允許 Drive 合併。長期紀錄不截斷，統計、備份與跨裝置合併都讀取完整資料。
 
-本次不變更 Worker 與 D1；服務端維持 V1.3.7。發布包仍為 46 個同層檔案。測試指令明列日文版測試，避免 GitHub 歷史上殘留的英文測試混入。
+IndexedDB 升至 Schema 2，新增 `records` store，原有 `kv` 與 `snapshots` 保留；V1.3.8 的兩份歷史陣列會在首次啟動自動、完整遷移。備份覆寫或合併先通過結構驗證，再以單一交易提交，失敗時不更新記憶體快取與同步時間。Worker 不需變更 D1 結構，只將同日完成時間改存最早值。發布包仍為 46 個同層檔案。
 
 V1.3.7 的手寫練習在同一輪重用 Canvas，`_resetWriterQuestion()` 僅更新題目資訊；按鈕事件從目前索引取得題目。引擎即時繪製落筆墨點，移動仍採合併樣本及逐幀增量繪圖。標準筆畫取樣以路徑為鍵快取（上限 128 組），历史快取以原始儲存字串判斷失效，還原資料後會重新正規化。
 
@@ -21,9 +21,9 @@ GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google D
 | index.html | 入口、CSP、viewport 安全區、導覽與載入模組 |
 | app.js | 六種模式、首頁、Google Drive、統計、設定與路由 |
 | style.css | 基礎元件與最後的 V1.3 藍墨設計層 |
-| storage.js | 記憶體快取、非同步 IndexedDB、寫入追蹤與重試 |
+| storage.js | 批量啟動讀取、KV／逐筆紀錄、原子交易、寫入追蹤與重試 |
 | storage-status-ui.js | 狀態、救援備份、驗證後合併匯入 |
-| backup-schema.js | Schema 1、checksum 與產品隔離 |
+| backup-schema.js | 備份 Schema 2、容量／欄位／筆數／checksum 與產品隔離 |
 | study-streak.js | 日期／時區、連續紀錄、事件去重與合併 |
 | japanese-learning.js | 預設設定、正規化、手寫進度与版面判斷 |
 | daily-learning.js | JLPT、五十音行、每日推薦與回應驗證 |

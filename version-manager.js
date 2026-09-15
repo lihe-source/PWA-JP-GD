@@ -27,6 +27,7 @@ export class VersionManager {
     this._controllerChangeHandler = null;
     this._watchedRegistration = null;
     this._watchedWorkers = new WeakSet();
+    this.requestTimeoutMs = 8000;
   }
 
   _isSafeToActivate() {
@@ -100,7 +101,21 @@ export class VersionManager {
   }
 
   async check({ autoApply = false } = {}) {
-    const response = await fetch(`${this.versionUrl}?t=${Date.now()}`, { cache: 'no-store' });
+    let response;
+    let lastError;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+      try {
+        response = await fetch(`${this.versionUrl}?t=${Date.now()}`, { cache: 'no-store', signal: controller.signal });
+        if (response.ok || response.status < 500) break;
+        lastError = new Error(`VERSION_HTTP_${response.status}`);
+      } catch (error) {
+        lastError = error?.name === 'AbortError' ? new Error('VERSION_TIMEOUT') : error;
+      } finally { clearTimeout(timer); }
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 350));
+    }
+    if (!response) throw lastError || new Error('VERSION_NETWORK_ERROR');
     if (!response.ok) throw new Error(`VERSION_HTTP_${response.status}`);
     const data = await response.json();
     const remoteVersion = data.version || data.displayVersion || '';

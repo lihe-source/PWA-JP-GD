@@ -1,29 +1,34 @@
 const DB_NAME = 'pwa_japanese_v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const KV_STORE = 'kv';
 const SNAPSHOT_STORE = 'snapshots';
+const RECORD_STORE = 'records';
 const LOCAL_PREFIX = 'pwa_japanese:';
 const LEGACY_ENGLISH_DB = 'pwa_vocabulary_v7';
 
+const RECORD_COLLECTIONS = new Set(['handwritingHistory', 'kanaReadingHistory']);
 const INDEXED_KEYS = new Set([
-  'vocabWords',
-  'practiceHistory',
-  'readingQuizHistory',
-  'essayHistory',
-  'aiAskHistory',
-  'handwritingHistory',
-  'kanaReadingHistory',
-  'studyActivityDays',
-  'sentenceLog',
-  'importedSentences',
-  'boostedWords',
-  'todaySentence',
-  'geminiApiKey'
+  'vocabWords', 'practiceHistory', 'readingQuizHistory', 'essayHistory', 'aiAskHistory',
+  ...RECORD_COLLECTIONS, 'studyActivityDays', 'sentenceLog', 'importedSentences',
+  'boostedWords', 'todaySentence', 'geminiApiKey'
 ]);
+
+function cloneRecord(value) { return value && typeof value === 'object' ? { ...value } : value; }
+function normalizeRecordList(records = []) {
+  const byId = new Map();
+  (Array.isArray(records) ? records : []).forEach((record, index) => {
+    if (!record || typeof record !== 'object') return;
+    const id = String(record.id || `legacy-${Number(record.ts) || Date.now()}-${index}`);
+    byId.set(id, { ...record, id });
+  });
+  return byId;
+}
 
 export class StorageBridge {
   constructor() {
     this.cache = new Map();
+    this.recordCache = new Map([...RECORD_COLLECTIONS].map(key => [key, new Map()]));
+    this.recordSortedCache = new Map();
     this.db = null;
     this.ready = false;
     this.pending = new Set();
@@ -33,6 +38,7 @@ export class StorageBridge {
     this.revision = 0;
     this.statusQueued = false;
     this.fallback = false;
+    this.atomicStage = null;
 
     try {
       for (let i = 0; i < localStorage.length; i++) {
@@ -41,32 +47,59 @@ export class StorageBridge {
           this.cache.set(storedKey.slice(LOCAL_PREFIX.length), localStorage.getItem(storedKey));
         }
       }
-    } catch {
-      this.fallback = true;
-    }
+    } catch { this.fallback = true; }
   }
 
   async init() {
     if (this.ready) return this.getStatus();
     try {
       this.db = await this._open();
+      this.db.onversionchange = () => this.db?.close();
+      const [kvRecords, collectionRows] = await Promise.all([this._getAllKvRecords(), this._getAllCollectionRows()]);
+      const kv = new Map(kvRecords.map(record => [record.key, record.value]));
+      kvRecords.forEach(record => {
+        if (!RECORD_COLLECTIONS.has(record.key) && typeof record.value === 'string') this.cache.set(record.key, record.value);
+      });
+
+      // V1.4.0 keeps all AppStorage values in one database so backup restore can
+      // commit data and preferences as a single transaction. Migrate remaining
+      // prefixed localStorage settings in one write transaction.
+      const localMigrations = [];
+      this.cache.forEach((value, key) => {
+        if (!kv.has(key) && !RECORD_COLLECTIONS.has(key) && typeof value === 'string') localMigrations.push({ key, value });
+      });
+      if (localMigrations.length) await this._putManyRecords(localMigrations);
+      localMigrations.forEach(({ key }) => this._localRemove(key));
+
+      collectionRows.forEach(row => {
+        if (!RECORD_COLLECTIONS.has(row.collection) || !row.value) return;
+        this.recordCache.get(row.collection).set(String(row.id), { ...row.value, id: String(row.id) });
+      });
+
       for (const key of INDEXED_KEYS) {
-        const record = await this._getRecord(key);
-        const legacy = this._localGet(key);
-        if (record && typeof record.value === 'string') {
-          this.cache.set(key, record.value);
-        } else if (legacy !== null) {
+        const legacy = kv.has(key) ? kv.get(key) : this._localGet(key);
+        if (RECORD_COLLECTIONS.has(key)) {
+          if (!this.recordCache.get(key).size && typeof legacy === 'string') {
+            try { await this._replaceCollectionRows(key, JSON.parse(legacy)); } catch {}
+          }
+          if (kv.has(key)) await this._deleteRecord(key);
+          this.cache.delete(key);
+          this._localRemove(key);
+          continue;
+        }
+        if (typeof kv.get(key) === 'string') this.cache.set(key, kv.get(key));
+        else if (legacy !== null) {
           this.cache.set(key, legacy);
           await this._putRecord(key, legacy);
         }
         if (this.cache.has(key)) this._localRemove(key);
       }
+
       await this._importCompatibleEnglishSettings();
-      // Remove legacy OAuth access tokens left by V6.6. Account identity remains remembered.
       this._localRemove('gdriveToken');
       this._localRemove('gdriveExpiry');
       try { sessionStorage.removeItem('gdriveToken'); sessionStorage.removeItem('gdriveExpiry'); } catch {}
-      this.setItem('storageSchemaVersion', '1');
+      this.setItem('storageSchemaVersion', '2');
       this.setItem('storageMigratedAt', new Date().toISOString());
       this.ready = true;
       return this.getStatus();
@@ -82,14 +115,17 @@ export class StorageBridge {
     return {
       ready: this.ready,
       mode: this.db && !this.fallback ? 'indexeddb' : 'localstorage-fallback',
-      schemaVersion: 1,
+      schemaVersion: 2,
       saveState: this.failures.size ? 'error' : this.pending.size ? 'saving' : 'saved',
       failedKeys: [...this.failures.keys()],
-      pendingWrites: this.pending.size
+      pendingWrites: this.pending.size,
+      recordCounts: Object.fromEntries([...RECORD_COLLECTIONS].map(key => [key, this.recordCache.get(key)?.size || 0]))
     };
   }
 
   getItem(key) {
+    if (RECORD_COLLECTIONS.has(key) && this._recordStoreAvailable()) return JSON.stringify(this.getRecordCollection(key));
+    if (this.atomicStage?.kv.has(key)) return this.atomicStage.kv.get(key);
     if (this.deletedKeys.has(key)) return null;
     if (this.cache.has(key)) return this.cache.get(key);
     const value = this._localGet(key);
@@ -98,35 +134,127 @@ export class StorageBridge {
   }
 
   setItem(key, value) {
+    if (RECORD_COLLECTIONS.has(key) && this._recordStoreAvailable()) {
+      try { this.replaceRecordCollection(key, JSON.parse(String(value))); }
+      catch { this.replaceRecordCollection(key, []); }
+      return;
+    }
     const stringValue = String(value);
+    if (this.atomicStage) { this.atomicStage.kv.set(key, stringValue); return; }
     this.cache.set(key, stringValue);
     this.deletedKeys.delete(key);
     this._persist(key, stringValue);
   }
 
   removeItem(key) {
+    if (RECORD_COLLECTIONS.has(key) && this._recordStoreAvailable()) { this.replaceRecordCollection(key, []); return; }
+    if (this.atomicStage) { this.atomicStage.kv.set(key, null); return; }
     this.cache.delete(key);
     this.deletedKeys.add(key);
     this._persist(key, null);
   }
 
+  getRecordCollection(collection) {
+    if (!RECORD_COLLECTIONS.has(collection)) return [];
+    if (!this._recordStoreAvailable()) {
+      try { return JSON.parse(this.getItem(collection) || '[]'); } catch { return []; }
+    }
+    const staged = this.atomicStage?.collections.get(collection);
+    const map = staged || this.recordCache.get(collection) || new Map();
+    if (!staged && this.recordSortedCache.has(collection)) return this.recordSortedCache.get(collection).map(cloneRecord);
+    const sorted = [...map.values()].map(cloneRecord).sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+    if (!staged) this.recordSortedCache.set(collection, sorted);
+    return sorted.map(cloneRecord);
+  }
+
+  appendRecord(collection, record) {
+    if (!RECORD_COLLECTIONS.has(collection) || !record || typeof record !== 'object') return;
+    if (!this._recordStoreAvailable()) {
+      const list = this.getRecordCollection(collection);
+      const raw = JSON.stringify([{ ...record }, ...list]);
+      this.cache.set(collection, raw);
+      this._persist(collection, raw);
+      return;
+    }
+    const id = String(record.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const normalized = { ...record, id };
+    if (this.atomicStage) { this._stageCollection(collection).set(id, normalized); return; }
+    this.recordCache.get(collection).set(id, normalized);
+    this.recordSortedCache.delete(collection);
+    const revision = ++this.revision;
+    const key = `records:${collection}`;
+    this.revisions.set(key, revision);
+    this._queue(this._putCollectionRow(collection, normalized), key, revision);
+  }
+
+  replaceRecordCollection(collection, records) {
+    if (!RECORD_COLLECTIONS.has(collection)) return;
+    const map = normalizeRecordList(records);
+    if (!this._recordStoreAvailable()) {
+      const raw = JSON.stringify([...map.values()]);
+      this.cache.set(collection, raw);
+      this._persist(collection, raw);
+      return;
+    }
+    if (this.atomicStage) { this.atomicStage.collections.set(collection, map); return; }
+    this.recordCache.set(collection, map);
+    this.recordSortedCache.delete(collection);
+    const revision = ++this.revision;
+    const key = `records:${collection}`;
+    this.revisions.set(key, revision);
+    this._queue(this._replaceCollectionRows(collection, [...map.values()]), key, revision);
+  }
+
+  _stageCollection(collection) {
+    if (!this.atomicStage.collections.has(collection)) {
+      this.atomicStage.collections.set(collection, new Map(this.recordCache.get(collection) || []));
+    }
+    return this.atomicStage.collections.get(collection);
+  }
+
+  _recordStoreAvailable() {
+    if (!this.db || this.fallback || typeof this.db.transaction !== 'function') return false;
+    try { return this.db.objectStoreNames?.contains?.(RECORD_STORE) !== false; }
+    catch { return false; }
+  }
+
+  async atomicUpdate(mutator) {
+    if (!this.db || this.fallback) {
+      const error = new Error('此裝置目前無法使用安全交易式還原，請先重新開啟 App 後再試。');
+      error.code = 'ATOMIC_STORAGE_REQUIRED';
+      throw error;
+    }
+    if (this.atomicStage) throw new Error('ATOMIC_UPDATE_IN_PROGRESS');
+    await this.flush();
+    const stage = { kv: new Map(), collections: new Map() };
+    this.atomicStage = stage;
+    try {
+      const result = mutator();
+      if (result && typeof result.then === 'function') throw new Error('ATOMIC_UPDATE_MUST_BE_SYNCHRONOUS');
+      await this._commitAtomicStage(stage);
+      stage.kv.forEach((value, key) => {
+        if (value === null) { this.cache.delete(key); this.deletedKeys.add(key); }
+        else { this.cache.set(key, value); this.deletedKeys.delete(key); }
+        this._localRemove(key);
+      });
+      stage.collections.forEach((map, key) => { this.recordCache.set(key, map); this.recordSortedCache.delete(key); this._localRemove(key); });
+      this.failures.clear();
+      this._notifyStatus();
+      return result;
+    } finally { this.atomicStage = null; }
+  }
+
   _persist(key, value) {
     const revision = ++this.revision;
     this.revisions.set(key, revision);
-    if (INDEXED_KEYS.has(key) && this.db && !this.fallback) {
+    if (this.db && !this.fallback) {
       const write = value === null ? this._deleteRecord(key) : this._putRecord(key, value);
-      this._queue(write, key, revision, () => {
-        if (value === null) localStorage.removeItem(LOCAL_PREFIX + key);
-        else this._localRemove(key);
-      });
+      this._queue(write, key, revision, () => this._localRemove(key));
     } else {
       try {
-        if (value === null) localStorage.removeItem(LOCAL_PREFIX + key);
-        else this._localSet(key, value);
+        if (value === null) localStorage.removeItem(LOCAL_PREFIX + key); else this._localSet(key, value);
         this.failures.delete(key);
-      } catch (error) {
-        this.failures.set(key, error);
-      }
+      } catch (error) { this.failures.set(key, error); }
       this._notifyStatus();
     }
   }
@@ -173,8 +301,11 @@ export class StorageBridge {
 
   async retryFailedWrites() {
     for (const key of [...this.failures.keys()]) {
-      if (key === 'recoverySnapshots') continue;
+      if (key === 'recoverySnapshots' || key.startsWith('records:')) continue;
       this._persist(key, this.deletedKeys.has(key) ? null : this.cache.get(key));
+    }
+    for (const collection of RECORD_COLLECTIONS) {
+      if (this.failures.has(`records:${collection}`)) this.replaceRecordCollection(collection, this.getRecordCollection(collection));
     }
     await this.flush();
     return this.getStatus();
@@ -183,18 +314,12 @@ export class StorageBridge {
   async createRecoverySnapshot(payload, reason = 'manual') {
     if (!this.db || this.fallback) return null;
     const id = `${Date.now()}-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
-    const record = {
-      id,
-      reason,
-      createdAt: new Date().toISOString(),
-      payload
-    };
+    const record = { id, reason, createdAt: new Date().toISOString(), payload };
     await new Promise((resolve, reject) => {
       const tx = this.db.transaction(SNAPSHOT_STORE, 'readwrite');
       tx.objectStore(SNAPSHOT_STORE).put(record);
       tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
+      tx.onerror = tx.onabort = () => reject(tx.error);
     });
     await this._trimSnapshots(5);
     return record;
@@ -212,20 +337,13 @@ export class StorageBridge {
 
   _queue(promise, key, revision, onSuccess) {
     const current = () => key === 'recoverySnapshots' || this.revisions.get(key) === revision;
-    // Handle the rejection here so fire-and-forget callers never lose an error
-    // or create an unhandled rejected .finally() promise. flush() reports it.
     const tracked = Promise.resolve(promise).then(() => {
       if (!current()) return;
-      onSuccess?.();
-      this.failures.delete(key);
-    }).catch(error => {
-      if (current()) this.failures.set(key, error);
-    }).finally(() => {
-      this.pending.delete(tracked);
-      this._notifyStatus();
+      onSuccess?.(); this.failures.delete(key);
+    }).catch(error => { if (current()) this.failures.set(key, error); }).finally(() => {
+      this.pending.delete(tracked); this._notifyStatus();
     });
-    this.pending.add(tracked);
-    this._notifyStatus();
+    this.pending.add(tracked); this._notifyStatus();
   }
 
   _open() {
@@ -235,6 +353,10 @@ export class StorageBridge {
         const db = event.target.result;
         if (!db.objectStoreNames.contains(KV_STORE)) db.createObjectStore(KV_STORE, { keyPath: 'key' });
         if (!db.objectStoreNames.contains(SNAPSHOT_STORE)) db.createObjectStore(SNAPSHOT_STORE, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(RECORD_STORE)) {
+          const store = db.createObjectStore(RECORD_STORE, { keyPath: ['collection', 'id'] });
+          store.createIndex('collection', 'collection', { unique: false });
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -243,29 +365,20 @@ export class StorageBridge {
   }
 
   async _importCompatibleEnglishSettings() {
-    if (this._localGet('compatibleSettingsChecked') === '1') return;
-    const compatibleLocalKeys = ['geminiModel', 'gdriveClientId'];
-    for (const key of compatibleLocalKeys) {
+    if (this.getItem('compatibleSettingsChecked') === '1') return;
+    for (const key of ['geminiModel', 'gdriveClientId']) {
       if (this.getItem(key)) continue;
-      try {
-        const legacy = localStorage.getItem(key);
-        if (legacy) this.setItem(key, legacy);
-      } catch {}
+      try { const legacy = localStorage.getItem(key); if (legacy) this.setItem(key, legacy); } catch {}
     }
-
     if (!this.getItem('geminiApiKey')) {
       try {
         const key = await new Promise(resolve => {
           const request = indexedDB.open(LEGACY_ENGLISH_DB);
-          request.onerror = () => resolve('');
-          request.onupgradeneeded = () => resolve('');
+          request.onerror = request.onupgradeneeded = () => resolve('');
           request.onsuccess = () => {
             const legacyDb = request.result;
-            if (!legacyDb.objectStoreNames.contains(KV_STORE)) {
-              legacyDb.close(); resolve(''); return;
-            }
-            const tx = legacyDb.transaction(KV_STORE, 'readonly');
-            const get = tx.objectStore(KV_STORE).get('geminiApiKey');
+            if (!legacyDb.objectStoreNames.contains(KV_STORE)) { legacyDb.close(); resolve(''); return; }
+            const get = legacyDb.transaction(KV_STORE, 'readonly').objectStore(KV_STORE).get('geminiApiKey');
             get.onsuccess = () => { const value = get.result?.value || ''; legacyDb.close(); resolve(value); };
             get.onerror = () => { legacyDb.close(); resolve(''); };
           };
@@ -276,12 +389,13 @@ export class StorageBridge {
     this.setItem('compatibleSettingsChecked', '1');
   }
 
-  _getRecord(key) {
+  _getAllKvRecords() { return this._getAll(KV_STORE); }
+  _getAllCollectionRows() { return this._getAll(RECORD_STORE); }
+  _getAll(storeName) {
     return new Promise(resolve => {
-      const tx = this.db.transaction(KV_STORE, 'readonly');
-      const req = tx.objectStore(KV_STORE).get(key);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => resolve(null);
+      const req = this.db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
     });
   }
 
@@ -289,46 +403,92 @@ export class StorageBridge {
     return new Promise((resolve, reject) => {
       const tx = this.db.transaction(KV_STORE, 'readwrite');
       tx.objectStore(KV_STORE).put({ key, value, updatedAt: new Date().toISOString() });
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
+      tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(tx.error);
     });
   }
-
+  _putManyRecords(records) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(KV_STORE, 'readwrite');
+      const store = tx.objectStore(KV_STORE);
+      const updatedAt = new Date().toISOString();
+      records.forEach(({ key, value }) => store.put({ key, value, updatedAt }));
+      tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(tx.error);
+    });
+  }
   _deleteRecord(key) {
     return new Promise((resolve, reject) => {
       const tx = this.db.transaction(KV_STORE, 'readwrite');
       tx.objectStore(KV_STORE).delete(key);
+      tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(tx.error);
+    });
+  }
+  _putCollectionRow(collection, record) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(RECORD_STORE, 'readwrite');
+      tx.objectStore(RECORD_STORE).put({ collection, id: String(record.id), ts: Number(record.ts) || 0, value: record });
+      tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(tx.error);
+    });
+  }
+  _replaceCollectionRows(collection, records) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(RECORD_STORE, 'readwrite');
+      const store = tx.objectStore(RECORD_STORE);
+      const cursor = store.openCursor();
+      cursor.onsuccess = () => {
+        const item = cursor.result;
+        if (item) { if (item.value?.collection === collection) item.delete(); item.continue(); return; }
+        normalizeRecordList(records).forEach((record, id) => store.put({ collection, id, ts: Number(record.ts) || 0, value: record }));
+      };
+      cursor.onerror = () => reject(cursor.error);
+      tx.oncomplete = () => {
+        this.recordCache.set(collection, normalizeRecordList(records));
+        this.recordSortedCache.delete(collection);
+        resolve();
+      };
+      tx.onerror = tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  _commitAtomicStage(stage) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction([KV_STORE, RECORD_STORE], 'readwrite');
+      const kv = tx.objectStore(KV_STORE);
+      stage.kv.forEach((value, key) => value === null
+        ? kv.delete(key)
+        : kv.put({ key, value, updatedAt: new Date().toISOString() }));
+      const store = tx.objectStore(RECORD_STORE);
+      const collections = [...stage.collections.entries()];
+      const replaceNext = index => {
+        if (index >= collections.length) return;
+        const [collection, map] = collections[index];
+        const cursor = store.openCursor();
+        cursor.onsuccess = () => {
+          const item = cursor.result;
+          if (item) { if (item.value?.collection === collection) item.delete(); item.continue(); return; }
+          map.forEach(record => store.put({ collection, id: String(record.id), ts: Number(record.ts) || 0, value: record }));
+          replaceNext(index + 1);
+        };
+      };
+      replaceNext(0);
       tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('ATOMIC_UPDATE_FAILED'));
     });
   }
 
   async _trimSnapshots(limit) {
-    const snapshots = await this.listRecoverySnapshots();
-    const extras = snapshots.slice(limit);
+    const extras = (await this.listRecoverySnapshots()).slice(limit);
     if (!extras.length) return;
     await new Promise((resolve, reject) => {
       const tx = this.db.transaction(SNAPSHOT_STORE, 'readwrite');
       const store = tx.objectStore(SNAPSHOT_STORE);
       extras.forEach(item => store.delete(item.id));
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
     });
   }
 
-  _localGet(key) {
-    try { return localStorage.getItem(LOCAL_PREFIX + key); } catch { return null; }
-  }
-
-  _localSet(key, value) {
-    localStorage.setItem(LOCAL_PREFIX + key, value);
-  }
-
-  _localRemove(key) {
-    try { localStorage.removeItem(LOCAL_PREFIX + key); } catch {}
-  }
+  _localGet(key) { try { return localStorage.getItem(LOCAL_PREFIX + key); } catch { return null; } }
+  _localSet(key, value) { localStorage.setItem(LOCAL_PREFIX + key, value); }
+  _localRemove(key) { try { localStorage.removeItem(LOCAL_PREFIX + key); } catch {} }
 }
 
 export const AppStorage = new StorageBridge();

@@ -1,6 +1,6 @@
-import { mergeStudyDays } from './study-streak.js?v=V1_3_8';
-import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_3_8';
-import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_3_8';
+import { mergeStudyDays } from './study-streak.js?v=V1_4_0';
+import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_4_0';
+import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_4_0';
 
 export function mergeLearningStates(...states) {
   return {
@@ -23,7 +23,11 @@ export async function syncLearningState({ readLocal, writeLocal, readRemote, wri
     const remote = await readRemote(); // any unreadable source aborts the write
     await ready();
     published = mergeLearningStates(remote, readLocal());
-    await writeRemote(published);
+    // If every local record is already represented by the remote union, avoid
+    // uploading an identical state again. This removes most no-op Drive writes.
+    if (learningStateSignature(remote) !== learningStateSignature(published)) {
+      await writeRemote(published);
+    }
     await ready();
     writeLocal(mergeLearningStates(published, readLocal()));
     await flush();

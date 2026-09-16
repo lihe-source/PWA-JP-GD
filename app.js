@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_0';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_0';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_0';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_1';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_1';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_1';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_4_0';
-import { BackupSchema } from './backup-schema.js?v=V1_4_0';
-import { VersionManager } from './version-manager.js?v=V1_4_0';
-import { TrendChart } from './chart-renderer.js?v=V1_4_0';
-import { PUSH_CONFIG } from './push-config.js?v=V1_4_0';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_0';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_0';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_0';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_0';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_0';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, selectedLearningRowLabel, selectedLearningRows } from './daily-learning.js?v=V1_4_0';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_0';
+import { AppStorage } from './storage.js?v=V1_4_1';
+import { BackupSchema } from './backup-schema.js?v=V1_4_1';
+import { VersionManager } from './version-manager.js?v=V1_4_1';
+import { TrendChart } from './chart-renderer.js?v=V1_4_1';
+import { PUSH_CONFIG } from './push-config.js?v=V1_4_1';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_1';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_1';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_1';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_1';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_1';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_1';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_1';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_4_0
-// V1.4.0：完成練習後同步通知抑制、藍墨 UI、精簡扁平化交付
+// 日本語練習 PWA - app.js V1_4_1
+// V1.4.1：結構化例句、內容驗證、錯誤快取修復與重複請求防護
 // ===========================
 
-const APP_VERSION = 'V1_4_0';
-const APP_DISPLAY_VERSION = 'V1.4.0';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_0';
+const APP_VERSION = 'V1_4_1';
+const APP_DISPLAY_VERSION = 'V1.4.1';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_1';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -948,7 +948,12 @@ const DB = {
   },
   isBoosted(id) { return this.getBoostedWords().includes(id); },
   getTodaySentence() {
-    try { const s = JSON.parse(AppStorage.getItem('todaySentence') || 'null'); return (s && s.date === todayStr()) ? s : null; }
+    try {
+      const sentence = JSON.parse(AppStorage.getItem('todaySentence') || 'null');
+      if (!sentence || sentence.date !== todayStr()) return null;
+      if (sentence.source === 'csv') return sentence;
+      return validateStoredGeneratedSentence(sentence).ok ? sentence : null;
+    }
     catch { return null; }
   },
   saveTodaySentence(data) { AppStorage.setItem('todaySentence', JSON.stringify({ ...data, date: todayStr() })); },
@@ -962,11 +967,41 @@ const DB = {
       }
     }
     const key = `${entry?.date || todayStr()}|${entry?.wordEn || ''}`;
-    const duplicateIndex = log.findIndex(item => `${item?.date || ''}|${item?.wordEn || ''}` === key);
+    const duplicateIndex = log.findIndex(item =>
+      `${item?.date || ''}|${item?.wordEn || ''}` === key &&
+      item?.validationStatus !== 'invalid' && item?.source !== 'daily-recommendation-invalid'
+    );
     const previous = duplicateIndex >= 0 ? log.splice(duplicateIndex, 1)[0] : null;
     log.unshift({ ...previous, ...entry, id: previous?.id || Date.now().toString() });
     if (log.length > 120) log.length = 120;
     AppStorage.setItem('sentenceLog', JSON.stringify(log));
+  },
+  quarantineInvalidSentence(entry, reason = 'INVALID_FORMAT') {
+    if (!entry || entry.source === 'csv') return null;
+    const log = this.getSentenceLog();
+    const key = `${entry.date || ''}|${entry.wordEn || ''}`;
+    const index = log.findIndex(item => `${item?.date || ''}|${item?.wordEn || ''}` === key && item?.source !== 'csv');
+    const invalid = {
+      ...(index >= 0 ? log[index] : entry),
+      source: 'daily-recommendation-invalid',
+      validationStatus: 'invalid',
+      validationReason: reason,
+      quarantinedAt: new Date().toISOString()
+    };
+    if (index >= 0) log.splice(index, 1, invalid); else log.push(invalid);
+    AppStorage.setItem('sentenceLog', JSON.stringify(log.slice(0, 140)));
+    const today = (() => { try { return JSON.parse(AppStorage.getItem('todaySentence') || 'null'); } catch { return null; } })();
+    if (today && `${today.date || ''}|${today.wordEn || ''}` === key) AppStorage.removeItem('todaySentence');
+    return invalid;
+  },
+  async saveGeneratedSentence(entry) {
+    const commit = () => {
+      this.saveTodaySentence(entry);
+      this.saveSentenceToLog(entry);
+    };
+    if (AppStorage.getStatus().mode === 'indexeddb') await AppStorage.atomicUpdate(commit);
+    else { commit(); await AppStorage.flush(); }
+    return entry;
   },
   // Imported sentence bank (CSV)
   getImportedSentences() { try { return JSON.parse(AppStorage.getItem('importedSentences') || '[]'); } catch { return []; } },
@@ -1003,7 +1038,7 @@ const DB = {
   exportSentencesCSV() {
     const wordMap = {};
     this.getWords().forEach(w => { wordMap[w.english.toLowerCase()] = w.chinese; });
-    const ai = this.getSentenceLog().map(e => ({
+    const ai = this.getSentenceLog().filter(e => e?.validationStatus !== 'invalid' && e?.source !== 'daily-recommendation-invalid').map(e => ({
       date: e.date, wordEn: e.wordEn, wordPos: e.wordPos||'',
       // wordZh: use stored value, fall back to DB lookup so older entries still highlight
       wordZh: e.wordZh || wordMap[(e.wordEn||'').toLowerCase()] || '',
@@ -1019,7 +1054,9 @@ const DB = {
   },
   // Combined sentence log for home display
   getCombinedSentenceLog() {
-    const ai = this.getSentenceLog();
+    const ai = this.getSentenceLog().filter(entry =>
+      entry?.validationStatus !== 'invalid' && entry?.source !== 'daily-recommendation-invalid' && validateStoredGeneratedSentence(entry).ok
+    );
     const imported = this.getImportedSentences();
     // Merge, prefer AI for same date+word key
     const seen = new Set();
@@ -1297,85 +1334,64 @@ const Gemini = {
     return [...new Set([selected, ...stableIds, ...previewIds])].filter(Boolean);
   },
 
-  // Extract the actual response text, skipping "thought" parts from thinking models
-  _extractText(data) {
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    if (!parts.length) return '';
-    // Thinking / preview models may split the final answer across multiple non-thought text parts.
-    // Join every visible text part so long translations are not cut off after the first segment.
-    const visibleText = parts
-      .filter(p => !p.thought && typeof p.text === 'string')
-      .map(p => p.text)
-      .join('');
-    if (visibleText.trim()) return visibleText;
-    return parts
-      .filter(p => typeof p.text === 'string')
-      .map(p => p.text)
-      .join('');
-  },
-
-  // Robust parser for Japanese sentence generation (JA/KANA/ZH).
-  _parse(raw) {
-    if (!raw) return null;
-    // Strip markdown bold/italic markers and <thinking> blocks
-    let text = raw
-      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-      .replace(/\*+/g, '')
+  // Read final visible output only. Thought parts are never a substitute for a
+  // missing final answer because they may contain fragments, labels or drafts.
+  _extractResponse(data) {
+    const candidate = data?.candidates?.[0] || null;
+    const parts = candidate?.content?.parts || [];
+    const text = parts
+      .filter(part => !part?.thought && typeof part?.text === 'string')
+      .map(part => part.text)
+      .join('')
       .trim();
-    // Keep the historical `en` property as the stored target-language field.
-    const enMatch = text.match(/(?:JA|JP|Japanese|日文|日本語):\s*([^\n]+)/i);
-    const kanaMatch = text.match(/(?:KANA|Reading|讀音|假名|かな):\s*([^\n]+)/i);
-    const zhMatch = text.match(/ZH:\s*([^\n]+)/i);
-    if (enMatch && zhMatch) {
-      const en = enMatch[1].trim().replace(/^["']|["']$/g, '');
-      const zh = zhMatch[1].trim().replace(/^["']|["']$/g, '');
-      const reading = kanaMatch?.[1]?.trim().replace(/^["']|["']$/g, '') || '';
-      if (en && zh) return { en, zh, reading };
-    }
-    // Fallback: accept either two lines (Japanese/Chinese) or three lines.
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    if (lines.length >= 2) {
-      const en = lines[0].replace(/^(Japanese|JA|JP|Sentence|日文|日本語|句子):\s*/i, '').replace(/^["']|["']$/g, '').trim();
-      const hasReadingLine = lines.length >= 3 && /^(KANA|Reading|讀音|假名|かな):/i.test(lines[1]);
-      const reading = hasReadingLine ? lines[1].replace(/^(KANA|Reading|讀音|假名|かな):\s*/i, '').replace(/^["']|["']$/g, '').trim() : '';
-      const zhLine = hasReadingLine ? lines[2] : lines[1];
-      const zh = zhLine.replace(/^(Chinese|ZH|Translation|中文|翻譯):\s*/i, '').replace(/^["']|["']$/g, '').trim();
-      if (en && zh && en.length > 1 && zh.length > 1) return { en, zh, reading };
-    }
-    return null;
+    return {
+      text,
+      finishReason: String(candidate?.finishReason || ''),
+      finishMessage: String(candidate?.finishMessage || ''),
+      tokenCount: Number(candidate?.tokenCount || data?.usageMetadata?.candidatesTokenCount || 0),
+      modelVersion: String(data?.modelVersion || '')
+    };
   },
 
-  async _callModel(model, body, apiKey, attempt = 0) {
+  _extractText(data) { return this._extractResponse(data).text; },
+
+  async _callModelDetailed(model, body, apiKey, attempt = 0, retryTransient = true) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
-    let res;
     try {
-      res = await fetch(
+      const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal }
       );
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
+        try { const d = await res.json(); errMsg = d.error?.message || errMsg; } catch {}
+        const lower = String(errMsg).toLowerCase();
+        const err = new Error(errMsg);
+        const apiKeyProblem = lower.includes('api key') || lower.includes('apikey') || lower.includes('permission denied') || lower.includes('authentication');
+        const modelProblem = lower.includes('model') || lower.includes('not found') || lower.includes('not supported') || lower.includes('deprecated') || lower.includes('quota') || lower.includes('rate limit') || lower.includes('unavailable') || lower.includes('schema');
+        if (retryTransient && !apiKeyProblem && attempt < 1 && (res.status === 429 || res.status === 503)) {
+          await new Promise(resolve => setTimeout(resolve, 900));
+          return this._callModelDetailed(model, body, apiKey, attempt + 1, retryTransient);
+        }
+        err.fallback = !apiKeyProblem && (res.status === 404 || res.status === 429 || res.status === 503 || (res.status === 400 && modelProblem));
+        throw err;
+      }
+      const data = await res.json();
+      return this._extractResponse(data);
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error('API_TIMEOUT');
-      throw new Error('NETWORK_ERROR');
+      if (error instanceof SyntaxError) throw new Error('API_RESPONSE_INVALID');
+      if (error?.fallback !== undefined || /^HTTP\s\d+/i.test(error?.message || '') || /quota|permission|api key|model|schema/i.test(error?.message || '')) throw error;
+      if (error?.name === 'TypeError') throw new Error('NETWORK_ERROR');
+      throw error;
     } finally {
       clearTimeout(timeoutId);
     }
-    if (!res.ok) {
-      let errMsg = `HTTP ${res.status}`;
-      try { const d = await res.json(); errMsg = d.error?.message || errMsg; } catch {}
-      const lower = String(errMsg).toLowerCase();
-      const err = new Error(errMsg);
-      const apiKeyProblem = lower.includes('api key') || lower.includes('apikey') || lower.includes('permission denied') || lower.includes('authentication');
-      const modelProblem = lower.includes('model') || lower.includes('not found') || lower.includes('not supported') || lower.includes('deprecated') || lower.includes('quota') || lower.includes('rate limit') || lower.includes('unavailable');
-      if (!apiKeyProblem && attempt < 1 && (res.status === 429 || res.status === 503)) {
-        await new Promise(resolve => setTimeout(resolve, 900));
-        return this._callModel(model, body, apiKey, attempt + 1);
-      }
-      err.fallback = !apiKeyProblem && (res.status === 404 || res.status === 429 || res.status === 503 || (res.status === 400 && modelProblem));
-      throw err;
-    }
-    const data = await res.json();
-    return this._extractText(data);
+  },
+
+  async _callModel(model, body, apiKey, attempt = 0) {
+    return (await this._callModelDetailed(model, body, apiKey, attempt, true)).text;
   },
 
   async reviewEssay(essay, words) {
@@ -1495,34 +1511,90 @@ Rules:
   async generateSentence(word) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
+    const target = {
+      word: String(word.english || '').trim(),
+      reading: String(word.reading || '').trim(),
+      romaji: String(word.romaji || '').trim(),
+      partOfSpeech: String(word.partOfSpeech || '語彙').trim(),
+      meaning: String(word.chinese || '').trim(),
+      level: String(word.level || DB.getJlptLevel?.() || 'N5').toUpperCase()
+    };
+    if (!target.word) throw new Error('INVALID_TARGET_WORD');
 
-    const prompt = `You are a Japanese language learning assistant for a Traditional Chinese learner. Create one natural Japanese sentence at ${DB.getJlptLevel?.() || 'JLPT N5'} level using "${word.english}" (${word.partOfSpeech}: ${word.chinese}). Provide the full kana reading and Traditional Chinese translation.
-
-Output ONLY these three lines, nothing else:
-JA: [Japanese sentence]
-KANA: [full sentence reading in kana]
-ZH: [繁體中文翻譯]`;
-
-    const body = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
-    });
-
+    const responseSchema = {
+      type: 'OBJECT',
+      properties: {
+        ja: { type: 'STRING', description: 'Natural Japanese example sentence using the required target word.' },
+        kana: { type: 'STRING', description: 'Full reading of the entire Japanese sentence using kana only.' },
+        zh: { type: 'STRING', description: 'Accurate Traditional Chinese translation.' }
+      },
+      required: ['ja', 'kana', 'zh'],
+      propertyOrdering: ['ja', 'kana', 'zh']
+    };
     let lastErr = null;
-    for (const model of this._getModelList()) {
+    const models = this._getModelList().slice(0, 2);
+    for (let attempt = 0; attempt < models.length; attempt++) {
+      const model = models[attempt];
+      const correction = lastErr?.validationReason
+        ? `\nThe previous output was rejected (${lastErr.validationReason}). Correct that defect in this response.`
+        : '';
+      const prompt = `You are a Japanese language learning assistant for a Traditional Chinese learner.
+
+Create exactly one short, natural sentence at JLPT ${target.level} level.
+Required vocabulary: ${target.word}
+Required reading: ${target.reading || 'not provided'}
+Part of speech: ${target.partOfSpeech}
+Traditional Chinese meaning: ${target.meaning || 'not provided'}
+
+Rules:
+- The Japanese sentence must contain the required vocabulary, or a normal conjugated form of it.
+- kana must be the complete pronunciation of the whole Japanese sentence, with no kanji or Latin letters.
+- zh must be an accurate Traditional Chinese translation, not English.
+- Keep the sentence concise and appropriate for the requested JLPT level.${correction}`;
+      const body = JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: attempt === 0 ? 0.45 : 0.25,
+          maxOutputTokens: 480,
+          responseMimeType: 'application/json',
+          responseSchema
+        }
+      });
       try {
-        const raw = await this._callModel(model, body, apiKey);
-        const parsed = this._parse(raw);
-        if (parsed && parsed.en && parsed.zh) return parsed;
-        lastErr = new Error('PARSE_ERROR');
-        // Parse failed — try next model
+        // Two sentence attempts maximum, including model fallback. A single
+        // invalid result must not fan out across the full model catalogue.
+        const response = await this._callModelDetailed(model, body, apiKey, 0, false);
+        if (!response.text) {
+          lastErr = new Error('EMPTY_FINAL_RESPONSE');
+          continue;
+        }
+        if (response.finishReason && response.finishReason !== 'STOP') {
+          lastErr = new Error(`MODEL_${response.finishReason}`);
+          continue;
+        }
+        const parsed = parseGeneratedSentenceResponse(response.text);
+        const validation = validateGeneratedSentence(parsed, target);
+        if (validation.ok) {
+          return {
+            ...validation.value,
+            generation: {
+              contract: 2,
+              model,
+              finishReason: response.finishReason || 'UNSPECIFIED',
+              tokenCount: response.tokenCount || 0,
+              generatedAt: new Date().toISOString()
+            }
+          };
+        }
+        lastErr = new Error('SENTENCE_VALIDATION_FAILED');
+        lastErr.validationReason = validation.reason;
       } catch (err) {
         if (err.message === 'NETWORK_ERROR') throw err;
-        if (err.fallback) { lastErr = err; continue; }
+        if (err.fallback || /MODEL_|EMPTY_FINAL_RESPONSE|SENTENCE_VALIDATION_FAILED|API_RESPONSE_INVALID|API_TIMEOUT/.test(err.message || '')) { lastErr = err; continue; }
         throw err;
       }
     }
-    throw lastErr || new Error('API_ERROR');
+    throw lastErr || new Error('SENTENCE_GENERATION_FAILED');
   },
 
   async generateDailyVocabulary({ level, rows, count = 1 }) {
@@ -2802,7 +2874,10 @@ const Router = {
 };
 
 // ===== VIEWS =====
-const Views = {};
+const Views = {
+  _dailySentenceRequests: new Map(),
+  _dailySentenceSerial: 0
+};
 
 // ===========================
 // HOME VIEW
@@ -2815,7 +2890,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_0" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_1" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -2995,51 +3070,112 @@ Views.home = {
       document.querySelector('.sentence-log-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   },
+  _dailySentenceContextIsCurrent(context) {
+    const current = DB.getTodayDailyVocabulary();
+    const currentWord = current?.words?.[0]?.word || '';
+    return todayStr() === context.date &&
+      current?.signature === context.signature &&
+      normalizeJapaneseAnswer(currentWord) === normalizeJapaneseAnswer(context.word);
+  },
+  _dailySentenceErrorMessage(error) {
+    const message = String(error?.message || '');
+    if (message === 'STALE_DAILY_SENTENCE_REQUEST') return '';
+    if (message === 'NETWORK_ERROR') return 'Gemini 連線失敗，推薦詞已保留；請確認連線後重試例句。';
+    if (message === 'API_TIMEOUT') return 'Gemini 回應逾時，推薦詞已保留；請稍後重試例句。';
+    if (/MODEL_MAX_TOKENS|EMPTY_FINAL_RESPONSE|SENTENCE_VALIDATION_FAILED|PARSE_ERROR|API_RESPONSE_INVALID/.test(message)) {
+      return 'AI 回覆未通過日文例句檢查，未寫入紀錄；請點右上角重試。';
+    }
+    if (/quota|RESOURCE_EXHAUSTED|429/i.test(message)) return 'Gemini 配額暫時不足，推薦詞已保留；請稍後重試例句。';
+    if (/API_KEY_INVALID|403|permission|api key/i.test(message)) return 'Gemini API Key 無效或沒有權限，請到設定頁確認。';
+    if (/STORAGE_WRITE_FAILED|ATOMIC_|資料尚未完整儲存/.test(message)) return '例句已建立，但本機保存失敗；請重試儲存後再關閉程式。';
+    return '推薦詞已保留；例句建立失敗，請點右上角重試。';
+  },
   async ensureDailyVocabularySentence(data) {
     const word = Array.isArray(data?.words) ? data.words[0] : null;
     if (!word?.word) return null;
-    const status = document.getElementById('daily-vocab-sentence-status');
-    const existing = DB.getCombinedSentenceLog().find(entry =>
-      entry?.date === todayStr() && normalizeJapaneseAnswer(entry?.wordEn) === normalizeJapaneseAnswer(word.word)
-    );
-    if (existing) {
-      DB.saveTodaySentence(existing);
-      if (status) status.textContent = '已儲存至今日例句練習';
-      this.displayRecommendedSentence(existing);
-      return existing;
-    }
-    if (status) status.textContent = '正在建立並儲存今日例句…';
-    try {
-      const result = await Gemini.generateSentence({
-        english: word.word,
-        reading: word.reading || '',
-        romaji: word.romaji || '',
-        partOfSpeech: word.partOfSpeech || '語彙',
-        chinese: word.meaning || ''
-      });
-      if (!result?.en || !result?.zh) throw new Error('PARSE_ERROR');
-      const entry = {
-        date: todayStr(),
-        wordEn: word.word,
-        wordZh: word.meaning || '',
-        wordPos: word.partOfSpeech || '語彙',
-        wordReading: word.reading || '',
-        wordRomaji: word.romaji || '',
-        en: result.en,
-        reading: result.reading || '',
-        zh: result.zh,
-        source: 'daily-recommendation'
-      };
-      DB.saveTodaySentence(entry);
-      DB.saveSentenceToLog(entry);
-      this.renderSentenceLog();
-      if (status) status.textContent = '已儲存至今日例句練習';
-      this.displayRecommendedSentence(entry);
-      return entry;
-    } catch (error) {
-      if (status) status.textContent = '推薦詞已保存；例句建立失敗，可點右上角重試';
-      return null;
-    }
+    const context = {
+      id: ++this._dailySentenceSerial,
+      date: String(data.date || todayStr()),
+      signature: String(data.signature || dailyLearningSignature({ date: todayStr(), ...DB.getDailyLearningPreferences() })),
+      word: String(word.word),
+      reading: String(word.reading || ''),
+      level: String(data.level || DB.getJlptLevel()),
+      rows: Array.isArray(data.rows) ? [...data.rows] : ['all']
+    };
+    const requestKey = `${context.date}|${context.signature}|${context.word}|${context.reading}`;
+    if (this._dailySentenceRequests.has(requestKey)) return this._dailySentenceRequests.get(requestKey);
+
+    const request = (async () => {
+      const getStatus = () => document.getElementById('daily-vocab-sentence-status');
+      const existing = DB.getSentenceLog().find(entry =>
+        entry?.date === context.date && entry?.source === 'daily-recommendation' &&
+        normalizeJapaneseAnswer(entry?.wordEn) === normalizeJapaneseAnswer(context.word)
+      );
+      if (existing) {
+        const validation = validateStoredGeneratedSentence(existing);
+        if (validation.ok) {
+          DB.saveTodaySentence(existing);
+          await AppStorage.flush();
+          const status = getStatus();
+          if (status) status.textContent = '已儲存至今日例句練習';
+          this.displayRecommendedSentence(existing);
+          return existing;
+        }
+        DB.quarantineInvalidSentence(existing, validation.reason);
+      }
+
+      const loadingStatus = getStatus();
+      if (loadingStatus) loadingStatus.textContent = existing
+        ? '已攔截異常舊例句，正在重新建立…'
+        : '正在建立、檢查並儲存今日例句…';
+      try {
+        const result = await Gemini.generateSentence({
+          english: context.word,
+          reading: context.reading,
+          romaji: word.romaji || '',
+          partOfSpeech: word.partOfSpeech || '語彙',
+          chinese: word.meaning || '',
+          level: context.level
+        });
+        const finalValidation = validateGeneratedSentence(result, { word: context.word });
+        if (!finalValidation.ok) {
+          const error = new Error('SENTENCE_VALIDATION_FAILED');
+          error.validationReason = finalValidation.reason;
+          throw error;
+        }
+        if (!this._dailySentenceContextIsCurrent(context)) throw new Error('STALE_DAILY_SENTENCE_REQUEST');
+        const entry = {
+          date: context.date,
+          wordEn: context.word,
+          wordZh: word.meaning || '',
+          wordPos: word.partOfSpeech || '語彙',
+          wordReading: context.reading,
+          wordRomaji: word.romaji || '',
+          ...finalValidation.value,
+          source: 'daily-recommendation',
+          validationStatus: 'valid',
+          contentVersion: 2,
+          generation: result.generation || null,
+          learningSignature: context.signature
+        };
+        await DB.saveGeneratedSentence(entry);
+        if (!this._dailySentenceContextIsCurrent(context)) return null;
+        this.renderSentenceLog();
+        const status = getStatus();
+        if (status) status.textContent = '已檢查並儲存至今日例句練習';
+        this.displayRecommendedSentence(entry);
+        return entry;
+      } catch (error) {
+        const message = this._dailySentenceErrorMessage(error);
+        const status = getStatus();
+        if (status && message && this._dailySentenceContextIsCurrent(context)) status.textContent = message;
+        return null;
+      }
+    })().finally(() => {
+      if (this._dailySentenceRequests.get(requestKey) === request) this._dailySentenceRequests.delete(requestKey);
+    });
+    this._dailySentenceRequests.set(requestKey, request);
+    return request;
   },
   async loadSentence(forceNew) {
     const heroContent = document.getElementById('hero-content');
@@ -3063,15 +3199,20 @@ Views.home = {
       const result = await Gemini.generateSentence(word);
       if (!result.en || !result.zh) throw new Error('Invalid');
       if (!document.getElementById('hero-content')) return;
-      const entry = { date: todayStr(), wordEn: word.english, wordZh: word.chinese, wordPos: word.partOfSpeech, en: result.en, reading: result.reading || '', zh: result.zh };
-      DB.saveTodaySentence(entry); DB.saveSentenceToLog(entry);
+      const entry = {
+        date: todayStr(), wordEn: word.english, wordZh: word.chinese, wordPos: word.partOfSpeech,
+        en: result.en, reading: result.reading || '', zh: result.zh,
+        source: 'database-generated', validationStatus: 'valid', contentVersion: 2,
+        generation: result.generation || null
+      };
+      await DB.saveGeneratedSentence(entry);
       this.displaySentence(entry); this.renderSentenceLog();
     } catch(e) {
       if (!document.getElementById('hero-content')) return;
       let errText = '例句生成失敗，請點右上角重試';
       if (e.message === 'NO_API_KEY') errText = '請先在設定頁填入 Gemini API Key';
       else if (e.message === 'NETWORK_ERROR') errText = '網路連線失敗，請確認網路狀態後重試';
-      else if (e.message === 'PARSE_ERROR') errText = 'AI 回應格式異常，請重試';
+      else if (/PARSE_ERROR|SENTENCE_VALIDATION_FAILED|EMPTY_FINAL_RESPONSE|MODEL_MAX_TOKENS/.test(e.message || '')) errText = 'AI 回應未通過例句檢查，請重試';
       else if (e.message) {
         const m = e.message;
         if (m.includes('quota') || m.includes('Quota') || m.includes('RESOURCE_EXHAUSTED')) errText = '⏳ API 配額已用盡，請稍後再試';

@@ -195,7 +195,7 @@ test('updates require durable storage and no running cloud operation', () => {
 test('failed flush prevents worker activation and reload; retry succeeds when safe', async () => {
   let fail = true, messages = 0, reloads = 0;
   globalThis.location = { reload() { reloads++; } };
-  const updater = new VersionManager({ currentVersion: 'V1_4_0', storage: { async flush() { if (fail) throw new Error('quota'); } } });
+  const updater = new VersionManager({ currentVersion: 'V1_4_1', storage: { async flush() { if (fail) throw new Error('quota'); } } });
   updater.registration = { waiting: { postMessage() { messages++; } } };
   updater.reloadPending = true;
   assert.equal(await updater.activateWaitingIfSafe(), false);
@@ -209,7 +209,7 @@ test('failed flush prevents worker activation and reload; retry succeeds when sa
 
 test('starting a practice while flush is pending cancels activation', async () => {
   let active = false, activated = false;
-  const updater = new VersionManager({ currentVersion: 'V1_4_0', canActivate: () => !active, storage: { async flush() { active = true; } } });
+  const updater = new VersionManager({ currentVersion: 'V1_4_1', canActivate: () => !active, storage: { async flush() { active = true; } } });
   assert.equal(await updater.activateWaitingIfSafe({ postMessage() { activated = true; } }), false);
   assert.equal(activated, false);
 });
@@ -219,7 +219,7 @@ test('Japanese long vowels, small kana and voicing remain meaningful', () => {
   assert.equal(normalizeJapaneseAnswer(' ﾋﾞｰﾙ。 '), 'ビール');
 });
 
-test('V1.4.0 retains more than ten thousand incremental practice records', () => {
+test('V1.4.1 retains more than ten thousand incremental practice records', () => {
   const handwriting = Array.from({ length: 10001 }, (_, index) => ({ ...attempt(`h-${index}`, index + 1), romaji: 'a' }));
   const reading = handwriting.map((item, index) => ({
     id: `r-${index}`, character: 'あ', script: 'hiragana', row: 'a', romaji: 'a', answer: 'a', correct: true, ts: item.ts

@@ -132,6 +132,118 @@ export function parseDailyVocabularyResponse(raw, options = {}) {
   catch { return []; }
 }
 
+export const SENTENCE_VALIDATION_REASONS = Object.freeze({
+  INVALID_FORMAT: 'INVALID_FORMAT',
+  MISSING_JAPANESE: 'MISSING_JAPANESE',
+  MISSING_READING: 'MISSING_READING',
+  MISSING_TRANSLATION: 'MISSING_TRANSLATION',
+  INVALID_JAPANESE: 'INVALID_JAPANESE',
+  INVALID_READING: 'INVALID_READING',
+  INVALID_TRANSLATION: 'INVALID_TRANSLATION',
+  TARGET_NOT_USED: 'TARGET_NOT_USED',
+  CONTENT_TOO_LONG: 'CONTENT_TOO_LONG'
+});
+
+const cleanSentenceField = value => String(value || '')
+  .normalize('NFC')
+  .replace(/[\u0000-\u001F\u007F]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+/** Parse only the JSON contract used by newly generated daily sentences. */
+export function parseGeneratedSentenceResponse(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return {
+      ja: cleanSentenceField(raw.ja ?? raw.japanese ?? raw.en),
+      kana: cleanSentenceField(raw.kana ?? raw.reading),
+      zh: cleanSentenceField(raw.zh ?? raw.translation)
+    };
+  }
+  const text = String(raw || '')
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parseGeneratedSentenceResponse(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function targetAppearsInSentence(sentence, rawTarget) {
+  const target = cleanSentenceField(rawTarget).replace(/[\s・]/g, '');
+  const compact = cleanSentenceField(sentence).replace(/[\s・]/g, '');
+  if (!target) return true;
+  if (compact.includes(target)) return true;
+
+  // Permit common dictionary-form conjugation while keeping one-character
+  // vocabulary strict enough to prevent an unrelated sentence from passing.
+  if (target === 'する') return /(?:し|すれ|せ|さ|する)/u.test(compact);
+  if (target === '来る' || target === 'くる') return /(?:来|き|くる|こ)/u.test(compact);
+  const chars = [...target];
+  const ending = chars.at(-1) || '';
+  if (chars.length >= 3 && /[うくぐすつぬぶむるい]/u.test(ending)) {
+    const stem = chars.slice(0, -1).join('');
+    if ([...stem].length >= 2 && compact.includes(stem)) return true;
+  }
+  return false;
+}
+
+/**
+ * Validate the semantic shape before a generated sentence can enter local or
+ * Drive-backed learning history. This deliberately rejects the old two-line
+ * fallback that accepted values such as `.)` and `Idea`.
+ */
+export function validateGeneratedSentence(candidate, target = {}) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return { ok: false, reason: SENTENCE_VALIDATION_REASONS.INVALID_FORMAT };
+  }
+  const value = {
+    ja: cleanSentenceField(candidate.ja ?? candidate.en),
+    kana: cleanSentenceField(candidate.kana ?? candidate.reading),
+    zh: cleanSentenceField(candidate.zh)
+  };
+  if (!value.ja) return { ok: false, reason: SENTENCE_VALIDATION_REASONS.MISSING_JAPANESE };
+  if (!value.kana) return { ok: false, reason: SENTENCE_VALIDATION_REASONS.MISSING_READING };
+  if (!value.zh) return { ok: false, reason: SENTENCE_VALIDATION_REASONS.MISSING_TRANSLATION };
+  if ([...value.ja].length > 120 || [...value.kana].length > 180 || [...value.zh].length > 120) {
+    return { ok: false, reason: SENTENCE_VALIDATION_REASONS.CONTENT_TOO_LONG };
+  }
+
+  const japaneseCharacters = value.ja.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}々〆ヵヶ]/gu) || [];
+  if (japaneseCharacters.length < 2) {
+    return { ok: false, reason: SENTENCE_VALIDATION_REASONS.INVALID_JAPANESE };
+  }
+  const kanaCharacters = value.kana.match(/[\p{Script=Hiragana}\p{Script=Katakana}ー]/gu) || [];
+  const readingRemainder = value.kana.replace(/[\p{Script=Hiragana}\p{Script=Katakana}ー\s。、！？!?・（）()「」『』〜～0-9０-９]/gu, '');
+  if (kanaCharacters.length < 2 || readingRemainder) {
+    return { ok: false, reason: SENTENCE_VALIDATION_REASONS.INVALID_READING };
+  }
+  if (!/\p{Script=Han}/u.test(value.zh) || /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(value.zh)) {
+    return { ok: false, reason: SENTENCE_VALIDATION_REASONS.INVALID_TRANSLATION };
+  }
+  if (!targetAppearsInSentence(value.ja, target.word ?? target.wordEn ?? target.english)) {
+    return { ok: false, reason: SENTENCE_VALIDATION_REASONS.TARGET_NOT_USED };
+  }
+  return {
+    ok: true,
+    reason: '',
+    value: { en: value.ja, reading: value.kana, zh: value.zh }
+  };
+}
+
+export function validateStoredGeneratedSentence(entry) {
+  return validateGeneratedSentence({ en: entry?.en, reading: entry?.reading, zh: entry?.zh }, {
+    word: entry?.wordEn
+  });
+}
+
 export function dailyLearningSignature({ date, source, level, rows }) {
   const normalized = normalizeDailyLearningPreferences({ source, level, rows });
   return `${date}|${normalized.source}|${normalized.level}|${normalized.rows.slice().sort().join('+')}`;

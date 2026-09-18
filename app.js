@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_1';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_1';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_1';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_2';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_2';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_2';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_4_1';
-import { BackupSchema } from './backup-schema.js?v=V1_4_1';
-import { VersionManager } from './version-manager.js?v=V1_4_1';
-import { TrendChart } from './chart-renderer.js?v=V1_4_1';
-import { PUSH_CONFIG } from './push-config.js?v=V1_4_1';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_1';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_1';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_1';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_1';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_1';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_1';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_1';
+import { AppStorage } from './storage.js?v=V1_4_2';
+import { BackupSchema } from './backup-schema.js?v=V1_4_2';
+import { VersionManager } from './version-manager.js?v=V1_4_2';
+import { TrendChart } from './chart-renderer.js?v=V1_4_2';
+import { PUSH_CONFIG } from './push-config.js?v=V1_4_2';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_2';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_2';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_2';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_2';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_2';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_2';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_2';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_4_1
-// V1.4.1：結構化例句、內容驗證、錯誤快取修復與重複請求防護
+// 日本語練習 PWA - app.js V1_4_2
+// V1.4.2：iPhone 手寫評分檢視、完整分數優先顯示與可展開筆跡
 // ===========================
 
-const APP_VERSION = 'V1_4_1';
-const APP_DISPLAY_VERSION = 'V1.4.1';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_1';
+const APP_VERSION = 'V1_4_2';
+const APP_DISPLAY_VERSION = 'V1.4.2';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_2';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -2890,7 +2890,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_1" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_2" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -4285,7 +4285,7 @@ Views.kanaPractice = {
               ${hideCharacter ? '<button class="btn-secondary kana-small-btn" id="kana-reveal-btn" type="button">顯示字形</button>' : ''}
             </div>
           </aside>
-          <main class="kana-canvas-card">
+          <main class="kana-canvas-card" id="kana-writing-review">
             <div class="kana-canvas-caption"><span id="kana-stroke-live">請開始書寫</span><span>分數為本機輔助判定</span>${this.state.diagnostics ? '<small id="kana-diagnostic-status" aria-live="off">書寫診斷已開啟</small>' : ''}</div>
             <div class="kana-canvas-stage"><canvas class="kana-writing-canvas" id="kana-writing-canvas" aria-label="${kana.character} 手寫區"></canvas></div>
             <div class="kana-canvas-tools">
@@ -4369,7 +4369,11 @@ Views.kanaPractice = {
     if (reveal) reveal.hidden = false;
     document.getElementById('kana-score-panel').innerHTML = '<div class="kana-score-placeholder">完成後點選「評分」，查看筆形與畫數參考；筆順請對照示範動畫。</div>';
     document.getElementById('kana-score-btn').textContent = '評分';
+    const session = container.querySelector('.kana-session');
+    session?.classList.remove('is-scored', 'is-review-open');
     container.querySelector('.kana-session-actions').classList.remove('is-scored');
+    const sessionBody = container.querySelector('.kana-session-body');
+    if (sessionBody) sessionBody.scrollTop = 0;
     if (this.state.autoSpeak) TTS.speakKana(kana.character, 0.62, { immediate: true });
   },
 
@@ -4385,7 +4389,10 @@ Views.kanaPractice = {
     const panel = document.getElementById('kana-score-panel');
     if (panel) panel.innerHTML = `
       <div class="kana-score-result ${tone}">
-        <div class="kana-score-total"><strong>${result.score}</strong><span>分</span></div>
+        <div class="kana-score-heading">
+          <div class="kana-score-kana" aria-label="本題 ${kana.character}，讀音 ${escapeHTML(kana.romaji)}"><strong>${kana.character}</strong><span>${escapeHTML(kana.romaji)}</span></div>
+          <div class="kana-score-total"><strong>${result.score}</strong><span>分</span></div>
+        </div>
         <div class="kana-score-details">
           <div><span>筆形</span><b>${result.shape}/40</b></div>
           <div><span>畫數</span><b>${result.strokeCountScore}/25</b></div>
@@ -4394,10 +4401,21 @@ Views.kanaPractice = {
           <div><span>配置</span><b>${result.balance}/10</b></div>
         </div>
         <p>${result.score >= 80 ? '字形與畫數表現良好！筆順請再對照示範確認。' : result.score >= 60 ? '已接近標準，請對照淡藍色筆畫再練一次。' : '建議播放筆順動畫，留意起筆位置與筆畫順序。'}</p>
+        <button class="kana-review-toggle" id="kana-review-toggle" type="button" aria-expanded="false" aria-controls="kana-writing-review">查看完整筆跡</button>
       </div>`;
     const isLast = this.state.index + 1 >= this.state.items.length;
     button.textContent = isLast ? '查看練習結果' : '下一個假名';
+    const session = container.querySelector('.kana-session');
+    session?.classList.add('is-scored');
     container.querySelector('.kana-session-actions')?.classList.add('is-scored');
+    document.getElementById('kana-review-toggle')?.addEventListener('click', event => {
+      const isOpen = session?.classList.toggle('is-review-open') === true;
+      event.currentTarget.setAttribute('aria-expanded', String(isOpen));
+      event.currentTarget.textContent = isOpen ? '收起完整筆跡' : '查看完整筆跡';
+      if (isOpen) requestAnimationFrame(() => this.engine?.resize());
+    });
+    const sessionBody = container.querySelector('.kana-session-body');
+    if (sessionBody) sessionBody.scrollTop = 0;
   },
 
   renderResult(container) {

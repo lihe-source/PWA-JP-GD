@@ -3937,7 +3937,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.4.1 藍墨: one shared visual system ===== */
+/* ===== V1.4.2 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4150,4 +4150,38 @@ body { position: relative; height: 100%; min-height: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+/* ===== V1.4.2 iPhone handwriting review =====
+   Scoring changes the information priority instead of stacking results below
+   the full-size writing surface. The action row remains reserved above nav. */
+.kana-score-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kana-score-kana { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.kana-score-kana strong { color: var(--text); font-size: 34px; line-height: 1; }
+.kana-score-kana span { color: var(--text-muted); font-size: 15px; font-weight: 750; }
+.kana-review-toggle {
+  grid-column: 1/-1; width: 100%; min-height: 44px; margin: 0; padding: 8px 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--card-bg);
+  color: var(--primary); font: inherit; font-size: 14px; font-weight: 800;
+}
+
+@media (max-width: 759px) {
+  .kana-session.is-scored .kana-session-body { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+  .kana-session.is-scored .kana-score-panel { order: -2; margin-top: 0; padding: 12px; }
+  .kana-session.is-scored .kana-workspace { order: -1; display: block; }
+  .kana-session.is-scored .kana-reference-card { display: none; }
+  .kana-session.is-scored:not(.is-review-open) .kana-canvas-card { display: none; }
+  .kana-session.is-scored.is-review-open .kana-canvas-card { display: block; margin-top: 8px; padding: 8px; }
+  .kana-session.is-scored .kana-canvas-tools { display: none; }
+  .kana-session.is-scored .kana-writing-canvas { width: min(100%, 42svh, 390px); pointer-events: none; }
+  .kana-session.is-scored .kana-score-result { display: grid; grid-template-columns: 1fr; gap: 10px; align-items: stretch; }
+  .kana-session.is-scored .kana-score-heading { grid-column: 1; }
+  .kana-session.is-scored .kana-score-total { justify-content: flex-end; }
+  .kana-session.is-scored .kana-score-total strong { font-size: 46px; }
+  .kana-session.is-scored .kana-score-details { grid-column: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+  .kana-session.is-scored .kana-score-details div { min-height: 52px; display: grid; place-content: center; padding: 6px 4px; }
+  .kana-session.is-scored .kana-score-details span { font-size: 12px; }
+  .kana-session.is-scored .kana-score-details b { font-size: 14px; }
+  .kana-session.is-scored .kana-score-result p { grid-column: 1; margin: 0; min-height: 40px; display: grid; place-items: center; }
+  .kana-session.is-scored .kana-review-toggle { grid-column: 1; }
 }

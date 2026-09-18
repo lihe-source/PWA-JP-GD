@@ -3937,7 +3937,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.4.4 藍墨: one shared visual system ===== */
+/* ===== V1.4.5 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4152,37 +4152,60 @@ body { position: relative; height: 100%; min-height: 0; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-/* ===== V1.4.4 iPhone handwriting result below ink =====
-   The scored state keeps the written kana visible, uses a compact read-only
-   canvas, and places the complete score immediately below it. */
-.kana-score-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.kana-score-title { color: var(--text); font-size: 16px; }
-.kana-inline-complete {
-  grid-column: 1/-1; display: grid; gap: 8px; padding: 12px;
-  border: 1px solid var(--primary-light); border-radius: 12px; background: var(--primary-faint);
-  color: var(--text); text-align: left;
+/* ===== V1.4.5 inline scoring, identical geometry before/after =====
+   Reserve metrics from the start. Only values and enabled states change.
+   Small/landscape screens can scroll the body, never underneath the action. */
+.kana-session .kana-session-body {
+  display: grid; grid-template-rows: auto minmax(280px,1fr) auto;
+  gap: 8px; align-content: stretch; overflow-anchor: none;
 }
-.kana-inline-complete > strong { color: var(--primary); font-size: 16px; }
-.kana-inline-complete > div { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
-.kana-inline-complete span { display: flex; align-items: baseline; gap: 5px; color: var(--text-muted); font-size: 12px; }
-.kana-inline-complete b { color: var(--text); font-size: 18px; }
-
-@media (max-width: 759px) {
-  .kana-session.is-scored .kana-session-body { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
-  .kana-session.is-scored .kana-workspace { display: block; }
-  .kana-session.is-scored .kana-reference-card { display: none; }
-  .kana-session.is-scored .kana-canvas-card { display: block; padding: 8px; }
-  .kana-session.is-scored .kana-canvas-tools { display: none; }
-  .kana-session.is-scored .kana-writing-canvas { width: min(100%, 56vw, 260px); pointer-events: none; }
-  .kana-session.is-scored .kana-score-panel { margin-top: 8px; padding: 12px; }
-  .kana-session.is-scored .kana-score-result { display: grid; grid-template-columns: 1fr; gap: 10px; align-items: stretch; }
-  .kana-session.is-scored .kana-score-heading { grid-column: 1; }
-  .kana-session.is-scored .kana-score-total { justify-content: flex-end; }
-  .kana-session.is-scored .kana-score-total strong { font-size: 46px; }
-  .kana-session.is-scored .kana-score-details { grid-column: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
-  .kana-session.is-scored .kana-score-details div { min-height: 52px; display: grid; place-content: center; padding: 6px 4px; }
-  .kana-session.is-scored .kana-score-details span { font-size: 12px; }
-  .kana-session.is-scored .kana-score-details b { font-size: 14px; }
-  .kana-session.is-scored .kana-score-result p { grid-column: 1; margin: 0; min-height: 40px; display: grid; place-items: center; }
-  .kana-session.is-scored .kana-inline-complete { grid-column: 1; }
+.kana-session[data-layout] .kana-workspace { display: contents; }
+.kana-session[data-layout] .kana-reference-card {
+  grid-template-columns: 52px minmax(0,1fr); padding: 6px 10px; row-gap: 2px;
+}
+.kana-session[data-layout] .kana-reference-character { font-size: 48px; }
+.kana-session[data-layout] .kana-reference-actions {
+  grid-column: 1/-1; grid-row: 4; flex-direction: row; gap: 6px;
+}
+.kana-session .kana-reference-actions button { flex: 1; min-width: 0; }
+.kana-session[data-layout] .kana-canvas-card {
+  min-height: 280px; padding: 8px; display: grid;
+  grid-template-rows: auto minmax(180px,1fr) auto; gap: 0;
+}
+.kana-session[data-layout] .kana-canvas-stage {
+  min-height: 180px; min-width: 0; height: 100%; container-type: size;
+  display: grid; place-items: center;
+}
+.kana-session[data-layout] .kana-writing-canvas {
+  width: min(100cqw,100cqh); height: min(100cqw,100cqh);
+  max-height: none; aspect-ratio: 1;
+}
+.kana-session[data-layout] .kana-score-panel { margin: 0; padding: 8px; min-height: 0; }
+.kana-inline-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
+.kana-inline-metrics > div {
+  min-width: 0; display: grid; place-content: center; text-align: center;
+  background: var(--bg); border-radius: 8px; padding: 4px 2px;
+}
+.kana-inline-metrics span, .kana-inline-metrics b { font-size: 16px; line-height: 1.4; }
+.kana-inline-metrics span { color: var(--text-muted); }
+.kana-inline-metrics b { color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.kana-inline-metrics .kana-inline-total b { color: var(--primary); }
+.kana-inline-feedback {
+  margin: 6px 0 0; height: 3em; overflow: auto; white-space: pre-line;
+  font-size: 16px; line-height: 1.5; color: var(--text-muted); text-align: center;
+}
+.kana-session.is-scored .kana-writing-canvas { pointer-events: none; }
+.kana-session .kana-canvas-tools button:disabled { opacity: .5; cursor: default; }
+@media (min-width: 760px) {
+  .kana-session[data-layout="tablet"] {
+    grid-template-columns: minmax(180px,.3fr) minmax(0,1fr);
+    grid-template-rows: auto minmax(280px,1fr) auto auto; overflow-y: auto;
+  }
+  .kana-session[data-layout="tablet"] .kana-session-body { display: contents; }
+  .kana-session[data-layout="tablet"] .kana-reference-card { grid-column: 1; grid-row: 2/4; }
+  .kana-session[data-layout="tablet"] .kana-reference-character { font-size: clamp(66px,10vh,112px); }
+  .kana-session[data-layout="tablet"] .kana-reference-actions { flex-wrap: wrap; }
+  .kana-session[data-layout="tablet"] .kana-canvas-card { grid-column: 2; grid-row: 2; }
+  .kana-session[data-layout="tablet"] .kana-score-panel { grid-column: 2; grid-row: 3; }
+  .kana-session[data-layout="tablet"] .kana-session-actions { grid-column: 2; grid-row: 4; }
 }

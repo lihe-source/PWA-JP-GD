@@ -42,7 +42,7 @@ class MockCanvas {
   emit(type, event) { this.listeners.get(type)?.(event); }
 }
 
-test('actual writer handlers score and pronounce current questions across 50 advances', async () => {
+test('50 questions score inline without navigation, DOM replacement, scroll or canvas resize', async () => {
   const { canvas, event } = await makeEngine();
   const { HandwritingEngine } = await import('./handwriting-engine.js');
   const elements = new Map();
@@ -72,7 +72,16 @@ test('actual writer handlers score and pronounce current questions across 50 adv
   view.state.index = 0; view.state.results = []; view.state.mode = 'recall'; view.state.autoSpeak = true;
   view.renderWriter(container);
   const originalEngine = view.engine;
+  const writerHTML = container.innerHTML;
+  const scorePanel = element('kana-score-panel');
+  const body = element('.kana-session-body');
+  const originalResize = originalEngine.resize.bind(originalEngine);
+  let resizes = 0;
+  originalEngine.resize = (...args) => { resizes++; return originalResize(...args); };
   const click = id => element(id).listeners.click({ currentTarget: element(id) });
+  click('kana-score-btn');
+  assert.equal(view.state.scored, false, 'empty canvas cannot be scored');
+  assert.equal(recorded.length, 0);
   for (let i = 0; i < 50; i++) {
     assert.equal(view.engine, originalEngine);
     assert.equal(view.engine.strokes.length, 0);
@@ -80,14 +89,43 @@ test('actual writer handlers score and pronounce current questions across 50 adv
     click('kana-listen-btn'); assert.equal(said.at(-1), String(i));
     click('kana-reveal-btn'); assert.equal(element('kana-reference-character').textContent, String(i));
     canvas.emit('pointerdown', event({pointerId:i+1}));
-    canvas.emit('pointerup', event({pointerId:i+1,clientX:100}));
     click('kana-score-btn');
+    assert.equal(view.state.scored, false, 'a live stroke cannot be interrupted by scoring');
+    canvas.emit('pointerup', event({pointerId:i+1,clientX:100}));
+    const ink = JSON.stringify(view.engine.strokes);
+    const bitmap = [canvas.width, canvas.height];
+    body.scrollTop = 37;
+    click('kana-score-btn');
+    assert.equal(container.innerHTML, writerHTML, 'the writing page is not replaced');
+    assert.equal(scorePanel.innerHTML, '', 'the score scaffold is not rebuilt');
+    assert.equal(view.engine, originalEngine);
+    assert.equal(JSON.stringify(view.engine.strokes), ink);
+    assert.deepEqual([canvas.width, canvas.height], bitmap);
+    assert.equal(resizes, 0, 'scoring never requests a new canvas size');
+    assert.equal(body.scrollTop, 37, 'scoring preserves the exact scroll offset');
+    assert.equal(element('kana-score-value').textContent, `${view.state.results[i].score} 分`);
+    assert.equal(element('kana-score-shape').textContent, `${view.state.results[i].shape} / 40`);
+    assert.equal(element('kana-undo-btn').disabled, true);
+    assert.equal(element('kana-clear-btn').disabled, true);
+    click('kana-clear-btn'); click('kana-undo-btn');
+    assert.equal(JSON.stringify(view.engine.strokes), ink, 'scored ink cannot be cleared accidentally');
+    view.scoreCurrent(container, view.state.items[i], element('kana-score-btn'));
     assert.equal(recorded.at(-1), String(i));
     assert.equal(view.state.results.length, i+1);
+    assert.equal(recorded.length, i+1, 'duplicate scoring is ignored');
+    assert.equal(completed, false, 'last score remains visible until the user exits');
+    if(i===49) {
+      assert.match(element('kana-score-feedback').textContent, /五十音手寫完成（50 題）/);
+      assert.match(element('kana-score-feedback').textContent, /平均/);
+      assert.equal(element('kana-score-btn').textContent, '完成並返回練習設定');
+    } else assert.equal(element('kana-score-btn').textContent, '下一個假名');
     click('kana-score-btn');
     if(i<49) {
       assert.equal(element('kana-reference-character').textContent,'？');
       assert.equal(element('kana-reveal-btn').hidden,false);
+      assert.equal(element('kana-score-value').textContent, '—');
+      assert.equal(element('kana-undo-btn').disabled, false);
+      assert.equal(element('kana-clear-btn').disabled, false);
     }
   }
   assert.equal(completed, true);

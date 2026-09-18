@@ -58,6 +58,7 @@ test('actual writer handlers score and pronounce current questions across 50 adv
   const context = { Views: {}, document, HandwritingEngine, escapeHTML: String,
     TTS: { stop() {}, speakKana: ch => said.push(ch) },
     KanaProgress: { recordAttempt: ch => recorded.push(ch.character) },
+    GDrive: { scheduleStudyStreakSync() {} },
     recordStudyActivity() {}, STUDY_ACTIVITY_TYPES: { KANA_HANDWRITING: 'kana' },
     showToast() {}, Router: {}, todayStr: () => '2026-09-13' };
   const source = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
@@ -66,7 +67,7 @@ test('actual writer handlers score and pronounce current questions across 50 adv
   view._bindViewportLayout = () => {};
   view._resolveLayout = () => 'tablet';
   let completed = false;
-  view.renderResult = () => { completed = true; view.engine.destroy(); };
+  view._finishWriterSession = () => { completed = true; view.engine.destroy(); };
   view.state.items = Array.from({length:50}, (_, i) => ({ id:String(i), character:String(i), romaji:'a', scriptLabel:'平假名', rowLabel:'あ行', strokes:['M0 0L10 10'], starts:[] }));
   view.state.index = 0; view.state.results = []; view.state.mode = 'recall'; view.state.autoSpeak = true;
   view.renderWriter(container);

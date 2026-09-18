@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_3';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_3';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_3';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_4';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_4';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_4';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_4_3';
-import { BackupSchema } from './backup-schema.js?v=V1_4_3';
-import { VersionManager } from './version-manager.js?v=V1_4_3';
-import { TrendChart } from './chart-renderer.js?v=V1_4_3';
-import { PUSH_CONFIG } from './push-config.js?v=V1_4_3';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_3';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_3';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_3';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_3';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_3';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_3';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_3';
+import { AppStorage } from './storage.js?v=V1_4_4';
+import { BackupSchema } from './backup-schema.js?v=V1_4_4';
+import { VersionManager } from './version-manager.js?v=V1_4_4';
+import { TrendChart } from './chart-renderer.js?v=V1_4_4';
+import { PUSH_CONFIG } from './push-config.js?v=V1_4_4';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_4';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_4';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_4';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_4';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_4';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_4';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_4';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_4_3
-// V1.4.3：iPhone 手寫完成後，分數直接顯示在筆跡下方
+// 日本語練習 PWA - app.js V1_4_4
+// V1.4.4：整組手寫完成後，最後筆跡與完整成績留在同一頁
 // ===========================
 
-const APP_VERSION = 'V1_4_3';
-const APP_DISPLAY_VERSION = 'V1.4.3';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_3';
+const APP_VERSION = 'V1_4_4';
+const APP_DISPLAY_VERSION = 'V1.4.4';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_4';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -2890,7 +2890,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_3" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_4" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -4342,7 +4342,7 @@ Views.kanaPractice = {
     });
     document.getElementById('kana-score-btn')?.addEventListener('click', event => {
       if (!this.state.scored) this.scoreCurrent(container, this.state.items[this.state.index], event.currentTarget);
-      else if (this.state.index + 1 >= this.state.items.length) this.renderResult(container);
+      else if (this.state.index + 1 >= this.state.items.length) this._finishWriterSession(container);
       else { this.state.index += 1; this.renderWriter(container); }
     });
 
@@ -4386,6 +4386,9 @@ Views.kanaPractice = {
     KanaProgress.recordAttempt(kana, result, this.state.mode);
     recordStudyActivity(STUDY_ACTIVITY_TYPES.KANA_HANDWRITING, `kana:${kana.id}:${Date.now()}`);
     const tone = result.score >= 80 ? 'excellent' : result.score >= 60 ? 'good' : 'retry';
+    const isLast = this.state.index + 1 >= this.state.items.length;
+    const average = isLast ? Math.round(this.state.results.reduce((sum, item) => sum + item.score, 0) / this.state.results.length) : 0;
+    const mastered = isLast ? this.state.results.filter(item => item.score >= 80).length : 0;
     const panel = document.getElementById('kana-score-panel');
     if (panel) panel.innerHTML = `
       <div class="kana-score-result ${tone}">
@@ -4401,9 +4404,12 @@ Views.kanaPractice = {
           <div><span>配置</span><b>${result.balance}/10</b></div>
         </div>
         <p>${result.score >= 80 ? '字形與畫數表現良好！筆順請再對照示範確認。' : result.score >= 60 ? '已接近標準，請對照淡藍色筆畫再練一次。' : '建議播放筆順動畫，留意起筆位置與筆畫順序。'}</p>
+        ${isLast ? `<div class="kana-inline-complete" role="status">
+          <strong>五十音手寫完成</strong>
+          <div><span><b>${average}</b> 平均分數</span><span><b>${mastered}/${this.state.results.length}</b> 達 80 分</span></div>
+        </div>` : ''}
       </div>`;
-    const isLast = this.state.index + 1 >= this.state.items.length;
-    button.textContent = isLast ? '查看練習結果' : '下一個假名';
+    button.textContent = isLast ? '完成並返回練習設定' : '下一個假名';
     const session = container.querySelector('.kana-session');
     session?.classList.add('is-scored');
     container.querySelector('.kana-session-actions')?.classList.add('is-scored');
@@ -4412,6 +4418,12 @@ Views.kanaPractice = {
     const resizeScoredCanvas = () => this.engine?.resize();
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(resizeScoredCanvas);
     else resizeScoredCanvas();
+    if (isLast) GDrive.scheduleStudyStreakSync(900);
+  },
+
+  _finishWriterSession(container) {
+    this.cleanup();
+    this.renderSetup(container);
   },
 
   renderResult(container) {

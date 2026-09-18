@@ -3937,7 +3937,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.4.3 藍墨: one shared visual system ===== */
+/* ===== V1.4.4 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4152,11 +4152,20 @@ body { position: relative; height: 100%; min-height: 0; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-/* ===== V1.4.3 iPhone handwriting result below ink =====
+/* ===== V1.4.4 iPhone handwriting result below ink =====
    The scored state keeps the written kana visible, uses a compact read-only
    canvas, and places the complete score immediately below it. */
 .kana-score-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .kana-score-title { color: var(--text); font-size: 16px; }
+.kana-inline-complete {
+  grid-column: 1/-1; display: grid; gap: 8px; padding: 12px;
+  border: 1px solid var(--primary-light); border-radius: 12px; background: var(--primary-faint);
+  color: var(--text); text-align: left;
+}
+.kana-inline-complete > strong { color: var(--primary); font-size: 16px; }
+.kana-inline-complete > div { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.kana-inline-complete span { display: flex; align-items: baseline; gap: 5px; color: var(--text-muted); font-size: 12px; }
+.kana-inline-complete b { color: var(--text); font-size: 18px; }
 
 @media (max-width: 759px) {
   .kana-session.is-scored .kana-session-body { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
@@ -4175,4 +4184,5 @@ body { position: relative; height: 100%; min-height: 0; }
   .kana-session.is-scored .kana-score-details span { font-size: 12px; }
   .kana-session.is-scored .kana-score-details b { font-size: 14px; }
   .kana-session.is-scored .kana-score-result p { grid-column: 1; margin: 0; min-height: 40px; display: grid; place-items: center; }
+  .kana-session.is-scored .kana-inline-complete { grid-column: 1; }
 }

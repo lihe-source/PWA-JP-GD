@@ -1,4 +1,8 @@
-# 日文練習架構 · V1.4.6
+# 日文練習架構 · V1.4.7
+
+V1.4.7 將首頁推薦單字與例句的請求狀態固定在 `Views.home`。同一日期及設定簽章只允許一個推薦請求；`_dailyVocabularySerial` 阻止過期回覆保存或更新 UI，`_dailyVocabularyRequest` 讓自動載入、手動重試與重新進入首頁共用同一 Promise。推薦詞保存與畫面顯示完成後，例句工作以獨立狀態執行，例句錯誤不再進入推薦詞的 catch 區塊。
+
+切頁不取消已送出的 API；回覆仍可安全寫入快取，但 UI 更新前重新取得目前的 `#hero-content`。返回首頁時優先讀取同一簽章的推薦快取，再以 `_dailySentenceRequests` single-flight 建立例句。這使 API 成功、保存成功與畫面成功三個狀態不會互相誤判。
 
 V1.4.6 將 Gemini 呼叫拆成「當前穩定模型清單 → 結構化 JSON 請求 → 有限重試／模型備援 → 語意驗證 → 原子保存」。每日推薦輸出額度為 1400，例句為 1600；不設定偏低溫度覆蓋 Gemini 3.x 預設。`_callModelDetailed()` 保存 HTTP 狀態、API 狀態與模型名稱，但不保存 API Key、原始提示或完整回覆。
 

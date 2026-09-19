@@ -3949,7 +3949,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.4.6 藍墨: one shared visual system ===== */
+/* ===== V1.4.7 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4164,7 +4164,7 @@ body { position: relative; height: 100%; min-height: 0; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-/* ===== V1.4.6 inline scoring, identical geometry before/after =====
+/* ===== V1.4.7 inline scoring, identical geometry before/after =====
    Reserve metrics from the start. Only values and enabled states change.
    Small/landscape screens can scroll the body, never underneath the action. */
 .kana-session .kana-session-body {

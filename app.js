@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_6';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_6';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_6';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_7';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_7';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_7';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_4_6';
-import { BackupSchema } from './backup-schema.js?v=V1_4_6';
-import { VersionManager } from './version-manager.js?v=V1_4_6';
-import { TrendChart } from './chart-renderer.js?v=V1_4_6';
-import { PUSH_CONFIG } from './push-config.js?v=V1_4_6';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_6';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_6';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_6';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_6';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_6';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_6';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_6';
+import { AppStorage } from './storage.js?v=V1_4_7';
+import { BackupSchema } from './backup-schema.js?v=V1_4_7';
+import { VersionManager } from './version-manager.js?v=V1_4_7';
+import { TrendChart } from './chart-renderer.js?v=V1_4_7';
+import { PUSH_CONFIG } from './push-config.js?v=V1_4_7';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_7';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_7';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_7';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_7';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_7';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_7';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_7';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_4_6
-// V1.4.6：更新 Gemini 模型、結構化生成、模型備援與裝置端診斷
+// 日本語練習 PWA - app.js V1_4_7
+// V1.4.7：修正首頁推薦與例句生成的狀態歸屬及並行請求競態
 // ===========================
 
-const APP_VERSION = 'V1_4_6';
-const APP_DISPLAY_VERSION = 'V1.4.6';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_6';
+const APP_VERSION = 'V1_4_7';
+const APP_DISPLAY_VERSION = 'V1.4.7';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_7';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -3020,15 +3020,20 @@ const Router = {
 };
 
 // ===== VIEWS =====
-const Views = {
-  _dailySentenceRequests: new Map(),
-  _dailySentenceSerial: 0
-};
+const Views = {};
 
 // ===========================
 // HOME VIEW
 // ===========================
 Views.home = {
+  // Request state belongs to the home view. Keeping it on the parent Views
+  // object made `this._dailySentenceRequests` undefined inside these methods,
+  // so a successfully saved word was immediately replaced by an error card.
+  _dailyVocabularyRequest: null,
+  _dailyVocabularySerial: 0,
+  _dailySentenceRequests: new Map(),
+  _dailySentenceSerial: 0,
+
   render(container) {
     const streak = StudyStreak.getSummary();
     const dailyPreferences = DB.getDailyLearningPreferences();
@@ -3036,7 +3041,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_6" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_7" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -3149,28 +3154,58 @@ Views.home = {
       : this.loadSentence(forceNew);
   },
   async loadDailyVocabulary(forceNew = false) {
-    const heroContent = document.getElementById('hero-content');
-    if (!heroContent) return;
+    let heroContent = document.getElementById('hero-content');
+    if (!heroContent) return null;
     const cached = DB.getTodayDailyVocabulary();
-    if (!forceNew && cached) { this.displayDailyVocabulary(cached); return; }
+    if (!forceNew && cached) {
+      this.displayDailyVocabulary(cached);
+      void this.ensureDailyVocabularySentence(cached);
+      return cached;
+    }
     if (!DB.getApiKey()) {
       heroContent.innerHTML = '<div class="daily-vocab-message">請先在設定頁填入 Gemini API Key，才能依等級產生推薦單字。</div>';
-      return;
+      return null;
     }
     const preferences = DB.getDailyLearningPreferences();
-    heroContent.innerHTML = '<div class="hero-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>正在產生今日推薦單字…</span></div>';
-    try {
-      const words = await Gemini.generateDailyVocabulary(preferences);
-      if (!words.length) throw new Error('PARSE_ERROR');
-      if (!document.getElementById('hero-content')) return;
-      const saved = DB.saveTodayDailyVocabulary(words);
-      this.displayDailyVocabulary(saved);
-      await this.ensureDailyVocabularySentence(saved);
-    } catch (error) {
-      if (!document.getElementById('hero-content')) return;
-      const message = Gemini.describeError(error, '推薦單字');
-      heroContent.innerHTML = `<div class="daily-vocab-message">${escapeHTML(message)}<br><span class="gemini-error-help">請點右上角重試，或到設定頁執行「測試 Gemini 連線」。</span></div>`;
+    const requestKey = dailyLearningSignature({ date: todayStr(), ...preferences });
+    if (this._dailyVocabularyRequest?.key === requestKey) {
+      heroContent.innerHTML = '<div class="hero-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>正在產生今日推薦單字…</span></div>';
+      return this._dailyVocabularyRequest.promise;
     }
+    const requestId = ++this._dailyVocabularySerial;
+    heroContent.innerHTML = '<div class="hero-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>正在產生今日推薦單字…</span></div>';
+    const promise = (async () => {
+      try {
+        const words = await Gemini.generateDailyVocabulary(preferences);
+        if (!words.length) throw new Error('PARSE_ERROR');
+        const currentPreferences = DB.getDailyLearningPreferences();
+        const currentKey = dailyLearningSignature({ date: todayStr(), ...currentPreferences });
+        if (requestId !== this._dailyVocabularySerial || currentKey !== requestKey) return null;
+        const saved = DB.saveTodayDailyVocabulary(words);
+        if (document.getElementById('hero-content')) this.displayDailyVocabulary(saved);
+        // Example generation has its own error/status handling. It must never
+        // fall through to the vocabulary catch and replace a valid word card.
+        void this.ensureDailyVocabularySentence(saved);
+        return saved;
+      } catch (error) {
+        if (requestId !== this._dailyVocabularySerial) return null;
+        const latest = DB.getTodayDailyVocabulary();
+        if (latest) {
+          if (document.getElementById('hero-content')) this.displayDailyVocabulary(latest);
+          void this.ensureDailyVocabularySentence(latest);
+          return latest;
+        }
+        heroContent = document.getElementById('hero-content');
+        if (!heroContent) return null;
+        const message = Gemini.describeError(error, '推薦單字');
+        heroContent.innerHTML = `<div class="daily-vocab-message">${escapeHTML(message)}<br><span class="gemini-error-help">請點右上角重試，或到設定頁執行「測試 Gemini 連線」。</span></div>`;
+        return null;
+      } finally {
+        if (this._dailyVocabularyRequest?.id === requestId) this._dailyVocabularyRequest = null;
+      }
+    })();
+    this._dailyVocabularyRequest = { id: requestId, key: requestKey, promise };
+    return promise;
   },
   displayDailyVocabulary(data) {
     const heroContent = document.getElementById('hero-content');

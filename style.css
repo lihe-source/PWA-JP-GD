@@ -3274,6 +3274,21 @@ html.is-offline #app { padding-top: calc(env(safe-area-inset-top, 0px) + 30px); 
 .kana-result-list strong { color: var(--danger); font-size: 12px; }
 .kana-result-list strong.is-mastered { color: var(--correct); }
 .kana-result-view .btn-secondary { margin-top: 8px; }
+.kana-result-page {
+  min-height: 100%; display: grid; align-items: center;
+  padding: 8px 0 calc(var(--nav-height) + 12px);
+}
+.kana-handwriting-result { width: min(100%, 720px); margin: 0 auto; padding: 18px; }
+.kana-result-context { margin: -10px 0 14px; color: var(--text-muted); font-size: 12px; }
+.kana-handwriting-summary { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.kana-result-list-title { margin: 2px 0 9px; color: var(--text); font-size: 14px; text-align: left; }
+.kana-handwriting-result-list {
+  max-height: min(38dvh, 360px); min-height: 92px; margin-bottom: 12px;
+  padding-right: 2px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+}
+.kana-result-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.kana-result-actions .btn-primary,
+.kana-result-actions .btn-secondary { min-height: 50px; margin: 0; }
 .kana-stats-summary { grid-template-columns: repeat(4,minmax(0,1fr)); }
 .kana-stat-card { margin: 12px 0; padding: 14px; border: 1px solid var(--border); border-radius: 17px; background: var(--card-bg); box-shadow: var(--shadow); }
 .kana-stat-card header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -3305,6 +3320,18 @@ html.is-offline #app { padding-top: calc(env(safe-area-inset-top, 0px) + 30px); 
   .kana-score-result { grid-template-columns: 70px minmax(0,1fr); }
   .kana-score-total strong { font-size: 34px; }
   .kana-score-details { grid-template-columns: repeat(5,minmax(44px,1fr)); overflow-x: auto; }
+  .kana-result-page { align-items: start; padding-top: 4px; }
+  .kana-handwriting-result { margin: 0 auto; padding: 14px; }
+  .kana-handwriting-result h1 { margin: 8px 0 14px; font-size: 21px; }
+  .kana-handwriting-summary { grid-template-columns: repeat(2,minmax(0,1fr)); margin-bottom: 11px; }
+  .kana-handwriting-summary > div { padding: 10px 6px; }
+  .kana-handwriting-summary strong { font-size: 23px; }
+  .kana-handwriting-result-list { max-height: min(34dvh, 300px); }
+  .kana-result-actions { grid-template-columns: 1fr; }
+}
+
+@media (max-height: 760px) and (max-width: 700px) {
+  .kana-handwriting-result-list { max-height: 25dvh; }
 }
 
 @media (min-width: 768px) and (pointer: coarse) {
@@ -3949,7 +3976,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.4.7 藍墨: one shared visual system ===== */
+/* ===== V1.4.9 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4164,7 +4191,7 @@ body { position: relative; height: 100%; min-height: 0; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-/* ===== V1.4.7 inline scoring, identical geometry before/after =====
+/* ===== V1.4.9 inline scoring, identical geometry before/after =====
    Reserve metrics from the start. Only values and enabled states change.
    Small/landscape screens can scroll the body, never underneath the action. */
 .kana-session .kana-session-body {

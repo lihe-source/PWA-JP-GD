@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_7';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_7';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_7';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_9';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_9';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_9';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_4_7';
-import { BackupSchema } from './backup-schema.js?v=V1_4_7';
-import { VersionManager } from './version-manager.js?v=V1_4_7';
-import { TrendChart } from './chart-renderer.js?v=V1_4_7';
-import { PUSH_CONFIG } from './push-config.js?v=V1_4_7';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_7';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_7';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_7';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_7';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_7';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_7';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_7';
+import { AppStorage } from './storage.js?v=V1_4_9';
+import { BackupSchema } from './backup-schema.js?v=V1_4_9';
+import { VersionManager } from './version-manager.js?v=V1_4_9';
+import { TrendChart } from './chart-renderer.js?v=V1_4_9';
+import { PUSH_CONFIG } from './push-config.js?v=V1_4_9';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_9';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_9';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_9';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_9';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_9';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_9';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_9';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_4_7
-// V1.4.7：修正首頁推薦與例句生成的狀態歸屬及並行請求競態
+// 日本語練習 PWA - app.js V1_4_9
+// V1.4.9：恢復手寫整組完成總結，並保留逐題同頁評分
 // ===========================
 
-const APP_VERSION = 'V1_4_7';
-const APP_DISPLAY_VERSION = 'V1.4.7';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_7';
+const APP_VERSION = 'V1_4_9';
+const APP_DISPLAY_VERSION = 'V1.4.9';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_9';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -810,9 +810,16 @@ const DB = {
       const preferences = this.getDailyLearningPreferences();
       const signature = dailyLearningSignature({ date: todayStr(), ...preferences });
       if (saved?.signature !== signature || !Array.isArray(saved.words) || !saved.words.length) return null;
-      // 每日只保留一個推薦詞；升級當天也會自動收斂舊版的五詞快取。
-      const normalized = { ...saved, words: saved.words.slice(0, 1) };
-      if (saved.words.length !== normalized.words.length) {
+      // 每日只保留一個推薦詞，且升級後會以目前勾選的「完整讀音」
+      // 規則重新驗證舊快取。任何跨入未勾選行的詞會失效並自動重生。
+      const words = normalizeDailyVocabulary(saved.words, {
+        level: preferences.level,
+        rows: preferences.rows,
+        limit: 1
+      });
+      if (!words.length) return null;
+      const normalized = { ...saved, level: preferences.level, rows: preferences.rows, words };
+      if (JSON.stringify(saved.words) !== JSON.stringify(normalized.words)) {
         AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(normalized));
       }
       return normalized;
@@ -826,7 +833,11 @@ const DB = {
       source: DAILY_LEARNING_SOURCES.LEVEL,
       level: preferences.level,
       rows: preferences.rows,
-      words: Array.isArray(words) ? words.slice(0, 1) : [],
+      words: normalizeDailyVocabulary(words, {
+        level: preferences.level,
+        rows: preferences.rows,
+        limit: 1
+      }),
       generatedAt: new Date().toISOString()
     };
     AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(data));
@@ -1683,22 +1694,37 @@ Rules:
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
     const normalized = normalizeDailyLearningPreferences({ source: DAILY_LEARNING_SOURCES.LEVEL, level, rows });
-    const rowDescription = selectedLearningRows(normalized.rows)
+    const allowedRows = selectedLearningRows(normalized.rows);
+    const rowDescription = allowedRows
       .map(row => `${row.label}（${row.kana}）`).join('、');
+    const examplesByRow = {
+      a:  { word: '愛', reading: 'あい', romaji: 'ai', partOfSpeech: '名詞', meaning: '愛、愛情' },
+      ka: { word: 'ここ', reading: 'ここ', romaji: 'koko', partOfSpeech: '代名詞', meaning: '這裡' },
+      sa: { word: '寿司', reading: 'すし', romaji: 'sushi', partOfSpeech: '名詞', meaning: '壽司' },
+      ta: { word: '父', reading: 'ちち', romaji: 'chichi', partOfSpeech: '名詞', meaning: '父親' },
+      na: { word: '何', reading: 'なに', romaji: 'nani', partOfSpeech: '代名詞', meaning: '什麼' },
+      ha: { word: '母', reading: 'はは', romaji: 'haha', partOfSpeech: '名詞', meaning: '母親' },
+      ma: { word: '耳', reading: 'みみ', romaji: 'mimi', partOfSpeech: '名詞', meaning: '耳朵' },
+      ya: { word: '湯', reading: 'ゆ', romaji: 'yu', partOfSpeech: '名詞', meaning: '熱水' },
+      ra: { word: '瑠璃', reading: 'るり', romaji: 'ruri', partOfSpeech: '名詞', meaning: '琉璃' },
+      wa: { word: '輪', reading: 'わ', romaji: 'wa', partOfSpeech: '名詞', meaning: '環、輪' }
+    };
+    const promptExample = { ...examplesByRow[allowedRows[0]?.id || 'a'], level: normalized.level };
     const prompt = `You are selecting daily Japanese vocabulary for a Traditional Chinese learner.
 
 Target level: JLPT ${normalized.level}
-Allowed initial kana rows: ${rowDescription}
+Allowed kana rows for the ENTIRE reading: ${rowDescription}
 Number of words: ${count}
 
-Choose ${count} useful, non-duplicate Japanese words commonly taught around JLPT ${normalized.level}. The full kana reading of every word MUST begin with a kana from one of the allowed rows. When several rows are selected, distribute the words across them as evenly as practical. Avoid names, brands, obsolete words, particles by themselves, and words substantially outside the target level.
+Choose ${count} useful, non-duplicate Japanese words commonly taught around JLPT ${normalized.level}. EVERY pronounced kana in the full reading MUST belong to one of the allowed rows, not only the first kana. A reading containing even one kana from an unselected row is invalid. Small っ and the long-vowel mark ー are neutral modifiers; other small kana belong to their corresponding row. For example, たべる is invalid when ら行 is not selected because る belongs to ら行. When several rows are selected, distribute the words across them as evenly as practical. Avoid names, brands, obsolete words, particles by themselves, and words substantially outside the target level.
 
 Return ONLY a JSON array with exactly ${count} objects and no markdown:
-[{"word":"愛","reading":"あい","romaji":"ai","partOfSpeech":"名詞","meaning":"愛、愛情","level":"${normalized.level}"}]
+${JSON.stringify([promptExample])}
 
 Requirements:
 - word: normal Japanese spelling (kanji/kana as commonly written)
 - reading: full hiragana reading
+- every kana in reading must be covered by the allowed rows above
 - romaji: Hepburn-style lowercase romaji
 - partOfSpeech: Traditional Chinese label
 - meaning: concise Traditional Chinese meaning
@@ -3041,7 +3067,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_7" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_9" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -4557,7 +4583,7 @@ Views.kanaPractice = {
     const average = isLast ? Math.round(this.state.results.reduce((sum, item) => sum + item.score, 0) / this.state.results.length) : 0;
     const mastered = isLast ? this.state.results.filter(item => item.score >= 80).length : 0;
     this._updateInlineScore(result, isLast ? { average, mastered, total: this.state.results.length } : null);
-    button.textContent = isLast ? '完成並返回練習設定' : '下一個假名';
+    button.textContent = isLast ? '查看練習總結' : '下一個假名';
     const session = container.querySelector('.kana-session');
     session?.classList.add('is-scored');
     container.querySelector('.kana-session-actions')?.classList.add('is-scored');
@@ -4581,7 +4607,7 @@ Views.kanaPractice = {
     }
     const feedback = document.getElementById('kana-score-feedback');
     if (feedback) feedback.textContent = completion
-      ? `五十音手寫完成（${completion.total} 題）\n平均 ${completion.average} 分・${completion.mastered} 題達 80 分`
+      ? `五十音手寫完成（${completion.total} 題）\n平均 ${completion.average} 分・${completion.mastered} 題達 80 分。請按下方查看完整總結。`
       : !result ? '寫完後按「評分」，結果會直接顯示在這裡。'
       : result.score >= 80 ? '字形與畫數表現良好！筆順請再對照示範確認。'
       : result.score >= 60 ? '已接近標準，請對照淡藍色筆畫再練一次。'
@@ -4593,8 +4619,61 @@ Views.kanaPractice = {
   },
 
   _finishWriterSession(container) {
+    this.renderResult(container);
+  },
+
+  renderResult(container) {
     this.cleanup();
-    this.renderSetup(container);
+    const results = Array.isArray(this.state.results) ? this.state.results : [];
+    if (!results.length) { this.renderSetup(container); return; }
+    const total = results.length;
+    const average = Math.round(results.reduce((sum, item) => sum + Number(item.score || 0), 0) / total);
+    const mastered = results.filter(item => Number(item.score || 0) >= 80).length;
+    const highest = Math.max(...results.map(item => Number(item.score || 0)));
+    const needsPractice = total - mastered;
+    const modeLabel = ({ trace: '描紅', copy: '臨摹', recall: '默寫' })[this.state.mode] || '手寫';
+    container.innerHTML = `
+      <div class="kana-result-page">
+        <section class="kana-result-view kana-handwriting-result" aria-labelledby="kana-result-title">
+          <span class="kana-result-mark">練習完成</span>
+          <h1 id="kana-result-title">五十音手寫總結</h1>
+          <p class="kana-result-context">${escapeHTML(modeLabel)}・${total} 題</p>
+          <div class="kana-result-summary kana-handwriting-summary" aria-label="本次手寫練習摘要">
+            <div><strong>${average}</strong><span>平均分數</span></div>
+            <div><strong>${mastered}/${total}</strong><span>達 80 分</span></div>
+            <div><strong>${highest}</strong><span>最高分數</span></div>
+            <div><strong>${needsPractice}</strong><span>需要加強</span></div>
+          </div>
+          <h2 class="kana-result-list-title">每題成績</h2>
+          <div class="kana-result-list kana-handwriting-result-list" tabindex="0" aria-label="每題手寫成績，可上下捲動">
+            ${results.map((item, index) => {
+              const score = Number(item.score || 0);
+              return `<div>
+                <b>${escapeHTML(item.kana?.character || '—')}</b>
+                <span>第 ${index + 1} 題・${escapeHTML(item.kana?.romaji || '')}</span>
+                <strong class="${score >= 80 ? 'is-mastered' : ''}">${score}</strong>
+              </div>`;
+            }).join('')}
+          </div>
+          <div class="kana-result-actions">
+            <button class="btn-primary" id="kana-result-retry" type="button">再練一次</button>
+            <button class="btn-secondary" id="kana-result-back" type="button">返回練習設定</button>
+          </div>
+        </section>
+      </div>`;
+    const scrollContainer = document.getElementById('view-container');
+    if (scrollContainer) scrollContainer.scrollTop = 0;
+    document.getElementById('kana-result-retry')?.addEventListener('click', () => {
+      const uniquePool = [...new Map(this.state.items.map(item => [item.id, item])).values()];
+      this.state.items = buildRepeatedKanaPractice(uniquePool, this.state.repeat);
+      this.state.index = 0;
+      this.state.results = [];
+      this.state.scored = false;
+      if (!this.state.items.length) { this.renderSetup(container); return; }
+      Router.handwritingActive = true;
+      this.renderWriter(container);
+    });
+    document.getElementById('kana-result-back')?.addEventListener('click', () => this.renderSetup(container));
   }
 };
 

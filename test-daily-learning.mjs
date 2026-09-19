@@ -20,10 +20,15 @@ test('daily learning settings support JLPT level and multiple kana rows', () => 
   assert.match(dailyLearningSignature({ date: '2026-08-30', ...settings }), /2026-08-30\|level\|N3\|a\+ka\+sa/);
 });
 
-test('kana rows include voiced sounds and exclude unselected rows', () => {
-  assert.equal(readingMatchesRows('がっこう', ['ka']), true);
+test('the complete reading must stay inside selected rows', () => {
+  assert.equal(readingMatchesRows('がっこう', ['ka']), false);
+  assert.equal(readingMatchesRows('がっこう', ['ka', 'a']), true);
   assert.equal(readingMatchesRows('ざっし', ['sa']), true);
   assert.equal(readingMatchesRows('あい', ['ka', 'sa']), false);
+  assert.equal(readingMatchesRows('たべる', ['a', 'ka', 'sa', 'ta', 'na', 'ha']), false);
+  assert.equal(readingMatchesRows('たべた', ['a', 'ka', 'sa', 'ta', 'na', 'ha']), true);
+  assert.equal(readingMatchesRows('キャー', ['ka']), false);
+  assert.equal(readingMatchesRows('キャー', ['ka', 'ya']), true);
 });
 
 test('recommended vocabulary always has kana and usable romaji', () => {
@@ -36,7 +41,7 @@ test('recommended vocabulary always has kana and usable romaji', () => {
     {"word":"学校","reading":"がっこう","romaji":"gakkou","partOfSpeech":"名詞","meaning":"學校","level":"N5"}
   ]
   \`\`\``, { level: 'N5', rows: ['a'], limit: 5 });
-  assert.equal(parsed.length, 2);
+  assert.equal(parsed.length, 1);
   assert.equal(parsed[0].romaji, 'ai');
   assert.equal(parsed[0].reading, 'あい');
 });
@@ -44,7 +49,7 @@ test('recommended vocabulary always has kana and usable romaji', () => {
 test('recommended vocabulary accepts a schema object wrapper from Gemini', () => {
   const parsed = parseDailyVocabularyResponse(JSON.stringify({
     words: [{ word: '傘', reading: 'かさ', romaji: 'kasa', partOfSpeech: '名詞', meaning: '雨傘', level: 'N5' }]
-  }), { level: 'N5', rows: ['ka'], limit: 1 });
+  }), { level: 'N5', rows: ['ka', 'sa'], limit: 1 });
   assert.equal(parsed.length, 1);
   assert.equal(parsed[0].word, '傘');
   assert.equal(parsed[0].romaji, 'kasa');

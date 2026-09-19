@@ -117,7 +117,7 @@ test('50 questions score inline without navigation, DOM replacement, scroll or c
     if(i===49) {
       assert.match(element('kana-score-feedback').textContent, /五十音手寫完成（50 題）/);
       assert.match(element('kana-score-feedback').textContent, /平均/);
-      assert.equal(element('kana-score-btn').textContent, '完成並返回練習設定');
+      assert.equal(element('kana-score-btn').textContent, '查看練習總結');
     } else assert.equal(element('kana-score-btn').textContent, '下一個假名');
     click('kana-score-btn');
     if(i<49) {
@@ -130,6 +130,44 @@ test('50 questions score inline without navigation, DOM replacement, scroll or c
   }
   assert.equal(completed, true);
   assert.equal(canvas.listeners.size, 0);
+});
+
+test('finished handwriting opens a summary with every score and replay controls', async () => {
+  const context = { Views: {}, document: { getElementById: () => null }, escapeHTML: String,
+    Router: {}, buildRepeatedKanaPractice: (items, repeat) => Array.from({ length: repeat }, () => items).flat() };
+  const source = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+  vm.runInNewContext(source.slice(source.indexOf('Views.kanaPractice ='), source.indexOf('Views.kanaReadingPractice =')), context);
+  const view = context.Views.kanaPractice;
+  const controls = new Map();
+  context.document.getElementById = id => {
+    if (!controls.has(id)) controls.set(id, { listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; }, scrollTop: 99 });
+    return controls.get(id);
+  };
+  const container = { innerHTML: '' };
+  view.cleanup = () => {};
+  view.renderWriter = () => { container.innerHTML = 'WRITER'; };
+  view.renderSetup = () => { container.innerHTML = 'SETUP'; };
+  view.state.mode = 'recall';
+  view.state.repeat = 1;
+  view.state.items = [
+    { id: 'a', character: 'あ', romaji: 'a' },
+    { id: 'i', character: 'い', romaji: 'i' }
+  ];
+  view.state.results = [
+    { kana: view.state.items[0], score: 92 },
+    { kana: view.state.items[1], score: 68 }
+  ];
+  view._finishWriterSession(container);
+  assert.match(container.innerHTML, /五十音手寫總結/);
+  assert.match(container.innerHTML, /<strong>80<\/strong><span>平均分數/);
+  assert.match(container.innerHTML, /1\/2<\/strong><span>達 80 分/);
+  assert.match(container.innerHTML, /あ/);
+  assert.match(container.innerHTML, /い/);
+  assert.match(container.innerHTML, /再練一次/);
+  assert.match(container.innerHTML, /返回練習設定/);
+  controls.get('kana-result-retry').listeners.click();
+  assert.equal(container.innerHTML, 'WRITER');
+  assert.equal(view.state.results.length, 0);
 });
 
 test('ink is drawn immediately even when animation frames never run', async () => {

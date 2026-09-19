@@ -54,12 +54,32 @@ export function katakanaToHiragana(value) {
   }).join('');
 }
 
+const SMALL_KANA_BASE = Object.freeze({
+  'ぁ': 'あ', 'ぃ': 'い', 'ぅ': 'う', 'ぇ': 'え', 'ぉ': 'お',
+  'ゃ': 'や', 'ゅ': 'ゆ', 'ょ': 'よ', 'ゎ': 'わ', 'ゕ': 'か', 'ゖ': 'け'
+});
+
+// 促音與長音符是讀音修飾符，不獨立歸屬任何五十音行。其餘每一個
+// 假名都必須落在使用者勾選的行內，避免只檢查第一字而讓「たべる」
+// 在未選ら行時仍被接受。
+const ROW_NEUTRAL_READING_MARKS = new Set(['っ', 'ー']);
+
 export function readingMatchesRows(reading, rows = ['all']) {
   if (!reading) return false;
   const selected = selectedLearningRows(rows);
-  if (selected.length === LEARNING_KANA_ROWS.length) return true;
-  const first = [...katakanaToHiragana(reading).replace(/[\s・ー]/g, '')][0] || '';
-  return selected.some(row => row.kana.includes(first));
+  const allowedRowIds = new Set(selected.map(row => row.id));
+  const normalized = katakanaToHiragana(reading).normalize('NFC');
+  let kanaCount = 0;
+  for (const rawCharacter of normalized) {
+    if (/[\s・]/u.test(rawCharacter) || ROW_NEUTRAL_READING_MARKS.has(rawCharacter)) continue;
+    const character = SMALL_KANA_BASE[rawCharacter] || rawCharacter;
+    const row = LEARNING_KANA_ROWS.find(candidate => candidate.kana.includes(character));
+    // A vocabulary reading must be kana-only and every pronounced kana must
+    // belong to an explicitly selected row.
+    if (!row || !allowedRowIds.has(row.id)) return false;
+    kanaCount++;
+  }
+  return kanaCount > 0;
 }
 
 const ROMAJI = Object.freeze({

@@ -41,7 +41,7 @@ test('new install icons are opaque square PNGs and versioned in the manifest', a
     assert.equal(png.subarray(1,4).toString(), 'PNG');
     assert.equal(png.readUInt32BE(16), size);
     assert.equal(png.readUInt32BE(20), size);
-    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_4_5`));
+    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_4_6`));
   }
   assert.match(await text('THIRD_PARTY_NOTICES.md'), /icons.*add a blue|icons add a blue/);
 });

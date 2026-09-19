@@ -41,6 +41,15 @@ test('recommended vocabulary always has kana and usable romaji', () => {
   assert.equal(parsed[0].reading, 'あい');
 });
 
+test('recommended vocabulary accepts a schema object wrapper from Gemini', () => {
+  const parsed = parseDailyVocabularyResponse(JSON.stringify({
+    words: [{ word: '傘', reading: 'かさ', romaji: 'kasa', partOfSpeech: '名詞', meaning: '雨傘', level: 'N5' }]
+  }), { level: 'N5', rows: ['ka'], limit: 1 });
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].word, '傘');
+  assert.equal(parsed[0].romaji, 'kasa');
+});
+
 test('generated sentences accept only the structured JSON contract', () => {
   assert.equal(parseGeneratedSentenceResponse('.)\nIdea'), null);
   assert.deepEqual(parseGeneratedSentenceResponse('```json\n{"ja":"手を洗います。","kana":"てをあらいます。","zh":"我要洗手。"}\n```'), {

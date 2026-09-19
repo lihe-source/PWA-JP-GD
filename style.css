@@ -1862,6 +1862,18 @@ a.err-back-link {
   appearance: auto;
 }
 .model-dropdown-select:focus { outline: none; border-color: var(--primary); }
+.gemini-test-button {
+  width: 100%; min-height: 44px; margin-top: 10px;
+}
+.gemini-test-status {
+  margin-top: 8px; padding: 9px 10px; border-radius: 9px;
+  background: var(--bg); border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 11px; line-height: 1.55;
+}
+.gemini-test-status.is-testing { color: var(--primary); border-color: var(--primary-soft); }
+.gemini-test-status.is-success { color: #147a4b; background: #effaf4; border-color: #9bd6b8; }
+.gemini-test-status.is-error { color: #b83a3a; background: #fff4f4; border-color: #e2aaaa; }
+.gemini-error-help { font-size: 11px; color: var(--text-muted); }
 .daily-learning-row-section {
   margin-top: 12px;
   padding-top: 12px;
@@ -3937,7 +3949,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.4.5 藍墨: one shared visual system ===== */
+/* ===== V1.4.6 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4152,7 +4164,7 @@ body { position: relative; height: 100%; min-height: 0; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-/* ===== V1.4.5 inline scoring, identical geometry before/after =====
+/* ===== V1.4.6 inline scoring, identical geometry before/after =====
    Reserve metrics from the start. Only values and enabled states change.
    Small/landscape screens can scroll the body, never underneath the action. */
 .kana-session .kana-session-body {

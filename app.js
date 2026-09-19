@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_5';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_5';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_5';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_6';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_6';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_6';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_4_5';
-import { BackupSchema } from './backup-schema.js?v=V1_4_5';
-import { VersionManager } from './version-manager.js?v=V1_4_5';
-import { TrendChart } from './chart-renderer.js?v=V1_4_5';
-import { PUSH_CONFIG } from './push-config.js?v=V1_4_5';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_5';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_5';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_5';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_5';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_5';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_5';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_5';
+import { AppStorage } from './storage.js?v=V1_4_6';
+import { BackupSchema } from './backup-schema.js?v=V1_4_6';
+import { VersionManager } from './version-manager.js?v=V1_4_6';
+import { TrendChart } from './chart-renderer.js?v=V1_4_6';
+import { PUSH_CONFIG } from './push-config.js?v=V1_4_6';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_6';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_6';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_6';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_6';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_6';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_6';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_6';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_4_5
-// V1.4.5：整組手寫完成後，最後筆跡與完整成績留在同一頁
+// 日本語練習 PWA - app.js V1_4_6
+// V1.4.6：更新 Gemini 模型、結構化生成、模型備援與裝置端診斷
 // ===========================
 
-const APP_VERSION = 'V1_4_5';
-const APP_DISPLAY_VERSION = 'V1.4.5';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_5';
+const APP_VERSION = 'V1_4_6';
+const APP_DISPLAY_VERSION = 'V1.4.6';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_6';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -772,7 +772,7 @@ const DB = {
       ? Gemini.AVAILABLE_MODELS.map(m => m.id)
       : [];
     if (saved && (!validModels.length || validModels.includes(saved))) return saved;
-    const fallback = 'gemini-3.5-flash';
+    const fallback = 'gemini-3.8-flash';
     if (saved && validModels.length && !validModels.includes(saved)) AppStorage.setItem('geminiModel', fallback);
     return fallback;
   },
@@ -1314,11 +1314,15 @@ function syncDailyReminderFromStudyDays() {
 const Gemini = {
   // All selectable models (display name -> API id)
   AVAILABLE_MODELS: [
-    { label: 'Gemini 3.5 Flash',      id: 'gemini-3.5-flash',      tag: '推薦・穩定', tier: 'stable' },
+    { label: 'Gemini 3.8 Flash',      id: 'gemini-3.8-flash',      tag: '推薦・最新穩定', tier: 'stable' },
+    { label: 'Gemini 3.7 Flash',      id: 'gemini-3.7-flash',      tag: '穩定', tier: 'stable' },
+    { label: 'Gemini 3.6 Flash',      id: 'gemini-3.6-flash',      tag: '穩定', tier: 'stable' },
+    { label: 'Gemini 3.5 Flash',      id: 'gemini-3.5-flash',      tag: '穩定', tier: 'stable' },
+    { label: 'Gemini 3.5 Flash-Lite', id: 'gemini-3.5-flash-lite', tag: '快速・穩定', tier: 'stable' },
     { label: 'Gemini 3.1 Flash-Lite', id: 'gemini-3.1-flash-lite', tag: '快速・穩定', tier: 'stable' },
-    { label: 'Gemini 2.5 Flash',      id: 'gemini-2.5-flash',      tag: '備援・穩定', tier: 'stable' },
-    { label: 'Gemini 2.5 Flash-Lite', id: 'gemini-2.5-flash-lite', tag: '省配額・穩定', tier: 'stable' },
-    { label: 'Gemini 2.5 Pro',        id: 'gemini-2.5-pro',        tag: '高階・穩定', tier: 'stable' },
+    { label: 'Gemini 2.5 Flash',      id: 'gemini-2.5-flash',      tag: '相容備援', tier: 'stable' },
+    { label: 'Gemini 2.5 Flash-Lite', id: 'gemini-2.5-flash-lite', tag: '省配額・相容備援', tier: 'stable' },
+    { label: 'Gemini 2.5 Pro',        id: 'gemini-2.5-pro',        tag: '高階・相容備援', tier: 'stable' },
     { label: 'Gemini 3.1 Pro Preview', id: 'gemini-3.1-pro-preview', tag: '預覽', tier: 'preview' },
     { label: 'Gemini 3 Flash Preview', id: 'gemini-3-flash-preview', tag: '預覽', tier: 'preview' },
   ],
@@ -1355,9 +1359,83 @@ const Gemini = {
 
   _extractText(data) { return this._extractResponse(data).text; },
 
+  _tagError(error, details = {}) {
+    const tagged = error instanceof Error ? error : new Error(String(error || 'API_ERROR'));
+    Object.assign(tagged, details);
+    return tagged;
+  },
+
+  _isSchemaCompatibilityError(error) {
+    return Number(error?.status) === 400 && /schema|responsemime|response_mime|invalid argument|unknown name/i.test(error?.message || '');
+  },
+
+  _canTryAnotherModel(error) {
+    if (!error) return false;
+    if (error.fallback) return true;
+    return /MODEL_|EMPTY_FINAL_RESPONSE|AI_OUTPUT_INVALID|PARSE_ERROR|SENTENCE_VALIDATION_FAILED|API_RESPONSE_INVALID|API_TIMEOUT/i.test(error.message || '');
+  },
+
+  describeError(error, task = 'Gemini') {
+    const status = Number(error?.status || 0);
+    const model = error?.model ? `（${error.model}）` : '';
+    const message = String(error?.message || 'API_ERROR');
+    if (message === 'NO_API_KEY') return '尚未設定 Gemini API Key。';
+    if (message === 'NETWORK_ERROR') return '瀏覽器無法連上 Gemini API；這不代表裝置斷網，可能是瀏覽器連線、內容阻擋或暫時性服務問題。';
+    if (message === 'API_TIMEOUT') return `Gemini 回應逾時${model}，系統已停止等待，請稍後重試。`;
+    if (status === 401 || status === 403 || /API_KEY_INVALID|permission denied|api key/i.test(message)) {
+      return `Gemini API Key 無效、受限制或沒有模型權限${model}。`;
+    }
+    if (status === 404 || /not found|not supported|deprecated/i.test(message)) {
+      return `所選 Gemini 模型目前不可用${model}，請改用 Gemini 3.8 Flash 或執行連線測試。`;
+    }
+    if (status === 429 || /quota|RESOURCE_EXHAUSTED|rate limit/i.test(message)) {
+      return `Gemini 配額或速率限制已達上限${model}，請稍後再試。`;
+    }
+    if (status >= 500 || /unavailable|overloaded/i.test(message)) {
+      return `Gemini 服務暫時無法完成請求${model}。`;
+    }
+    if (/AI_OUTPUT_INVALID|PARSE_ERROR|EMPTY_FINAL_RESPONSE|MODEL_MAX_TOKENS|SENTENCE_VALIDATION_FAILED/i.test(message)) {
+      return `${task}收到的 AI 內容不完整或格式不符${model}，系統已攔截，請重試。`;
+    }
+    if (status === 400) return `Gemini 拒絕此請求${model}（HTTP 400），請執行設定頁的連線測試。`;
+    return `${task}暫時無法完成${model}；請到設定頁執行 Gemini 連線測試查看原因。`;
+  },
+
+  _plainJsonBody(prompt, maxOutputTokens) {
+    return JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens }
+    });
+  },
+
+  async _callStructured(model, { prompt, responseSchema, maxOutputTokens }, apiKey, retryTransient = true) {
+    const structuredBody = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        maxOutputTokens,
+        responseMimeType: 'application/json',
+        responseSchema
+      }
+    });
+    try {
+      return await this._callModelDetailed(model, structuredBody, apiKey, 0, retryTransient);
+    } catch (error) {
+      // Some older or restricted endpoints reject responseSchema even though
+      // they can still return valid JSON. Retry once without the schema.
+      if (!this._isSchemaCompatibilityError(error)) throw error;
+      return this._callModelDetailed(
+        model,
+        this._plainJsonBody(prompt, maxOutputTokens),
+        apiKey,
+        0,
+        retryTransient
+      );
+    }
+  },
+
   async _callModelDetailed(model, body, apiKey, attempt = 0, retryTransient = true) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -1365,25 +1443,34 @@ const Gemini = {
       );
       if (!res.ok) {
         let errMsg = `HTTP ${res.status}`;
-        try { const d = await res.json(); errMsg = d.error?.message || errMsg; } catch {}
+        let apiStatus = '';
+        try {
+          const d = await res.json();
+          errMsg = d.error?.message || errMsg;
+          apiStatus = d.error?.status || '';
+        } catch {}
         const lower = String(errMsg).toLowerCase();
-        const err = new Error(errMsg);
+        const err = this._tagError(new Error(errMsg), { status: res.status, apiStatus, model });
         const apiKeyProblem = lower.includes('api key') || lower.includes('apikey') || lower.includes('permission denied') || lower.includes('authentication');
         const modelProblem = lower.includes('model') || lower.includes('not found') || lower.includes('not supported') || lower.includes('deprecated') || lower.includes('quota') || lower.includes('rate limit') || lower.includes('unavailable') || lower.includes('schema');
-        if (retryTransient && !apiKeyProblem && attempt < 1 && (res.status === 429 || res.status === 503)) {
-          await new Promise(resolve => setTimeout(resolve, 900));
+        if (retryTransient && !apiKeyProblem && attempt < 2 && [408, 429, 500, 502, 503, 504].includes(res.status)) {
+          const delay = Math.min(700 * (2 ** attempt) + Math.floor(Math.random() * 250), 2500);
+          await new Promise(resolve => setTimeout(resolve, delay));
           return this._callModelDetailed(model, body, apiKey, attempt + 1, retryTransient);
         }
-        err.fallback = !apiKeyProblem && (res.status === 404 || res.status === 429 || res.status === 503 || (res.status === 400 && modelProblem));
+        err.fallback = !apiKeyProblem && (
+          [404, 408, 429, 500, 502, 503, 504].includes(res.status) ||
+          (res.status === 400 && modelProblem)
+        );
         throw err;
       }
       const data = await res.json();
-      return this._extractResponse(data);
+      return { ...this._extractResponse(data), model };
     } catch (error) {
-      if (error?.name === 'AbortError') throw new Error('API_TIMEOUT');
-      if (error instanceof SyntaxError) throw new Error('API_RESPONSE_INVALID');
+      if (error?.name === 'AbortError') throw this._tagError(new Error('API_TIMEOUT'), { model, fallback: true });
+      if (error instanceof SyntaxError) throw this._tagError(new Error('API_RESPONSE_INVALID'), { model, fallback: true });
       if (error?.fallback !== undefined || /^HTTP\s\d+/i.test(error?.message || '') || /quota|permission|api key|model|schema/i.test(error?.message || '')) throw error;
-      if (error?.name === 'TypeError') throw new Error('NETWORK_ERROR');
+      if (error?.name === 'TypeError') throw this._tagError(new Error('NETWORK_ERROR'), { model });
       throw error;
     } finally {
       clearTimeout(timeoutId);
@@ -1532,7 +1619,7 @@ Rules:
       propertyOrdering: ['ja', 'kana', 'zh']
     };
     let lastErr = null;
-    const models = this._getModelList().slice(0, 2);
+    const models = this._getModelList().slice(0, 4);
     for (let attempt = 0; attempt < models.length; attempt++) {
       const model = models[attempt];
       const correction = lastErr?.validationReason
@@ -1551,25 +1638,20 @@ Rules:
 - kana must be the complete pronunciation of the whole Japanese sentence, with no kanji or Latin letters.
 - zh must be an accurate Traditional Chinese translation, not English.
 - Keep the sentence concise and appropriate for the requested JLPT level.${correction}`;
-      const body = JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: attempt === 0 ? 0.45 : 0.25,
-          maxOutputTokens: 480,
-          responseMimeType: 'application/json',
-          responseSchema
-        }
-      });
       try {
-        // Two sentence attempts maximum, including model fallback. A single
-        // invalid result must not fan out across the full model catalogue.
-        const response = await this._callModelDetailed(model, body, apiKey, 0, false);
+        // Gemini 3.x may spend part of the output budget on reasoning. Use a
+        // larger budget and a JSON schema so the final answer is not truncated.
+        const response = await this._callStructured(model, {
+          prompt,
+          responseSchema,
+          maxOutputTokens: 1600
+        }, apiKey, true);
         if (!response.text) {
-          lastErr = new Error('EMPTY_FINAL_RESPONSE');
+          lastErr = this._tagError(new Error('EMPTY_FINAL_RESPONSE'), { model, fallback: true });
           continue;
         }
         if (response.finishReason && response.finishReason !== 'STOP') {
-          lastErr = new Error(`MODEL_${response.finishReason}`);
+          lastErr = this._tagError(new Error(`MODEL_${response.finishReason}`), { model, fallback: true });
           continue;
         }
         const parsed = parseGeneratedSentenceResponse(response.text);
@@ -1586,11 +1668,11 @@ Rules:
             }
           };
         }
-        lastErr = new Error('SENTENCE_VALIDATION_FAILED');
+        lastErr = this._tagError(new Error('SENTENCE_VALIDATION_FAILED'), { model, fallback: true });
         lastErr.validationReason = validation.reason;
       } catch (err) {
         if (err.message === 'NETWORK_ERROR') throw err;
-        if (err.fallback || /MODEL_|EMPTY_FINAL_RESPONSE|SENTENCE_VALIDATION_FAILED|API_RESPONSE_INVALID|API_TIMEOUT/.test(err.message || '')) { lastErr = err; continue; }
+        if (this._canTryAnotherModel(err)) { lastErr = err; continue; }
         throw err;
       }
     }
@@ -1621,29 +1703,93 @@ Requirements:
 - partOfSpeech: Traditional Chinese label
 - meaning: concise Traditional Chinese meaning
 - level: exactly ${normalized.level}`;
-    const body = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.65, maxOutputTokens: 360 }
-    });
+    const responseSchema = {
+      type: 'ARRAY',
+      minItems: count,
+      maxItems: count,
+      items: {
+        type: 'OBJECT',
+        properties: {
+          word: { type: 'STRING' },
+          reading: { type: 'STRING' },
+          romaji: { type: 'STRING' },
+          partOfSpeech: { type: 'STRING' },
+          meaning: { type: 'STRING' },
+          level: { type: 'STRING' }
+        },
+        required: ['word', 'reading', 'romaji', 'partOfSpeech', 'meaning', 'level'],
+        propertyOrdering: ['word', 'reading', 'romaji', 'partOfSpeech', 'meaning', 'level']
+      }
+    };
     let best = [];
     let lastError = null;
-    for (const model of this._getModelList()) {
+    for (const model of this._getModelList().slice(0, 5)) {
       try {
-        const raw = await this._callModel(model, body, apiKey);
-        const parsed = parseDailyVocabularyResponse(raw, { level: normalized.level, rows: normalized.rows, limit: count });
+        const response = await this._callStructured(model, {
+          prompt,
+          responseSchema,
+          maxOutputTokens: 1400
+        }, apiKey, true);
+        if (!response.text) {
+          lastError = this._tagError(new Error('EMPTY_FINAL_RESPONSE'), { model, fallback: true });
+          continue;
+        }
+        if (response.finishReason && response.finishReason !== 'STOP') {
+          lastError = this._tagError(new Error(`MODEL_${response.finishReason}`), { model, fallback: true });
+          continue;
+        }
+        const parsed = parseDailyVocabularyResponse(response.text, { level: normalized.level, rows: normalized.rows, limit: count });
         if (parsed.length === count) return parsed;
         for (const word of parsed) {
           if (!best.some(item => item.word === word.word && item.reading === word.reading)) best.push(word);
           if (best.length === count) return best;
         }
-        lastError = new Error('PARSE_ERROR');
+        lastError = this._tagError(new Error('AI_OUTPUT_INVALID'), { model, fallback: true });
       } catch (error) {
         if (error.message === 'NETWORK_ERROR') throw error;
-        if (error.fallback) { lastError = error; continue; }
+        if (this._canTryAnotherModel(error)) { lastError = error; continue; }
         throw error;
       }
     }
-    throw lastError || new Error('PARSE_ERROR');
+    throw lastError || new Error('AI_OUTPUT_INVALID');
+  },
+
+  async testConnection() {
+    const apiKey = DB.getApiKey();
+    if (!apiKey) throw new Error('NO_API_KEY');
+    const responseSchema = {
+      type: 'OBJECT',
+      properties: { ok: { type: 'BOOLEAN' } },
+      required: ['ok'],
+      propertyOrdering: ['ok']
+    };
+    const prompt = 'Return exactly one JSON object confirming the API can generate content: {"ok":true}';
+    let lastError = null;
+    for (const model of this._getModelList().slice(0, 5)) {
+      try {
+        const response = await this._callStructured(model, {
+          prompt,
+          responseSchema,
+          maxOutputTokens: 256
+        }, apiKey, true);
+        const start = response.text.indexOf('{');
+        const end = response.text.lastIndexOf('}');
+        const parsed = start >= 0 && end > start
+          ? JSON.parse(response.text.slice(start, end + 1))
+          : null;
+        if (parsed?.ok === true) return { model, modelVersion: response.modelVersion || '' };
+        lastError = this._tagError(new Error('AI_OUTPUT_INVALID'), { model, fallback: true });
+      } catch (error) {
+        if (error.message === 'NETWORK_ERROR') throw error;
+        if (error instanceof SyntaxError) {
+          lastError = this._tagError(new Error('AI_OUTPUT_INVALID'), { model, fallback: true });
+          continue;
+        }
+        if (this._canTryAnotherModel(error)) { lastError = error; continue; }
+        throw error;
+      }
+    }
+    throw lastError || new Error('API_ERROR');
   },
 
 
@@ -2890,7 +3036,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_5" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_6" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -3022,12 +3168,8 @@ Views.home = {
       await this.ensureDailyVocabularySentence(saved);
     } catch (error) {
       if (!document.getElementById('hero-content')) return;
-      let message = '推薦單字產生失敗，請點右上角重試。';
-      if (error.message === 'NO_API_KEY') message = '請先在設定頁填入 Gemini API Key。';
-      else if (error.message === 'NETWORK_ERROR') message = '目前無法連線 Gemini，請確認網路後重試。';
-      else if (/quota|RESOURCE_EXHAUSTED|429/i.test(error.message || '')) message = 'Gemini 今日配額暫時不足，請稍後再試。';
-      else if (/API_KEY_INVALID|403|permission/i.test(error.message || '')) message = 'Gemini API Key 無效或沒有權限，請到設定頁確認。';
-      heroContent.innerHTML = `<div class="daily-vocab-message">${escapeHTML(message)}</div>`;
+      const message = Gemini.describeError(error, '推薦單字');
+      heroContent.innerHTML = `<div class="daily-vocab-message">${escapeHTML(message)}<br><span class="gemini-error-help">請點右上角重試，或到設定頁執行「測試 Gemini 連線」。</span></div>`;
     }
   },
   displayDailyVocabulary(data) {
@@ -3080,15 +3222,8 @@ Views.home = {
   _dailySentenceErrorMessage(error) {
     const message = String(error?.message || '');
     if (message === 'STALE_DAILY_SENTENCE_REQUEST') return '';
-    if (message === 'NETWORK_ERROR') return 'Gemini 連線失敗，推薦詞已保留；請確認連線後重試例句。';
-    if (message === 'API_TIMEOUT') return 'Gemini 回應逾時，推薦詞已保留；請稍後重試例句。';
-    if (/MODEL_MAX_TOKENS|EMPTY_FINAL_RESPONSE|SENTENCE_VALIDATION_FAILED|PARSE_ERROR|API_RESPONSE_INVALID/.test(message)) {
-      return 'AI 回覆未通過日文例句檢查，未寫入紀錄；請點右上角重試。';
-    }
-    if (/quota|RESOURCE_EXHAUSTED|429/i.test(message)) return 'Gemini 配額暫時不足，推薦詞已保留；請稍後重試例句。';
-    if (/API_KEY_INVALID|403|permission|api key/i.test(message)) return 'Gemini API Key 無效或沒有權限，請到設定頁確認。';
     if (/STORAGE_WRITE_FAILED|ATOMIC_|資料尚未完整儲存/.test(message)) return '例句已建立，但本機保存失敗；請重試儲存後再關閉程式。';
-    return '推薦詞已保留；例句建立失敗，請點右上角重試。';
+    return `推薦詞已保留；${Gemini.describeError(error, '例句建立')}`;
   },
   async ensureDailyVocabularySentence(data) {
     const word = Array.isArray(data?.words) ? data.words[0] : null;
@@ -3209,18 +3344,7 @@ Views.home = {
       this.displaySentence(entry); this.renderSentenceLog();
     } catch(e) {
       if (!document.getElementById('hero-content')) return;
-      let errText = '例句生成失敗，請點右上角重試';
-      if (e.message === 'NO_API_KEY') errText = '請先在設定頁填入 Gemini API Key';
-      else if (e.message === 'NETWORK_ERROR') errText = '網路連線失敗，請確認網路狀態後重試';
-      else if (/PARSE_ERROR|SENTENCE_VALIDATION_FAILED|EMPTY_FINAL_RESPONSE|MODEL_MAX_TOKENS/.test(e.message || '')) errText = 'AI 回應未通過例句檢查，請重試';
-      else if (e.message) {
-        const m = e.message;
-        if (m.includes('quota') || m.includes('Quota') || m.includes('RESOURCE_EXHAUSTED')) errText = '⏳ API 配額已用盡，請稍後再試';
-        else if (m.includes('API_KEY_INVALID') || m.includes('invalid')) errText = '🔑 API Key 無效，請重新確認';
-        else if (m.includes('403') || m.includes('permission')) errText = '🔑 API Key 無權限，請確認設定';
-        else if (m.includes('429')) errText = '⏳ 請求過於頻繁，請稍後再試';
-        else errText = '⚠️ API 暫時無法使用，請稍後重試';
-      }
+      const errText = Gemini.describeError(e, '例句生成');
       heroContent.innerHTML = `<div style="font-size:13px;opacity:0.85;line-height:1.6">${escapeHTML(errText)}<br><span style="font-size:11px;opacity:0.6">點右上角 ↻ 重試</span></div>`;
     }
   },
@@ -7502,6 +7626,8 @@ Views.settings = {
               ).join('')}
             </select>
           </div>
+          <button class="btn-secondary gemini-test-button" id="test-gemini-btn" type="button" ${hasKey?'':'disabled'}>測試 Gemini 連線與生成</button>
+          <div class="gemini-test-status" id="gemini-test-status" role="status" aria-live="polite">測試會實際呼叫 generateContent，並自動尋找可用的穩定模型。</div>
           <a class="api-link" href="https://aistudio.google.com/app/apikey" target="_blank">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             取得 Gemini Key（Google AI Studio）
@@ -7723,6 +7849,30 @@ Views.settings = {
     document.getElementById('gemini-model-select')?.addEventListener('change', (e) => {
       DB.saveModel(e.target.value);
       showToast('✓ 模型：' + (Gemini.AVAILABLE_MODELS.find(m=>m.id===e.target.value)?.label || e.target.value));
+    });
+    document.getElementById('test-gemini-btn')?.addEventListener('click', async event => {
+      const button = event.currentTarget;
+      const status = document.getElementById('gemini-test-status');
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = '正在測試…';
+      if (status) { status.className = 'gemini-test-status is-testing'; status.textContent = '正在驗證 API Key、模型與 JSON 生成能力…'; }
+      try {
+        const result = await Gemini.testConnection();
+        const label = Gemini.AVAILABLE_MODELS.find(item => item.id === result.model)?.label || result.model;
+        if (status) {
+          status.className = 'gemini-test-status is-success';
+          status.textContent = `連線與生成成功：${label}`;
+        }
+        showToast(`✓ Gemini 可用：${label}`, 3200);
+      } catch (error) {
+        const message = Gemini.describeError(error, 'Gemini 測試');
+        if (status) { status.className = 'gemini-test-status is-error'; status.textContent = message; }
+        showToast('Gemini 測試失敗，請查看診斷訊息', 3200);
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
     });
     document.getElementById('jlpt-level-select')?.addEventListener('change', event => {
       DB.saveDailyLearningPreferences({ level: event.target.value });

@@ -125,11 +125,29 @@ export function normalizeDailyVocabulary(items, { level = 'N5', rows = ['all'], 
 export function parseDailyVocabularyResponse(raw, options = {}) {
   const text = String(raw || '').replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim()
     .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  const start = text.indexOf('[');
-  const end = text.lastIndexOf(']');
-  if (start < 0 || end <= start) return [];
-  try { return normalizeDailyVocabulary(JSON.parse(text.slice(start, end + 1)), options); }
-  catch { return []; }
+  const parseCandidate = candidate => {
+    try {
+      const parsed = JSON.parse(candidate);
+      const items = Array.isArray(parsed)
+        ? parsed
+        : parsed?.words || parsed?.vocabulary || parsed?.items || [];
+      return normalizeDailyVocabulary(items, options);
+    } catch {
+      return [];
+    }
+  };
+  const arrayStart = text.indexOf('[');
+  const arrayEnd = text.lastIndexOf(']');
+  if (arrayStart >= 0 && arrayEnd > arrayStart) {
+    const parsed = parseCandidate(text.slice(arrayStart, arrayEnd + 1));
+    if (parsed.length) return parsed;
+  }
+  const objectStart = text.indexOf('{');
+  const objectEnd = text.lastIndexOf('}');
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    return parseCandidate(text.slice(objectStart, objectEnd + 1));
+  }
+  return [];
 }
 
 export const SENTENCE_VALIDATION_REASONS = Object.freeze({

@@ -1,4 +1,4 @@
-import { KANA_STROKES } from './kana-strokes.js?v=V1_4_9';
+import { KANA_STROKES } from './kana-strokes.js?v=V1_5_0';
 
 export const KANA_SCRIPTS = Object.freeze({
   HIRAGANA: 'hiragana',

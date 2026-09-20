@@ -47,6 +47,26 @@ export function selectedLearningRowLabel(rows = ['all']) {
     : selected.map(row => row.label).join('、');
 }
 
+/** Split plain text into exact target matches for safe UI highlighting. */
+export function splitTargetMatches(text, target) {
+  const source = String(text || '');
+  const needle = String(target || '').trim();
+  if (!source || !needle) return [{ value: source, match: false }];
+  const foldedSource = source.toLowerCase();
+  const foldedNeedle = needle.toLowerCase();
+  const segments = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const index = foldedSource.indexOf(foldedNeedle, cursor);
+    if (index < 0) break;
+    if (index > cursor) segments.push({ value: source.slice(cursor, index), match: false });
+    segments.push({ value: source.slice(index, index + needle.length), match: true });
+    cursor = index + needle.length;
+  }
+  if (cursor < source.length) segments.push({ value: source.slice(cursor), match: false });
+  return segments.length ? segments : [{ value: source, match: false }];
+}
+
 export function katakanaToHiragana(value) {
   return [...String(value || '')].map(character => {
     const code = character.charCodeAt(0);

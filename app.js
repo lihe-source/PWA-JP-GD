@@ -1,28 +1,28 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_4_9';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_4_9';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_4_9';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_0';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_0';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_0';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_4_9';
-import { BackupSchema } from './backup-schema.js?v=V1_4_9';
-import { VersionManager } from './version-manager.js?v=V1_4_9';
-import { TrendChart } from './chart-renderer.js?v=V1_4_9';
-import { PUSH_CONFIG } from './push-config.js?v=V1_4_9';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_4_9';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_4_9';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_4_9';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_4_9';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_4_9';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_4_9';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_4_9';
+import { AppStorage } from './storage.js?v=V1_5_0';
+import { BackupSchema } from './backup-schema.js?v=V1_5_0';
+import { VersionManager } from './version-manager.js?v=V1_5_0';
+import { TrendChart } from './chart-renderer.js?v=V1_5_0';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_0';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_0';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_0';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_0';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_0';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_0';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_0';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_0';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_4_9
-// V1.4.9：恢復手寫整組完成總結，並保留逐題同頁評分
+// 日本語練習 PWA - app.js V1_5_0
+// V1.5.0：同日保留多筆例句，精準反藍目標日文詞與假名讀音
 // ===========================
 
-const APP_VERSION = 'V1_4_9';
-const APP_DISPLAY_VERSION = 'V1.4.9';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_4_9';
+const APP_VERSION = 'V1_5_0';
+const APP_DISPLAY_VERSION = 'V1.5.0';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_0';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
@@ -972,20 +972,19 @@ const DB = {
   getSentenceLog() { try { return JSON.parse(AppStorage.getItem('sentenceLog') || '[]'); } catch { return []; } },
   saveSentenceToLog(entry) {
     const log = this.getSentenceLog();
-    if (entry?.source === 'daily-recommendation') {
-      for (let index = log.length - 1; index >= 0; index--) {
-        if (log[index]?.date === entry.date && log[index]?.source === 'daily-recommendation') log.splice(index, 1);
-      }
-    }
-    const key = `${entry?.date || todayStr()}|${entry?.wordEn || ''}`;
-    const duplicateIndex = log.findIndex(item =>
-      `${item?.date || ''}|${item?.wordEn || ''}` === key &&
-      item?.validationStatus !== 'invalid' && item?.source !== 'daily-recommendation-invalid'
-    );
-    const previous = duplicateIndex >= 0 ? log.splice(duplicateIndex, 1)[0] : null;
-    log.unshift({ ...previous, ...entry, id: previous?.id || Date.now().toString() });
-    if (log.length > 120) log.length = 120;
+    const now = new Date();
+    const record = {
+      ...entry,
+      id: entry?.id || `${now.getTime()}-${Math.random().toString(36).slice(2, 10)}`,
+      generatedAt: entry?.generatedAt || now.toISOString()
+    };
+    // Only an identical record id is idempotent. Different examples generated
+    // on the same day — including repeated words — remain separate records.
+    const duplicateIndex = log.findIndex(item => item?.id && item.id === record.id);
+    if (duplicateIndex >= 0) log.splice(duplicateIndex, 1);
+    log.unshift(record);
     AppStorage.setItem('sentenceLog', JSON.stringify(log));
+    return record;
   },
   quarantineInvalidSentence(entry, reason = 'INVALID_FORMAT') {
     if (!entry || entry.source === 'csv') return null;
@@ -1000,19 +999,20 @@ const DB = {
       quarantinedAt: new Date().toISOString()
     };
     if (index >= 0) log.splice(index, 1, invalid); else log.push(invalid);
-    AppStorage.setItem('sentenceLog', JSON.stringify(log.slice(0, 140)));
+    AppStorage.setItem('sentenceLog', JSON.stringify(log));
     const today = (() => { try { return JSON.parse(AppStorage.getItem('todaySentence') || 'null'); } catch { return null; } })();
     if (today && `${today.date || ''}|${today.wordEn || ''}` === key) AppStorage.removeItem('todaySentence');
     return invalid;
   },
   async saveGeneratedSentence(entry) {
+    let saved = entry;
     const commit = () => {
-      this.saveTodaySentence(entry);
-      this.saveSentenceToLog(entry);
+      saved = this.saveSentenceToLog(entry);
+      this.saveTodaySentence(saved);
     };
     if (AppStorage.getStatus().mode === 'indexeddb') await AppStorage.atomicUpdate(commit);
     else { commit(); await AppStorage.flush(); }
-    return entry;
+    return saved;
   },
   // Imported sentence bank (CSV)
   getImportedSentences() { try { return JSON.parse(AppStorage.getItem('importedSentences') || '[]'); } catch { return []; } },
@@ -1057,10 +1057,8 @@ const DB = {
     }));
     const imported = this.getImportedSentences();
     const all = [...imported, ...ai];
-    // Deduplicate by date+wordEn
-    const seen = new Set(); const unique = all.filter(e => { const k = e.date+'|'+e.wordEn; if (seen.has(k)) return false; seen.add(k); return true; });
     const header = ['date','wordJa','wordPos','wordZh','ja','reading','zh'];
-    const rows = unique.map(e => [e.date, e.wordEn, e.wordPos||'', e.wordZh||'', e.en, e.reading||'', e.zh].map(v => `"${String(v).replace(/"/g,'""')}"`));
+    const rows = all.map(e => [e.date, e.wordEn, e.wordPos||'', e.wordZh||'', e.en, e.reading||'', e.zh].map(v => `"${String(v).replace(/"/g,'""')}"`));
     return [header.join(','), ...rows.map(r => r.join(','))].join('\n');
   },
   // Combined sentence log for home display
@@ -1069,19 +1067,20 @@ const DB = {
       entry?.validationStatus !== 'invalid' && entry?.source !== 'daily-recommendation-invalid' && validateStoredGeneratedSentence(entry).ok
     );
     const imported = this.getImportedSentences();
-    // Merge, prefer AI for same date+word key
+    // Merge only exact record identities. Same-day examples for the same word
+    // are independent learning records and must all be visible.
     const seen = new Set();
     const result = [];
     [...ai, ...imported].forEach(e => {
-      const k = e.date + '|' + (e.wordEn || '');
+      const k = e.id || [e.date, e.wordEn, e.en, e.reading, e.zh, e.source].join('|');
       if (!seen.has(k)) { seen.add(k); result.push(e); }
     });
-    // Sort by date descending
+    // Sort newest first within the same date as well.
     result.sort((a, b) => {
       const da = a.date || ''; const db2 = b.date || '';
-      return db2.localeCompare(da);
+      return db2.localeCompare(da) || String(b.generatedAt || b.id || '').localeCompare(String(a.generatedAt || a.id || ''));
     });
-    return result.slice(0, 150);
+    return result;
   },
   // Get sentence for today from any source
   getTodaySentenceAny() {
@@ -2824,8 +2823,9 @@ const GDrive = {
       [...lh, ...ch].forEach(h => { if (!hm[h.date] || h.total > hm[h.date].total) hm[h.date] = h; });
       AppStorage.setItem('practiceHistory', JSON.stringify(Object.values(hm)));
       const ls = DB.getSentenceLog(); const cs = data.sentences || [];
-      const ss = new Set(ls.map(s => s.word + s.date));
-      AppStorage.setItem('sentenceLog', JSON.stringify([...ls, ...cs.filter(s => !ss.has(s.word + s.date))]));
+      const sentenceIdentity = sentence => sentence?.id || [sentence?.date, sentence?.wordEn, sentence?.en, sentence?.reading, sentence?.zh, sentence?.source].join('|');
+      const ss = new Set(ls.map(sentenceIdentity));
+      AppStorage.setItem('sentenceLog', JSON.stringify([...ls, ...cs.filter(sentence => { const key = sentenceIdentity(sentence); if (ss.has(key)) return false; ss.add(key); return true; })]));
       const li = DB.getImportedSentences(); const ci = data.imported || [];
       const iss = new Set(li.map(s => s.word + s.english));
       AppStorage.setItem('importedSentences', JSON.stringify([...li, ...ci.filter(s => !iss.has(s.word + s.english))]));
@@ -2939,6 +2939,12 @@ function highlightZh(text, wordZh) {
   tokens.sort((a,b) => b.length - a.length);
   const pattern = tokens.map(t => escapeRegex(t)).join('|');
   return safeText.replace(new RegExp(`(${pattern})`, 'g'), '<span class="hl-zh">$1</span>');
+}
+function highlightJapaneseTarget(text, target) {
+  return splitTargetMatches(text, target).map(segment => segment.match
+    ? `<mark class="hl-ja-target">${escapeHTML(segment.value)}</mark>`
+    : escapeHTML(segment.value)
+  ).join('');
 }
 const TTS = {
   _synth: window.speechSynthesis || null,
@@ -3067,7 +3073,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_4_9" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_0" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -3211,7 +3217,7 @@ Views.home = {
         if (document.getElementById('hero-content')) this.displayDailyVocabulary(saved);
         // Example generation has its own error/status handling. It must never
         // fall through to the vocabulary catch and replace a valid word card.
-        void this.ensureDailyVocabularySentence(saved);
+        void this.ensureDailyVocabularySentence(saved, { forceNew });
         return saved;
       } catch (error) {
         if (requestId !== this._dailyVocabularySerial) return null;
@@ -3268,7 +3274,7 @@ Views.home = {
   displayRecommendedSentence(entry) {
     const preview = document.getElementById('daily-sentence-preview');
     if (!preview || preview.dataset.word !== entry.wordEn) return;
-    preview.innerHTML = `<p lang="ja">${escapeHTML(entry.en)}</p><p class="daily-sentence-zh">${escapeHTML(entry.zh)}</p><button type="button" class="btn-secondary" id="daily-open-log">例句練習 <span aria-hidden="true">›</span></button>`;
+    preview.innerHTML = `<p lang="ja">${highlightJapaneseTarget(entry.en, entry.wordEn)}</p>${entry.reading ? `<p class="japanese-reading" lang="ja">${highlightJapaneseTarget(entry.reading, entry.wordReading)}</p>` : ''}<p class="daily-sentence-zh">${escapeHTML(entry.zh)}</p><button type="button" class="btn-secondary" id="daily-open-log">例句練習 <span aria-hidden="true">›</span></button>`;
     preview.querySelector('button')?.addEventListener('click', () => {
       document.querySelector('.sentence-log-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
@@ -3286,7 +3292,7 @@ Views.home = {
     if (/STORAGE_WRITE_FAILED|ATOMIC_|資料尚未完整儲存/.test(message)) return '例句已建立，但本機保存失敗；請重試儲存後再關閉程式。';
     return `推薦詞已保留；${Gemini.describeError(error, '例句建立')}`;
   },
-  async ensureDailyVocabularySentence(data) {
+  async ensureDailyVocabularySentence(data, { forceNew = false } = {}) {
     const word = Array.isArray(data?.words) ? data.words[0] : null;
     if (!word?.word) return null;
     const context = {
@@ -3298,7 +3304,7 @@ Views.home = {
       level: String(data.level || DB.getJlptLevel()),
       rows: Array.isArray(data.rows) ? [...data.rows] : ['all']
     };
-    const requestKey = `${context.date}|${context.signature}|${context.word}|${context.reading}`;
+    const requestKey = `${context.date}|${context.signature}|${context.word}|${context.reading}|${forceNew ? 'fresh' : 'reuse'}`;
     if (this._dailySentenceRequests.has(requestKey)) return this._dailySentenceRequests.get(requestKey);
 
     const request = (async () => {
@@ -3307,7 +3313,7 @@ Views.home = {
         entry?.date === context.date && entry?.source === 'daily-recommendation' &&
         normalizeJapaneseAnswer(entry?.wordEn) === normalizeJapaneseAnswer(context.word)
       );
-      if (existing) {
+      if (existing && !forceNew) {
         const validation = validateStoredGeneratedSentence(existing);
         if (validation.ok) {
           DB.saveTodaySentence(existing);
@@ -3321,9 +3327,9 @@ Views.home = {
       }
 
       const loadingStatus = getStatus();
-      if (loadingStatus) loadingStatus.textContent = existing
+      if (loadingStatus) loadingStatus.textContent = existing && !forceNew
         ? '已攔截異常舊例句，正在重新建立…'
-        : '正在建立、檢查並儲存今日例句…';
+        : forceNew ? '正在建立並保留新的例句記錄…' : '正在建立、檢查並儲存今日例句…';
       try {
         const result = await Gemini.generateSentence({
           english: context.word,
@@ -3354,13 +3360,13 @@ Views.home = {
           generation: result.generation || null,
           learningSignature: context.signature
         };
-        await DB.saveGeneratedSentence(entry);
+        const savedEntry = await DB.saveGeneratedSentence(entry) || entry;
         if (!this._dailySentenceContextIsCurrent(context)) return null;
         this.renderSentenceLog();
         const status = getStatus();
         if (status) status.textContent = '已檢查並儲存至今日例句練習';
-        this.displayRecommendedSentence(entry);
-        return entry;
+        this.displayRecommendedSentence(savedEntry);
+        return savedEntry;
       } catch (error) {
         const message = this._dailySentenceErrorMessage(error);
         const status = getStatus();
@@ -3444,8 +3450,8 @@ Views.home = {
           <span class="log-word-chip">${escapeHTML(entry.wordEn)} <span style="opacity:0.6;font-size:10px">${escapeHTML(entry.wordPos||'')}</span></span>
           ${entry.source === 'csv' ? `<span class="log-source-csv">CSV</span>` : entry.source === 'daily-recommendation' ? `<span class="log-source-csv">每日推薦</span>` : ''}
         </div>
-        <div class="log-entry-en">${highlightEn(entry.en, entry.wordEn)}</div>
-        ${entry.reading ? `<div class="japanese-reading">${escapeHTML(entry.reading)}</div>` : ''}
+        <div class="log-entry-en">${highlightJapaneseTarget(entry.en, entry.wordEn)}</div>
+        ${entry.reading ? `<div class="japanese-reading" lang="ja">${highlightJapaneseTarget(entry.reading, entry.wordReading)}</div>` : ''}
         <div class="log-entry-zh">${highlightZh(entry.zh, entry.wordZh)}</div>
       </div>`).join('')}</div>`;
   }

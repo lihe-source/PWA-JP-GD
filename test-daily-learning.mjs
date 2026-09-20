@@ -9,9 +9,26 @@ import {
   parseGeneratedSentenceResponse,
   readingMatchesRows,
   selectedLearningRowLabel,
+  splitTargetMatches,
   validateGeneratedSentence,
   validateStoredGeneratedSentence
 } from './daily-learning.js';
+
+test('sentence highlighting isolates every exact learned word and kana reading', () => {
+  assert.deepEqual(splitTargetMatches('この時計は時計です。', '時計'), [
+    { value: 'この', match: false },
+    { value: '時計', match: true },
+    { value: 'は', match: false },
+    { value: '時計', match: true },
+    { value: 'です。', match: false }
+  ]);
+  assert.deepEqual(splitTargetMatches('このとけいはいくらですか。', 'とけい'), [
+    { value: 'この', match: false },
+    { value: 'とけい', match: true },
+    { value: 'はいくらですか。', match: false }
+  ]);
+  assert.deepEqual(splitTargetMatches('<時計>', ''), [{ value: '<時計>', match: false }]);
+});
 
 test('daily learning settings support JLPT level and multiple kana rows', () => {
   const settings = normalizeDailyLearningPreferences({ source: 'level', level: 'n3', rows: ['a', 'ka', 'sa', 'bad'] });

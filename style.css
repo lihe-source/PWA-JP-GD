@@ -363,6 +363,15 @@ html, body {
 /* FIX #1: Log highlights (on white background - use dark green) */
 .log-entry-en .hl-en { color: var(--primary); font-weight: 800; }
 .log-entry-zh .hl-zh { color: var(--primary); font-weight: 800; }
+.hl-ja-target {
+  padding: 0 .08em;
+  border-radius: .22em;
+  background: var(--primary-faint);
+  color: var(--primary);
+  font-weight: 900;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
 
 .log-empty { text-align:center; padding:28px 20px; color:var(--text-muted); font-size:13px; font-weight:600; line-height:1.8; background:var(--card-bg); border-radius:var(--radius-sm); box-shadow:var(--shadow-sm); }
 
@@ -3976,7 +3985,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.4.9 藍墨: one shared visual system ===== */
+/* ===== V1.5.0 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4076,6 +4085,7 @@ body { position: relative; height: 100%; min-height: 0; }
 .daily-sentence-preview:empty { display: none; }
 .daily-sentence-preview { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .daily-sentence-preview p { font-size: 16px; line-height: 1.65; }
+.daily-sentence-preview .japanese-reading { margin-top: 2px; font-size: 14px; color: var(--text-muted); }
 .daily-sentence-preview .daily-sentence-zh { font-size: 14px; color: var(--text-muted); }
 .daily-sentence-preview button { margin-top: 8px; padding: 8px 14px; }
 .home-primary-action { margin: 0 12px 12px; }
@@ -4191,7 +4201,7 @@ body { position: relative; height: 100%; min-height: 0; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-/* ===== V1.4.9 inline scoring, identical geometry before/after =====
+/* ===== V1.5.0 inline scoring, identical geometry before/after =====
    Reserve metrics from the start. Only values and enabled states change.
    Small/landscape screens can scroll the body, never underneath the action. */
 .kana-session .kana-session-body {

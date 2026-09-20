@@ -1,4 +1,8 @@
-# 日文練習架構 · V1.4.9
+# 日文練習架構 · V1.5.0
+
+V1.5.0 將 `sentenceLog` 從「日期＋單字唯一」改為事件型紀錄。每次真正完成 Gemini 例句生成時，`saveSentenceToLog()` 建立獨立 `id` 與 `generatedAt`；只有相同 ID 的重送才具冪等性，同一天與相同單字的不同生成均保留。`getCombinedSentenceLog()`、Drive 還原合併及 CSV 匯出不再按日期＋單字去重。
+
+一般返回首頁會沿用目前推薦詞與已保存例句，不重複消耗 API；使用者主動按重新產生時，`ensureDailyVocabularySentence(..., { forceNew: true })` 會建立新例句並附加新紀錄。畫面以 `splitTargetMatches()` 切分純文字，再逐段跳脫及包上 `.hl-ja-target`，分別標示日文原詞與 `wordReading`，避免整行反藍或插入模型回傳的 HTML。
 
 V1.4.9 恢復整組手寫完成總結，同時保留 V1.4.5 起的逐題同頁評分。`scoreCurrent()` 最後一題仍只更新既有分數欄與按鈕文字，不重建 Canvas；使用者再按一次「查看練習總結」才由 `_finishWriterSession()` 進入 `renderResult()`。因此不會在評分瞬間移走最後字跡，也不會讓每題多一個結果頁。
 

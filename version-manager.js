@@ -25,6 +25,7 @@ export class VersionManager {
     this.reloadTriggered = false;
     this.reloadPending = false;
     this._controllerChangeHandler = null;
+    this._activationMessageHandler = null;
     this._watchedRegistration = null;
     this._watchedWorkers = new WeakSet();
     this.requestTimeoutMs = 8000;
@@ -78,6 +79,15 @@ export class VersionManager {
         };
         navigator.serviceWorker.addEventListener('controllerchange', this._controllerChangeHandler);
       }
+      if (!this._activationMessageHandler) {
+        this._activationMessageHandler = async event => {
+          if (event.data?.type !== 'CAN_ACTIVATE_UPDATE' || !event.ports?.[0]) return;
+          const port = event.ports[0];
+          const safe = this._isSafeToActivate() && await this._flushStorage() && this._isSafeToActivate();
+          port.postMessage({ safe });
+        };
+        navigator.serviceWorker.addEventListener('message', this._activationMessageHandler);
+      }
       if (this._watchedRegistration !== this.registration) {
         this._watchedRegistration = this.registration;
         this.registration.addEventListener('updatefound', () => this._watchInstalling(this.registration?.installing));
@@ -95,7 +105,7 @@ export class VersionManager {
     return {
       currentVersion: this.currentVersion,
       displayVersion: this.displayVersion,
-      latestVersion: this.storage?.getItem('latestKnownVersion') || this.displayVersion,
+      latestVersion: this.storage?.getItem('latestKnownVersion') || '尚未檢查',
       lastCheckedAt: this.storage?.getItem('versionLastCheckedAt') || ''
     };
   }

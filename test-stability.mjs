@@ -258,8 +258,34 @@ test('pending reminder activity keeps the earliest completion for each local day
   manager.recordPracticeCompletion({ occurredAt: '2026-09-16T09:00:00.000Z', activityType: 'next' });
   const queued = JSON.parse(values.get('dailyReminderPendingPracticeV1'));
   assert.equal(queued.length, 2);
-  assert.equal(queued[0].occurredAt, '2026-09-15T08:00:00.000Z');
-  assert.equal(queued[0].activityType, 'early');
+  assert.equal(queued[0].occurredAt, '2026-09-16T09:00:00.000Z');
+  assert.equal(queued[1].occurredAt, '2026-09-15T08:00:00.000Z');
+  assert.equal(queued[1].activityType, 'early');
+});
+
+test('an expired practice report cannot block today, and successful days are not resent', async () => {
+  const values = new Map([['dailyReminderManagementTokenV1', 'token']]);
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  const manager = new ReminderManager({ storage, config: {} });
+  manager.isBackendConfigured = () => true;
+  manager._scopeKey = async () => 'device';
+  const sent = [];
+  manager._request = async (_path, options) => {
+    const practice = JSON.parse(options.body);
+    sent.push(practice.occurredAt);
+    return { ok: true, practice };
+  };
+  const today = new Date().toISOString();
+  const stale = new Date(Date.now() - 10 * 86400000).toISOString();
+  storage.setItem('dailyReminderPendingPracticeV1', JSON.stringify([
+    { occurredAt: stale, activityType: 'old' }, { occurredAt: today, activityType: 'today' }
+  ]));
+  assert.equal(await manager.syncPracticeCompletion(), true);
+  assert.deepEqual(sent, [today]);
+  assert.equal(manager._pendingPractices().length, 0);
+  assert.equal(manager.recordPracticeCompletion({ occurredAt: today }), true);
+  await manager.syncPracticeCompletion();
+  assert.deepEqual(sent, [today]);
 });
 
 test('no-op cross-device sync does not upload an identical union', async () => {

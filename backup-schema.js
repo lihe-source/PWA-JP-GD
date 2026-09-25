@@ -27,6 +27,71 @@ function hashString(text) {
 
 function safeArray(value) { return Array.isArray(value) ? value : []; }
 
+// A count cannot establish that a backup contains the local data. Compare every
+// complete record, including duplicates in legacy arrays, before auto-restore.
+function containsAllRecords(container, subset) {
+  const available = new Map();
+  container.forEach(item => {
+    const fingerprint = stableStringify(item);
+    available.set(fingerprint, (available.get(fingerprint) || 0) + 1);
+  });
+  return subset.every(item => {
+    const fingerprint = stableStringify(item);
+    const remaining = available.get(fingerprint) || 0;
+    if (!remaining) return false;
+    available.set(fingerprint, remaining - 1);
+    return true;
+  });
+}
+
+export function mergePracticeHistory(...sources) {
+  const groups = new Map();
+  sources.flat().forEach(row => {
+    if (!row?.date) return;
+    const group = groups.get(row.date) || { date: row.date, sessions: new Map(), legacy: new Map() };
+    const sessions = safeArray(row.sessions);
+    sessions.forEach(session => {
+      if (!session || typeof session !== 'object') return;
+      const content = stableStringify(session);
+      const id = String(session.id || `legacy-session:${content}`);
+      const existing = group.sessions.get(id);
+      if (existing && stableStringify(existing) !== content) group.sessions.set(`${id}:${content}`, session);
+      else group.sessions.set(id, session);
+    });
+    let legacy = safeArray(row.legacyAggregates);
+    if (!legacy.length) {
+      const sessionTotal = sessions.reduce((sum, item) => sum + (Number(item?.total) || 0), 0);
+      const residual = Math.max(0, (Number(row.total) || 0) - sessionTotal);
+      if (residual || !sessions.length) {
+        legacy = [{
+          total: residual,
+          correct: Math.max(0, (Number(row.correct) || 0) - sessions.reduce((sum, item) => sum + (Number(item?.correct) || 0), 0)),
+          wrong: Math.max(0, (Number(row.wrong) || 0) - sessions.reduce((sum, item) => sum + (Number(item?.wrong) || 0), 0)),
+          wrongWordDetails: safeArray(row.wrongWordDetails)
+        }];
+      }
+    }
+    legacy.forEach(item => {
+      const id = item.id || `legacy:${stableStringify(item)}`;
+      group.legacy.set(id, { ...item, id });
+    });
+    groups.set(row.date, group);
+  });
+  return [...groups.values()].map(group => {
+    const sessions = [...group.sessions.values()];
+    const legacyAggregates = [...group.legacy.values()];
+    const largestLegacy = legacyAggregates.reduce((best, item) => (Number(item.total) || 0) > (Number(best.total) || 0) ? item : best, { total: 0, correct: 0, wrong: 0 });
+    const total = (Number(largestLegacy.total) || 0) + sessions.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+    const correct = (Number(largestLegacy.correct) || 0) + sessions.reduce((sum, item) => sum + (Number(item.correct) || 0), 0);
+    const wrong = (Number(largestLegacy.wrong) || 0) + sessions.reduce((sum, item) => sum + (Number(item.wrong) || 0), 0);
+    const wrongWords = new Map();
+    [...legacyAggregates, ...sessions].forEach(item => safeArray(item.wrongWordDetails).forEach(word => {
+      if (word?.english) wrongWords.set(String(word.english), word);
+    }));
+    return { date: group.date, total, correct, wrong, wrongWordDetails: [...wrongWords.values()], sessions, legacyAggregates };
+  }).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export const BackupSchema = {
   product: PRODUCT_ID,
   schemaVersion: 2,
@@ -87,6 +152,12 @@ export const BackupSchema = {
     if (COLLECTION_KEYS.some(key => collections[key].length > MAX_COLLECTION_ITEMS)) {
       return { valid: false, reason: 'COLLECTION_TOO_LARGE' };
     }
+    const invalidRecord = COLLECTION_KEYS.find(key => collections[key].some(item =>
+      key === 'boosted'
+        ? !(typeof item === 'string' || typeof item === 'number')
+        : !item || typeof item !== 'object' || Array.isArray(item)
+    ));
+    if (invalidRecord) return { valid: false, reason: `INVALID_RECORD_${invalidRecord}` };
     if (sourceSchemaVersion >= 2 && !data.payloadChecksum) return { valid: false, reason: 'CHECKSUM_REQUIRED' };
     if (data.payloadChecksum && data.payloadChecksum !== this.checksum(collections)) {
       const legacyCollections = Object.fromEntries(V1_COLLECTION_KEYS.map(key => [key, safeArray(source[key])]));
@@ -101,7 +172,10 @@ export const BackupSchema = {
         key in actualCounts && Number(data.collectionCounts[key]) !== Number(actualCounts[key]));
       if (mismatched) return { valid: false, reason: 'COUNT_MISMATCH' };
     }
-    return { valid: true, collections, legacy: sourceSchemaVersion === 1, sourceSchemaVersion };
+    return {
+      valid: true, collections, legacy: sourceSchemaVersion === 1, sourceSchemaVersion,
+      presentCollections: COLLECTION_KEYS.filter(key => Object.hasOwn(source, key))
+    };
   },
 
   attach(collections, { appVersion, deviceId, revision } = {}) {
@@ -126,10 +200,12 @@ export const BackupSchema = {
   compare(localData, cloudData) {
     const localCounts = this.counts(localData);
     const cloudCounts = this.counts(cloudData);
-    const keys = Object.keys(localCounts).filter(key => key !== 'total');
-    const cloudLess = keys.some(key => (cloudCounts[key] || 0) < (localCounts[key] || 0));
-    const cloudMore = keys.some(key => (cloudCounts[key] || 0) > (localCounts[key] || 0));
-    const sameCounts = keys.every(key => (cloudCounts[key] || 0) === (localCounts[key] || 0));
+    const local = this.normalize(localData);
+    const cloud = this.normalize(cloudData);
+    const missingLocally = COLLECTION_KEYS.filter(key => !containsAllRecords(local[key], cloud[key]));
+    const missingInCloud = COLLECTION_KEYS.filter(key => !containsAllRecords(cloud[key], local[key]));
+    const cloudContainsLocal = missingInCloud.length === 0;
+    const localContainsCloud = missingLocally.length === 0;
     const localHash = this.checksum(localData);
     const cloudHash = this.checksum(cloudData);
     return {
@@ -137,9 +213,11 @@ export const BackupSchema = {
       cloudCounts,
       localHash,
       cloudHash,
-      same: sameCounts && localHash === cloudHash,
-      conflict: (cloudLess && cloudMore) || (sameCounts && localHash !== cloudHash),
-      cloudIsStrictSuperset: cloudMore && !cloudLess
+      missingInCloud,
+      missingLocally,
+      same: cloudContainsLocal && localContainsCloud,
+      conflict: !cloudContainsLocal && !localContainsCloud,
+      cloudIsStrictSuperset: cloudContainsLocal && !localContainsCloud
     };
   }
 };

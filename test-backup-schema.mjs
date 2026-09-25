@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BackupSchema } from './backup-schema.js';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js';
 
 const collections = {
   words: [{ english: '食べる', reading: 'たべる', chinese: '吃' }],
@@ -63,6 +63,24 @@ test('identical Japanese payloads compare as the same', () => {
   assert.equal(BackupSchema.compare(first, second).same, true);
 });
 
+test('more cloud records without the local identity are a conflict, never an auto-restore', () => {
+  const local = { ...collections, words: [{ id: 'local-only', english: '犬' }] };
+  const cloud = { ...collections, words: [{ id: 'cloud-1', english: '猫' }, { id: 'cloud-2', english: '山' }] };
+  const comparison = BackupSchema.compare(local, cloud);
+  assert.equal(comparison.cloudCounts.words > comparison.localCounts.words, true);
+  assert.equal(comparison.cloudIsStrictSuperset, false);
+  assert.equal(comparison.conflict, true);
+  assert.deepEqual(comparison.missingInCloud, ['words']);
+});
+
+test('auto-restore requires exact copies of every local record, including duplicates', () => {
+  const local = { ...collections, imported: [{ en: 'A' }, { en: 'A' }] };
+  const missingDuplicate = { ...collections, imported: [{ en: 'A' }, { en: 'B' }, { en: 'C' }] };
+  assert.equal(BackupSchema.compare(local, missingDuplicate).cloudIsStrictSuperset, false);
+  const properSuperset = { ...collections, imported: [{ en: 'A' }, { en: 'A' }, { en: 'B' }] };
+  assert.equal(BackupSchema.compare(local, properSuperset).cloudIsStrictSuperset, true);
+});
+
 test('schema 1 backups remain valid after kana reading was added', () => {
   const legacyKeys = [
     'words', 'history', 'sentences', 'imported', 'boosted', 'readingQuizHistory',
@@ -78,4 +96,16 @@ test('schema 1 backups remain valid after kana reading was added', () => {
   const validation = BackupSchema.validate(payload);
   assert.equal(validation.valid, true);
   assert.deepEqual(validation.collections.kanaReadingHistory, []);
+});
+
+test('separate practice sessions on the same day survive merging and repeated imports', () => {
+  const local = [{ date: '2026/09/25', total: 2, correct: 2, wrong: 0,
+    sessions: [{ id: 'phone', total: 2, correct: 2, wrong: 0 }] }];
+  const cloud = [{ date: '2026/09/25', total: 3, correct: 2, wrong: 1,
+    sessions: [{ id: 'ipad', total: 3, correct: 2, wrong: 1 }] }];
+  const merged = mergePracticeHistory(local, cloud);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].total, 5);
+  assert.deepEqual(merged[0].sessions.map(item => item.id), ['phone', 'ipad']);
+  assert.equal(mergePracticeHistory(merged, cloud)[0].total, 5);
 });

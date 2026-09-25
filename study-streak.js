@@ -121,7 +121,10 @@ function dateOrdinal(dateKey) {
 }
 
 export function computeStudyStreak(days, { now = new Date(), timeZone = getCurrentTimeZone() } = {}) {
-  const normalized = normalizeStudyDays(days);
+  return computeStudyStreakFromNormalized(normalizeStudyDays(days), { now, timeZone });
+}
+
+function computeStudyStreakFromNormalized(normalized, { now = new Date(), timeZone = getCurrentTimeZone() } = {}) {
   const uniqueDates = normalized.map(day => day.date);
   if (!uniqueDates.length) {
     return { current: 0, longest: 0, totalDays: 0, latestDate: '', practicedToday: false };
@@ -264,16 +267,39 @@ export class StudyStreakManager {
     this.storage = storage;
     this.getDeviceId = getDeviceId;
     this.now = now;
+    this._cachedRaw = null;
+    this._cachedDays = [];
+    this._summaryCache = null;
+  }
+
+  _readDays() {
+    const raw = this.storage.getItem('studyActivityDays') || '[]';
+    if (raw !== this._cachedRaw) {
+      try { this._cachedDays = normalizeStudyDays(JSON.parse(raw)); }
+      catch { this._cachedDays = []; }
+      this._cachedRaw = raw;
+      this._summaryCache = null;
+    }
+    return this._cachedDays;
   }
 
   getDays() {
-    try { return normalizeStudyDays(JSON.parse(this.storage.getItem('studyActivityDays') || '[]')); }
-    catch { return []; }
+    return this._readDays().map(day => ({ ...day, activities: [...day.activities], eventIds: [...day.eventIds] }));
+  }
+
+  getDayKeys() { return this._readDays().map(day => day.date); }
+  getDay(date) {
+    const day = this._readDays().find(item => item.date === date);
+    return day ? { ...day, activities: [...day.activities], eventIds: [...day.eventIds] } : null;
   }
 
   saveDays(days, { markPending = true } = {}) {
     const normalized = normalizeStudyDays(days);
-    this.storage.setItem('studyActivityDays', JSON.stringify(normalized));
+    const raw = JSON.stringify(normalized);
+    this.storage.setItem('studyActivityDays', raw);
+    this._cachedRaw = raw;
+    this._cachedDays = normalized;
+    this._summaryCache = null;
     if (markPending) this.storage.setItem('studyStreakSyncPending', '1');
     return normalized;
   }
@@ -285,17 +311,28 @@ export class StudyStreakManager {
     const date = dateKeyFor(instant, timeZone);
     const deviceId = this.getDeviceId();
     const id = eventId || `${deviceId}:${type}:${Date.now()}:${globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`;
-    const next = mergeStudyDays(this.getDays(), [{
-      date,
-      timezone: timeZone,
-      activities: [type],
-      eventIds: [id],
-      sessionCount: 1,
-      firstActivityAt: iso,
-      lastActivityAt: iso
-    }]);
-    this.saveDays(next);
-    return { day: next.find(item => item.date === date), summary: this.getSummary() };
+    const days = this._readDays();
+    const index = days.findIndex(day => day.date === date);
+    const previous = index >= 0 ? days[index] : null;
+    if (previous?.eventIds.includes(id)) return { day: { ...previous }, summary: this.getSummary() };
+    const day = {
+      date, timezone: previous?.timezone || timeZone,
+      activities: [...new Set([...(previous?.activities || []), type])].sort(),
+      eventIds: [...(previous?.eventIds || []), id],
+      sessionCount: (previous?.sessionCount || 0) + 1,
+      firstActivityAt: previous?.firstActivityAt && previous.firstActivityAt < iso ? previous.firstActivityAt : iso,
+      lastActivityAt: previous?.lastActivityAt && previous.lastActivityAt > iso ? previous.lastActivityAt : iso
+    };
+    const next = [...days];
+    if (index >= 0) next[index] = day;
+    else { next.push(day); next.sort((a, b) => a.date.localeCompare(b.date)); }
+    const raw = JSON.stringify(next);
+    this.storage.setItem('studyActivityDays', raw);
+    this.storage.setItem('studyStreakSyncPending', '1');
+    this._cachedRaw = raw;
+    this._cachedDays = next;
+    this._summaryCache = null;
+    return { day: { ...day }, summary: this.getSummary() };
   }
 
   merge(days, options = {}) {
@@ -317,7 +354,12 @@ export class StudyStreakManager {
   }
 
   getSummary(options = {}) {
-    return computeStudyStreak(this.getDays(), options);
+    if (Object.keys(options).length) return computeStudyStreakFromNormalized(this._readDays(), options);
+    const today = dateKeyFor(this.now());
+    if (!this._summaryCache || this._summaryCache.today !== today) {
+      this._summaryCache = { today, value: computeStudyStreakFromNormalized(this._readDays(), { now: this.now() }) };
+    }
+    return { ...this._summaryCache.value };
   }
 
   exportCSV() { return exportStudyDaysCSV(this.getDays()); }

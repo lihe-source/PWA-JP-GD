@@ -12,7 +12,8 @@ const objectSource = app.slice(app.indexOf('const GDrive = {'), app.indexOf('// 
 function makeDrive() {
   const writes = [];
   const ctx = {
-    URLSearchParams, Response, mergeLearningStates, escapeDriveQuery, normalizeJapaneseWord,
+    URLSearchParams, Response, AbortController, setTimeout, clearTimeout,
+    mergeLearningStates, escapeDriveQuery, normalizeJapaneseWord,
     APP_DISPLAY_VERSION: 'V1.5.0', isPracticeActive: () => false, document: {}, Router: {},
     resumeAppUpdateWhenSafe() {}, refreshStudyStreakUI() {},
     DB: { getGDriveFolderId: () => "folder'one", setGDriveLastSync(value) { writes.push(['synced', value]); } },
@@ -79,6 +80,33 @@ test('a local change while snapshot is being created cancels automatic overwrite
   assert.equal(writes.length, 0);
 });
 
+test('a sign-out or account change during backup snapshot prevents old-account restore', async () => {
+  const { drive, ctx, writes } = makeDrive();
+  ctx.AppStorage.createRecoverySnapshot = async () => {
+    drive._authEpoch++;
+    return { id: 'snapshot' };
+  };
+  await assert.rejects(drive.applyDownload({ words: [{ english: 'cloud' }] }, 'overwrite'), /AUTH_CONTEXT_CHANGED/);
+  assert.equal(writes.length, 0);
+});
+
+test('an authorization callback arriving after sign-out cannot restore a token', async () => {
+  const { drive, ctx } = makeDrive();
+  let callback; let saved = false;
+  ctx.DB.getGDriveClientId = () => 'test-client';
+  ctx.AppStorage.getItem = () => '';
+  drive._loadGIS = async () => {};
+  drive._saveSession = () => { saved = true; };
+  drive._createClient = (_id, done) => ({ requestAccessToken() { callback = done; } });
+  const pending = drive._requestToken({ promptMode: 'none' });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(typeof callback, 'function');
+  drive._authEpoch++;
+  callback({ access_token: 'stale-token', expires_in: 3600 });
+  await assert.rejects(pending, /AUTH_CONTEXT_CHANGED/);
+  assert.equal(saved, false);
+});
+
 test('disk failure during restore is reported and no success timestamp is written', async () => {
   const { drive, ctx, writes } = makeDrive();
   ctx.AppStorage.flush = async () => { throw new Error('disk full'); };
@@ -102,6 +130,18 @@ test('successful restore returns only after the local flush completes', async ()
   const { drive, ctx, writes } = makeDrive(); let flushCount = 0;
   ctx.AppStorage.flush = async () => { flushCount++; };
   await drive.applyDownload({ words: [{ english: 'cloud' }] }, 'overwrite');
-  assert.equal(flushCount, 2);
+  assert.equal(flushCount, 3);
   assert.equal(writes.some(([key]) => key === 'synced'), true);
+});
+
+test('Drive timeout remains active while response body is pending', async () => {
+  const { drive, ctx } = makeDrive();
+  ctx.fetch = async (_url, options) => ({
+    body: {}, status: 200, ok: true,
+    json: () => new Promise((_, reject) => {
+      options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    })
+  });
+  const response = await drive._fetch('https://www.googleapis.com/drive/v3/files', {}, 20);
+  await assert.rejects(response.json(), /DRIVE_TIMEOUT/);
 });

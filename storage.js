@@ -38,7 +38,11 @@ export class StorageBridge {
     this.revision = 0;
     this.statusQueued = false;
     this.fallback = false;
+    this.readOnly = false;
     this.atomicStage = null;
+    this.atomicLock = false;
+    this.atomicCompletion = null;
+    this.deferredWrites = [];
 
     try {
       for (let i = 0; i < localStorage.length; i++) {
@@ -54,7 +58,13 @@ export class StorageBridge {
     if (this.ready) return this.getStatus();
     try {
       this.db = await this._open();
-      this.db.onversionchange = () => this.db?.close();
+      this.db.onversionchange = () => {
+        this.db?.close();
+        this.db = null;
+        this.readOnly = true;
+        this.failures.set('databaseVersion', new Error('DATABASE_VERSION_CHANGED'));
+        this._notifyStatus();
+      };
       const [kvRecords, collectionRows] = await Promise.all([this._getAllKvRecords(), this._getAllCollectionRows()]);
       const kv = new Map(kvRecords.map(record => [record.key, record.value]));
       kvRecords.forEach(record => {
@@ -79,8 +89,22 @@ export class StorageBridge {
       for (const key of INDEXED_KEYS) {
         const legacy = kv.has(key) ? kv.get(key) : this._localGet(key);
         if (RECORD_COLLECTIONS.has(key)) {
-          if (!this.recordCache.get(key).size && typeof legacy === 'string') {
-            try { await this._replaceCollectionRows(key, JSON.parse(legacy)); } catch {}
+          if (typeof legacy === 'string') {
+            try {
+              const parsed = JSON.parse(legacy);
+              if (!Array.isArray(parsed)) throw new Error('INVALID_LEGACY_COLLECTION');
+              const combined = normalizeRecordList(parsed);
+              this.recordCache.get(key).forEach((record, id) => combined.set(id, record));
+              if (combined.size !== this.recordCache.get(key).size) {
+                await this._replaceCollectionRows(key, [...combined.values()]);
+                this.recordCache.set(key, combined);
+                this.recordSortedCache.delete(key);
+              }
+            } catch (error) {
+              this.cache.set(key, legacy);
+              this.failures.set(`migration:${key}`, error);
+              throw error;
+            }
           }
           if (kv.has(key)) await this._deleteRecord(key);
           this.cache.delete(key);
@@ -105,6 +129,10 @@ export class StorageBridge {
       return this.getStatus();
     } catch (error) {
       console.warn('[StorageBridge] IndexedDB unavailable; using localStorage fallback.', error);
+      if (this.db) {
+        this.readOnly = true;
+        this.failures.set('databaseRead', error);
+      }
       this.fallback = true;
       this.ready = true;
       return this.getStatus();
@@ -114,18 +142,23 @@ export class StorageBridge {
   getStatus() {
     return {
       ready: this.ready,
-      mode: this.db && !this.fallback ? 'indexeddb' : 'localstorage-fallback',
+      mode: this.readOnly ? 'read-only' : this.db && !this.fallback ? 'indexeddb' : 'localstorage-fallback',
+      readOnly: this.readOnly,
       schemaVersion: 2,
-      saveState: this.failures.size ? 'error' : this.pending.size ? 'saving' : 'saved',
+      saveState: this.failures.size ? 'error' : this.pending.size || this.atomicLock ? 'saving' : 'saved',
       failedKeys: [...this.failures.keys()],
-      pendingWrites: this.pending.size,
+      pendingWrites: this.pending.size + Number(this.atomicLock) + this.deferredWrites.length,
       recordCounts: Object.fromEntries([...RECORD_COLLECTIONS].map(key => [key, this.recordCache.get(key)?.size || 0]))
     };
   }
 
   getItem(key) {
-    if (RECORD_COLLECTIONS.has(key) && this._recordStoreAvailable()) return JSON.stringify(this.getRecordCollection(key));
-    if (this.atomicStage?.kv.has(key)) return this.atomicStage.kv.get(key);
+    if (RECORD_COLLECTIONS.has(key) && (this._recordStoreAvailable() || this.readOnly)) return JSON.stringify(this.getRecordCollection(key));
+    if (this.atomicStage) {
+      if (this.atomicStage.kv.has(key)) return this.atomicStage.kv.get(key);
+      if (this.atomicStage.baseCache.has(key)) return this.atomicStage.baseCache.get(key);
+      return this._localGet(key);
+    }
     if (this.deletedKeys.has(key)) return null;
     if (this.cache.has(key)) return this.cache.get(key);
     const value = this._localGet(key);
@@ -134,6 +167,7 @@ export class StorageBridge {
   }
 
   setItem(key, value) {
+    if (this.readOnly) throw new Error('STORAGE_READ_ONLY');
     if (RECORD_COLLECTIONS.has(key) && this._recordStoreAvailable()) {
       try { this.replaceRecordCollection(key, JSON.parse(String(value))); }
       catch { this.replaceRecordCollection(key, []); }
@@ -143,31 +177,42 @@ export class StorageBridge {
     if (this.atomicStage) { this.atomicStage.kv.set(key, stringValue); return; }
     this.cache.set(key, stringValue);
     this.deletedKeys.delete(key);
+    if (this.atomicLock) { this.deferredWrites.push(() => this.setItem(key, stringValue)); this._notifyStatus(); return; }
     this._persist(key, stringValue);
   }
 
   removeItem(key) {
+    if (this.readOnly) throw new Error('STORAGE_READ_ONLY');
     if (RECORD_COLLECTIONS.has(key) && this._recordStoreAvailable()) { this.replaceRecordCollection(key, []); return; }
     if (this.atomicStage) { this.atomicStage.kv.set(key, null); return; }
     this.cache.delete(key);
     this.deletedKeys.add(key);
+    if (this.atomicLock) { this.deferredWrites.push(() => this.removeItem(key)); this._notifyStatus(); return; }
     this._persist(key, null);
   }
 
   getRecordCollection(collection) {
     if (!RECORD_COLLECTIONS.has(collection)) return [];
-    if (!this._recordStoreAvailable()) {
+    if (this.readOnly && !this.atomicStage) {
+      let legacy = [];
+      try { legacy = JSON.parse(this.cache.get(collection) || '[]'); } catch {}
+      const merged = normalizeRecordList(legacy);
+      this.recordCache.get(collection)?.forEach((record, id) => merged.set(id, record));
+      return [...merged.values()].sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+    }
+    if (!this._recordStoreAvailable() && !this.readOnly) {
       try { return JSON.parse(this.getItem(collection) || '[]'); } catch { return []; }
     }
     const staged = this.atomicStage?.collections.get(collection);
-    const map = staged || this.recordCache.get(collection) || new Map();
-    if (!staged && this.recordSortedCache.has(collection)) return this.recordSortedCache.get(collection).map(cloneRecord);
+    const map = staged || this.atomicStage?.baseRecords.get(collection) || this.recordCache.get(collection) || new Map();
+    if (!this.atomicStage && this.recordSortedCache.has(collection)) return this.recordSortedCache.get(collection).map(cloneRecord);
     const sorted = [...map.values()].map(cloneRecord).sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
-    if (!staged) this.recordSortedCache.set(collection, sorted);
+    if (!this.atomicStage) this.recordSortedCache.set(collection, sorted);
     return sorted.map(cloneRecord);
   }
 
   appendRecord(collection, record) {
+    if (this.readOnly) throw new Error('STORAGE_READ_ONLY');
     if (!RECORD_COLLECTIONS.has(collection) || !record || typeof record !== 'object') return;
     if (!this._recordStoreAvailable()) {
       const list = this.getRecordCollection(collection);
@@ -181,13 +226,15 @@ export class StorageBridge {
     if (this.atomicStage) { this._stageCollection(collection).set(id, normalized); return; }
     this.recordCache.get(collection).set(id, normalized);
     this.recordSortedCache.delete(collection);
+    if (this.atomicLock) { this.deferredWrites.push(() => this.appendRecord(collection, normalized)); this._notifyStatus(); return; }
     const revision = ++this.revision;
-    const key = `records:${collection}`;
+    const key = `records:${collection}:${id}`;
     this.revisions.set(key, revision);
     this._queue(this._putCollectionRow(collection, normalized), key, revision);
   }
 
   replaceRecordCollection(collection, records) {
+    if (this.readOnly) throw new Error('STORAGE_READ_ONLY');
     if (!RECORD_COLLECTIONS.has(collection)) return;
     const map = normalizeRecordList(records);
     if (!this._recordStoreAvailable()) {
@@ -199,15 +246,21 @@ export class StorageBridge {
     if (this.atomicStage) { this.atomicStage.collections.set(collection, map); return; }
     this.recordCache.set(collection, map);
     this.recordSortedCache.delete(collection);
+    if (this.atomicLock) { this.deferredWrites.push(() => this.replaceRecordCollection(collection, [...map.values()])); this._notifyStatus(); return; }
     const revision = ++this.revision;
-    const key = `records:${collection}`;
+    const key = `records:${collection}:replace`;
     this.revisions.set(key, revision);
-    this._queue(this._replaceCollectionRows(collection, [...map.values()]), key, revision);
+    const earlierFailures = [...this.failures.entries()].filter(([failedKey]) => failedKey.startsWith(`records:${collection}:`));
+    this._queue(this._replaceCollectionRows(collection, [...map.values()]), key, revision, () => {
+      earlierFailures.forEach(([failedKey, error]) => {
+        if (this.failures.get(failedKey) === error) this.failures.delete(failedKey);
+      });
+    });
   }
 
   _stageCollection(collection) {
     if (!this.atomicStage.collections.has(collection)) {
-      this.atomicStage.collections.set(collection, new Map(this.recordCache.get(collection) || []));
+      this.atomicStage.collections.set(collection, new Map(this.atomicStage.baseRecords.get(collection) || []));
     }
     return this.atomicStage.collections.get(collection);
   }
@@ -219,18 +272,32 @@ export class StorageBridge {
   }
 
   async atomicUpdate(mutator) {
-    if (!this.db || this.fallback) {
+    if (!this.db || this.fallback || this.readOnly) {
       const error = new Error('此裝置目前無法使用安全交易式還原，請先重新開啟 App 後再試。');
       error.code = 'ATOMIC_STORAGE_REQUIRED';
       throw error;
     }
-    if (this.atomicStage) throw new Error('ATOMIC_UPDATE_IN_PROGRESS');
-    await this.flush();
-    const stage = { kv: new Map(), collections: new Map() };
-    this.atomicStage = stage;
+    if (this.atomicLock) throw new Error('ATOMIC_UPDATE_IN_PROGRESS');
+    const baseCache = new Map(this.cache);
+    const baseRecords = new Map([...this.recordCache].map(([key, records]) => [key, new Map(records)]));
+    let complete;
+    this.atomicCompletion = new Promise(resolve => { complete = resolve; });
+    this.atomicLock = true;
+    this.failures.delete('atomicUpdate');
+    this._notifyStatus();
+    let commitStarted = false;
     try {
-      const result = mutator();
-      if (result && typeof result.then === 'function') throw new Error('ATOMIC_UPDATE_MUST_BE_SYNCHRONOUS');
+      await this._flushPending();
+      const stage = {
+        kv: new Map(), collections: new Map(), baseCache, baseRecords
+      };
+      this.atomicStage = stage;
+      let result;
+      try {
+        result = mutator();
+        if (result && typeof result.then === 'function') throw new Error('ATOMIC_UPDATE_MUST_BE_SYNCHRONOUS');
+      } finally { this.atomicStage = null; }
+      commitStarted = true;
       await this._commitAtomicStage(stage);
       stage.kv.forEach((value, key) => {
         if (value === null) { this.cache.delete(key); this.deletedKeys.add(key); }
@@ -238,10 +305,23 @@ export class StorageBridge {
         this._localRemove(key);
       });
       stage.collections.forEach((map, key) => { this.recordCache.set(key, map); this.recordSortedCache.delete(key); this._localRemove(key); });
-      this.failures.clear();
+      this.failures.delete('atomicUpdate');
       this._notifyStatus();
       return result;
-    } finally { this.atomicStage = null; }
+    } catch (error) {
+      if (commitStarted) this.failures.set('atomicUpdate', error);
+      throw error;
+    } finally {
+      this.atomicStage = null;
+      this.atomicLock = false;
+      const deferred = this.deferredWrites.splice(0);
+      deferred.forEach(write => {
+        try { write(); } catch (error) { this.failures.set('deferredWrite', error); }
+      });
+      this.atomicCompletion = null;
+      complete();
+      this._notifyStatus();
+    }
   }
 
   _persist(key, value) {
@@ -290,7 +370,19 @@ export class StorageBridge {
   }
 
   async flush() {
+    while (this.atomicCompletion || this.pending.size) {
+      if (this.atomicCompletion) await this.atomicCompletion;
+      if (this.pending.size) await Promise.all([...this.pending]);
+    }
+    this._throwIfFailed();
+  }
+
+  async _flushPending() {
     while (this.pending.size) await Promise.all([...this.pending]);
+    this._throwIfFailed();
+  }
+
+  _throwIfFailed() {
     if (this.failures.size) {
       const error = new Error('資料尚未完整儲存，請重試或先匯出備份，暫勿關閉程式。');
       error.code = 'STORAGE_WRITE_FAILED';
@@ -301,11 +393,20 @@ export class StorageBridge {
 
   async retryFailedWrites() {
     for (const key of [...this.failures.keys()]) {
-      if (key === 'recoverySnapshots' || key.startsWith('records:')) continue;
+      if (key === 'recoverySnapshots' || key === 'atomicUpdate' || key === 'deferredWrite' || key === 'databaseRead' || key === 'databaseVersion' || key.startsWith('migration:') || key.startsWith('records:')) continue;
       this._persist(key, this.deletedKeys.has(key) ? null : this.cache.get(key));
     }
     for (const collection of RECORD_COLLECTIONS) {
-      if (this.failures.has(`records:${collection}`)) this.replaceRecordCollection(collection, this.getRecordCollection(collection));
+      if (this.failures.has(`records:${collection}:replace`)) {
+        this.replaceRecordCollection(collection, this.getRecordCollection(collection));
+        continue;
+      }
+      for (const key of [...this.failures.keys()]) {
+        if (!key.startsWith(`records:${collection}:`)) continue;
+        const id = key.slice(`records:${collection}:`.length);
+        const record = this.recordCache.get(collection)?.get(id);
+        if (record) this.appendRecord(collection, record);
+      }
     }
     await this.flush();
     return this.getStatus();
@@ -392,10 +493,10 @@ export class StorageBridge {
   _getAllKvRecords() { return this._getAll(KV_STORE); }
   _getAllCollectionRows() { return this._getAll(RECORD_STORE); }
   _getAll(storeName) {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       const req = this.db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
       req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => resolve([]);
+      req.onerror = () => reject(req.error || new Error('STORAGE_READ_FAILED'));
     });
   }
 
@@ -441,8 +542,6 @@ export class StorageBridge {
       };
       cursor.onerror = () => reject(cursor.error);
       tx.oncomplete = () => {
-        this.recordCache.set(collection, normalizeRecordList(records));
-        this.recordSortedCache.delete(collection);
         resolve();
       };
       tx.onerror = tx.onabort = () => reject(tx.error);

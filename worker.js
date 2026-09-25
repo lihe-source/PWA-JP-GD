@@ -174,16 +174,41 @@ function validateSubscription(value) {
   const auth = String(value?.keys?.auth || '').trim();
   try {
     const url = new URL(endpoint);
-    if (url.protocol !== 'https:') return null;
+    const host = url.hostname.toLowerCase();
+    const provider = (host.endsWith('.push.apple.com') && host !== 'push.apple.com') ||
+      host === 'fcm.googleapis.com' || host === 'updates.push.services.mozilla.com';
+    if (url.protocol !== 'https:' || url.port || url.username || url.password || !provider) return null;
   } catch {
     return null;
   }
-  if (!endpoint || endpoint.length > 2048 || !p256dh || p256dh.length > 256 || !auth || auth.length > 128) return null;
+  const decodeKey = text => {
+    if (!/^[A-Za-z0-9_-]+$/.test(text)) return null;
+    try { return atob(text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - text.length % 4) % 4)); }
+    catch { return null; }
+  };
+  if (!endpoint || endpoint.length > 2048 || decodeKey(p256dh)?.length !== 65 || decodeKey(auth)?.length !== 16) return null;
   return { endpoint, p256dh, auth };
 }
 
 async function parseJson(request) {
-  try { return await request.json(); }
+  try {
+    if (Number(request.headers.get('Content-Length') || 0) > 8192) return null;
+    const reader = request.body?.getReader();
+    if (!reader) return null;
+    const chunks = [];
+    let size = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 8192) { await reader.cancel(); return null; }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
   catch { return null; }
 }
 
@@ -318,6 +343,7 @@ async function handleRegister(request, env) {
     if (!row) return jsonResponse(request, env, { error: '提醒憑證無效', code: 'AUTH_EXPIRED' }, 401);
   } else {
     row = await env.DB.prepare('SELECT * FROM japanese_reminders WHERE endpoint = ? LIMIT 1').bind(subscription.endpoint).first();
+    if (row) return jsonResponse(request, env, { error: '此通知訂閱已註冊，請重新建立訂閱', code: 'SUBSCRIPTION_ALREADY_REGISTERED' }, 409);
     managementToken = randomToken();
   }
 

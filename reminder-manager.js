@@ -2,6 +2,7 @@ const SETTINGS_KEY = 'dailyReminderSettingsV1';
 const TOKEN_KEY = 'dailyReminderManagementTokenV1';
 const DEVICE_SCOPE_KEY = 'dailyReminderDeviceScopeV1';
 const PENDING_PRACTICE_KEY = 'dailyReminderPendingPracticeV1';
+const ACKNOWLEDGED_PRACTICE_KEY = 'dailyReminderAcknowledgedPracticeV1';
 
 function normalizeApiBase(value) {
   const raw = String(value || '').trim().replace(/\/+$/, '');
@@ -98,6 +99,7 @@ export function reminderErrorMessage(error) {
     NETWORK_ERROR: '無法連線推播服務，請先檢查 Worker 網址、CORS 與服務狀態',
     SUBSCRIBE_FAILED: '無法建立通知訂閱，請重新開啟 PWA 後再試',
     SUBSCRIPTION_INVALID: 'iPhone 通知訂閱已失效，系統重新建立後仍失敗，請關閉 PWA 再重試',
+    SUBSCRIPTION_ALREADY_REGISTERED: '原有通知訂閱已註冊，請重新按「儲存並啟用」以建立新訂閱',
     PUSH_REJECTED: 'Apple 推播服務拒絕通知，系統已嘗試重建訂閱',
     PUSH_FAILED: '推播端拒絕測試通知，請重新「儲存並啟用」以建立新訂閱'
   };
@@ -272,11 +274,24 @@ export class ReminderManager {
         const existing = byDate.get(dateKey);
         if (!existing || occurredAt.getTime() < new Date(existing.occurredAt).getTime()) byDate.set(dateKey, normalized);
       });
-      return [...byDate.values()].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).slice(-31);
+      return [...byDate.values()].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)).slice(0, 31);
     } catch { return []; }
   }
 
   _pendingPractice() { return this._pendingPractices()[0] || null; }
+
+  _acknowledgedPractices() {
+    try { return JSON.parse(this.storage.getItem(ACKNOWLEDGED_PRACTICE_KEY) || '{}') || {}; }
+    catch { return {}; }
+  }
+
+  _acknowledgePractice(practice) {
+    const day = localDateKey(practice.occurredAt);
+    const entries = this._acknowledgedPractices();
+    entries[day] = practice.occurredAt;
+    const recent = Object.fromEntries(Object.entries(entries).sort(([a], [b]) => b.localeCompare(a)).slice(0, 31));
+    this.storage.setItem(ACKNOWLEDGED_PRACTICE_KEY, JSON.stringify(recent));
+  }
 
   _savePendingPractice(practice) {
     const merged = [...this._pendingPractices(), practice];
@@ -287,7 +302,7 @@ export class ReminderManager {
       const existing = byDate.get(dateKey);
       if (!existing || item.occurredAt < existing.occurredAt) byDate.set(dateKey, item);
     });
-    this.storage.setItem(PENDING_PRACTICE_KEY, JSON.stringify([...byDate.values()].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).slice(-31)));
+    this.storage.setItem(PENDING_PRACTICE_KEY, JSON.stringify([...byDate.values()].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)).slice(0, 31)));
   }
 
   _clearPendingPractice(occurredAt) {
@@ -326,7 +341,12 @@ export class ReminderManager {
     } catch (error) {
       if (allowTokenReset && token && error?.code === 'AUTH_EXPIRED') {
         this.storage.removeItem(TOKEN_KEY);
-        return this._register({ time, subscription, allowTokenReset: false });
+        const renewed = await this._ensureSubscription({ forceRenew: true });
+        return this._register({ time, subscription: renewed, allowTokenReset: false });
+      }
+      if (allowTokenReset && error?.code === 'SUBSCRIPTION_ALREADY_REGISTERED') {
+        const renewed = await this._ensureSubscription({ forceRenew: true });
+        return this._register({ time, subscription: renewed, allowTokenReset: false });
       }
       throw error;
     }
@@ -335,6 +355,7 @@ export class ReminderManager {
   _storeRegistration(result, time) {
     if (result.managementToken) this.storage.setItem(TOKEN_KEY, result.managementToken);
     if (result.practice?.occurredAt) {
+      this._acknowledgePractice(result.practice);
       this._clearPendingPractice(result.practice.occurredAt);
       void this.syncPracticeCompletion();
     }
@@ -417,32 +438,63 @@ export class ReminderManager {
   }
 
   async syncPracticeCompletion() {
+    if (this._practiceSyncPromise) {
+      this._practiceSyncReschedule = true;
+      return this._practiceSyncPromise;
+    }
+    const task = this._syncPracticeCompletionOnce();
+    this._practiceSyncPromise = task;
+    try { return await task; }
+    finally {
+      if (this._practiceSyncPromise === task) this._practiceSyncPromise = null;
+      if (this._practiceSyncReschedule) {
+        this._practiceSyncReschedule = false;
+        void this.syncPracticeCompletion();
+      }
+    }
+  }
+
+  async _syncPracticeCompletionOnce() {
     const token = this.storage.getItem(TOKEN_KEY) || '';
     const practices = this._pendingPractices();
-    if (!practices.length || !token || !this.isBackendConfigured()) return false;
+    if (!practices.length) return true;
+    if (!token || !this.isBackendConfigured()) return false;
     const scopeKey = await this._scopeKey();
-    let synced = 0;
     for (const practice of practices) {
+      // The Worker rejects reports older than eight days. Do not let one stale
+      // record block today's completion while the phone comes back online.
+      if (Date.now() - new Date(practice.occurredAt).getTime() >= 8 * 86400000) {
+        this._clearPendingPractice(practice.occurredAt);
+        continue;
+      }
       try {
         const result = await this._request('/api/reminders/activity', {
           method: 'POST',
           headers: this._authorizationHeaders(token),
           body: JSON.stringify({ ...practice, scopeKey })
         });
-        if (result?.practice?.occurredAt) this._clearPendingPractice(result.practice.occurredAt);
-        if (result?.ok === true) synced += 1;
+        if (result?.ok === true) {
+          this._acknowledgePractice(practice);
+          this._clearPendingPractice(practice.occurredAt);
+        }
       } catch (error) {
+        if (error?.code === 'INVALID_ACTIVITY') {
+          this._clearPendingPractice(practice.occurredAt);
+          continue;
+        }
         console.info('[DailyReminder] Practice completion sync deferred:', error?.message || error);
-        break;
+        return false;
       }
     }
-    return synced === practices.length;
+    return this._pendingPractices().length === 0;
   }
 
   recordPracticeCompletion({ occurredAt = new Date(), activityType = 'practice' } = {}) {
     const instant = occurredAt instanceof Date ? occurredAt : new Date(occurredAt);
     if (Number.isNaN(instant.getTime())) return false;
     const practice = { occurredAt: instant.toISOString(), activityType: String(activityType || 'practice').slice(0, 40) };
+    const previous = this._acknowledgedPractices()[localDateKey(instant)];
+    if (previous && previous <= practice.occurredAt) return true;
     this._savePendingPractice(practice);
     void this.syncPracticeCompletion();
     return true;

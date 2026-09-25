@@ -1,33 +1,33 @@
 const CACHE_PREFIX = 'Japanese-PWA-';
-const CACHE_NAME = 'Japanese-PWA-V1_5_0';
+const CACHE_NAME = 'Japanese-PWA-V1_5_1';
 const APP_SHELL = [
-  './learning-sync.js?v=V1_5_0',
-  './practice-lifecycle.js?v=V1_5_0',
-  './storage-status-ui.js?v=V1_5_0',
+  './learning-sync.js?v=V1_5_1',
+  './practice-lifecycle.js?v=V1_5_1',
+  './storage-status-ui.js?v=V1_5_1',
   './',
   './index.html',
-  './style.css?v=V1_5_0',
-  './app.js?v=V1_5_0',
-  './manifest.json?v=V1_5_0',
+  './style.css?v=V1_5_1',
+  './app.js?v=V1_5_1',
+  './manifest.json?v=V1_5_1',
   './version.json',
-  './storage.js?v=V1_5_0',
-  './backup-schema.js?v=V1_5_0',
-  './study-streak.js?v=V1_5_0',
-  './japanese-learning.js?v=V1_5_0',
-  './kana-data.js?v=V1_5_0',
-  './kana-strokes.js?v=V1_5_0',
-  './handwriting-engine.js?v=V1_5_0',
-  './version-manager.js?v=V1_5_0',
-  './chart-renderer.js?v=V1_5_0',
-  './push-config.js?v=V1_5_0',
-  './reminder-manager.js?v=V1_5_0',
-  './daily-learning.js?v=V1_5_0',
-  './kana-reading.js?v=V1_5_0',
+  './storage.js?v=V1_5_1',
+  './backup-schema.js?v=V1_5_1',
+  './study-streak.js?v=V1_5_1',
+  './japanese-learning.js?v=V1_5_1',
+  './kana-data.js?v=V1_5_1',
+  './kana-strokes.js?v=V1_5_1',
+  './handwriting-engine.js?v=V1_5_1',
+  './version-manager.js?v=V1_5_1',
+  './chart-renderer.js?v=V1_5_1',
+  './push-config.js?v=V1_5_1',
+  './reminder-manager.js?v=V1_5_1',
+  './daily-learning.js?v=V1_5_1',
+  './kana-reading.js?v=V1_5_1',
   './jszip.min.js?v=3_10_1',
   './icon-192.png',
   './icon-512.png',
-  './icon-192.png?v=V1_5_0',
-  './icon-512.png?v=V1_5_0'
+  './icon-192.png?v=V1_5_1',
+  './icon-512.png?v=V1_5_1'
 ];
 
 self.addEventListener('install', event => {
@@ -39,17 +39,29 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('message', event => {
-  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data?.type !== 'SKIP_WAITING') return;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const safe = await Promise.all(windows.map(client => new Promise(resolve => {
+      const channel = new MessageChannel();
+      const timeout = setTimeout(() => { channel.port1.close(); resolve(false); }, 2000);
+      channel.port1.onmessage = message => {
+        clearTimeout(timeout);
+        channel.port1.close();
+        resolve(message.data?.safe === true);
+      };
+      client.postMessage({ type: 'CAN_ACTIVATE_UPDATE' }, [channel.port2]);
+    })));
+    if (safe.every(Boolean)) await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(
-      keys
-        .filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
-        .map(key => caches.delete(key))
-    );
+    const versions = keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME);
+    const old = versions.slice(0, -1);
+    await Promise.all(old.map(key => caches.delete(key)));
     await self.clients.claim();
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     clients.forEach(client => client.postMessage({ type: 'SW_ACTIVATED', version: CACHE_NAME }));
@@ -58,21 +70,29 @@ self.addEventListener('activate', event => {
 
 async function networkFirst(request, fallbackUrl) {
   const cache = await caches.open(CACHE_NAME);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const response = await fetch(new Request(request, { cache: 'no-store' }));
+    const response = await fetch(new Request(request, { cache: 'no-store', signal: controller.signal }));
     if (response?.ok) {
       cache.put(request, response.clone()).catch(() => {});
     }
+    if (response.status >= 500) return (await cache.match(request)) || (fallbackUrl ? await cache.match(fallbackUrl) : null) || response;
     return response;
   } catch {
     return (await cache.match(request)) || (fallbackUrl ? await cache.match(fallbackUrl) : Response.error());
-  }
+  } finally { clearTimeout(timeout); }
 }
 
 async function cacheFirst(request) {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
   if (cached) return cached;
+  const versions = (await caches.keys()).filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME);
+  for (const version of versions.reverse()) {
+    const previous = await (await caches.open(version)).match(request);
+    if (previous) return previous;
+  }
   const response = await fetch(new Request(request, { cache: 'no-store' }));
   if (response?.ok) {
     cache.put(request, response.clone()).catch(() => {});
@@ -123,7 +143,11 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.endsWith('/version.json')) {
-    event.respondWith(fetch(event.request, { cache: 'no-store' }).catch(async () => {
+    event.respondWith(fetch(event.request, { cache: 'no-store' }).then(async response => {
+      if (response.status < 500) return response;
+      const cache = await caches.open(CACHE_NAME);
+      return (await cache.match(new URL('./version.json', self.location.href).href)) || response;
+    }).catch(async () => {
       const cache = await caches.open(CACHE_NAME);
       return (await cache.match(new URL('./version.json', self.location.href).href)) || Response.error();
     }));

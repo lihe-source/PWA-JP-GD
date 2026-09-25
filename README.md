@@ -1,172 +1,32 @@
-# V1.5.0 本次更新
+# 日文練習 PWA V1.5.1
 
-本版將每日推薦單字與例句改為「每次生成各自保存」。同一天按右上角重新產生多次時，每一組單字、日文例句、假名讀音及中文翻譯都會新增到每日例句記錄，不再用日期或相同單字覆蓋舊資料。Google Drive 合併、救援備份與 CSV 匯出同樣保留同日多筆。
+以 V1.5.0 的現有資料格式升級；保留六種練習、每日推薦、手寫同頁評分與完成總結。網站可在 GitHub Pages 的 `/PWA-JP-GD/` 子路徑使用。本 ZIP 只提供完整檔案，沒有自動部署。
 
-首頁例句及每日例句記錄會只把目標日文單字反藍，假名讀音列則只把該詞讀音反藍。例如「この時計はいくらですか。」只標示「時計」，「このとけいはいくらですか。」只標示「とけい」，其餘句子維持原色。AI 文字會先切成純文字片段並跳脫後才加入標示，不直接插入未信任 HTML。
+## 本版修正
 
-V1.4.9 的逐題同頁評分、整組手寫總結，以及 V1.4.8 的完整五十音行驗證皆保留。從 V1.4.9 更新時，將本包 46 個同層檔案覆寫至 GitHub main 根目錄，等待 Pages 完成後到設定頁按「檢查更新」，確認版本為 V1.5.0。此修正不變更 Cloudflare Worker、D1、通知訂閱或 VAPID；不需執行 `db:init` 或重新部署 Worker。
+- 儲存交易依序提交，失敗會回報；舊資料搬移成功前保留原始資料。
+- 雲端備份按紀錄身分比較，分岔資料不因筆數較多就自動覆蓋；同日多次練習及多筆例句保留。
+- 例句的 ID、讀音、時間與跨行內容可經 CSV 往返；切頁後完成的生成會存入歷史。首頁例句紀錄先顯示 40 筆，可繼續載入。
+- Gemini 設定頁按金鑰查詢支援文字生成的模型，並以正式例句格式測試生成；測試句不寫入學習記錄。短例句與每日推薦有 60 秒及 3 次 HTTP 請求上限。
+- Google Drive 回應內容的讀取也有逾時控制；登出、切換帳號或資料夾後，過期授權與還原結果不能覆蓋目前資料。
+- 每日通知的完成回報優先傳送今天，略過過期紀錄，同一天已確認的結果不再每題重送。Worker 加強訂閱目的地與輸入驗證。
+- PWA 更新會等待儲存與使用中頁面安全，再切換新版；保留上一版快取作離線回退。
 
-回歸測試涵蓋同日多筆保存、強制重新產生新例句、日文與假名精準標示、備份合併、CSV 匯出，以及既有推薦詞、手寫、讀音與通知功能。
+完整技術變更見 `CHANGELOG.md`。手寫卡頓診斷可在設定頁開啟；桌面回歸測試無法證明 iPhone、iPad 及 Apple Pencil 的真機延遲已消失。
 
-## V1.4.6 Gemini 模型與生成可靠性
+交接文件中的長期結構項目仍需後續分版處理：將所有例句搬成逐筆索引、5 萬筆資料效能基準、Worker 端限流與跨表原子修復，以及裝置上的音訊／推播／手寫實測。本版沒有執行這些高風險資料搬移或雲端部署。
 
-本版修正同一組 API Key 在其他程式可用、但本 PWA 無法產生推薦單字或例句的路徑。問題不是單純的 VPN 或裝置斷網：舊程式只給每日推薦 360 個輸出 Token，未要求結構化 JSON，且遇到模型、配額、權限或回覆格式錯誤時，首頁只顯示一般失敗訊息。Gemini 3.x 可能先使用輸出額度進行推理，導致最後內容為空、遭截斷或不能通過原本只接受 JSON 陣列的解析器。
+## 使用完整 ZIP
 
-V1.4.6 將模型清單更新為 Gemini 3.8／3.7／3.6／3.5 Flash、3.5／3.1 Flash-Lite、2.5 Flash／Flash-Lite／Pro，以及兩個既有預覽模型；新安裝預設 Gemini 3.8 Flash。每日推薦與例句都使用 JSON Schema，輸出額度分別提高至 1400 與 1600。所選模型不可用時會依序切換穩定模型；舊端點不接受 Schema 時會改用純 JSON 指令重試。429、408 與 5xx 會有限重試，API Key／權限／模型／配額／逾時／格式問題會顯示不同訊息，不再全部寫成網路問題。
+解壓後，ZIP 內只有一層同名資料夾。需要自行發布時，將該資料夾**內**的檔案放在 Repository 根目錄，使 `index.html` 位於根目錄。不要上傳外層資料夾、`node_modules` 或先刪除網站資料。這次沒有替使用者寫入 GitHub 或 Cloudflare。
 
-設定頁新增「測試 Gemini 連線與生成」。此按鈕會使用已儲存的 Key 實際呼叫 `generateContent`，並顯示成功模型或安全的失敗原因；不會顯示或上傳完整 Key。更新後請先按此按鈕，再回首頁按右上角重新產生。若所選模型不可用但其他穩定模型成功，程式會自動完成，不需反覆手動改選。
+更新前先在設定頁匯出救援備份。更新後檢查首頁及設定頁版本都是 V1.5.1，並實測一輪手寫、讀音、例句生成與備份。現有 IndexedDB、Google OAuth 設定、D1 綁定及 VAPID Key 不因本版改變。
 
-從 V1.4.5 升級：先完成 Google Drive 備份，再將本包 46 個同層檔案覆寫至 GitHub main 根目錄。開啟 App 後到設定頁檢查更新；練習或儲存中會等安全時機才套用。確認版本為 V1.4.6，請勿清除網站資料。本次純前端更新，不需執行 `db:init`、部署 Worker、重建 D1 或更換 VAPID。
+如果只使用前端修正，不需執行 `db:init`。只有要讓新的通知 Worker 驗證在雲端生效時，才需自行部署 Worker；既有 D1 資料及 VAPID Key 應保留。
 
-`npm run check` 執行語法檢查，`npm test` 執行完整回歸，另以模擬 Gemini 回覆驗證結構化請求、模型 404 備援、Schema 400 相容重試，以及 JSON 陣列／物件包裝解析。因 API Key 只存於使用者裝置，交付測試不會呼叫使用者的真實 Gemini 帳號；實機端到端結果請以設定頁測試按鈕為準。Google Drive、OAuth、推播、手寫、讀音、統計、備份資料格式與 V1.4.5 同頁評分功能均保留。
+## 本機檢查
 
-## V1.3.7 既有功能
-
-本版改善五十音手寫起筆及換題效能，沿用同一畫布，並快取評分底稿。手寫設定「更多設定」新增書寫工具，可選自動、僅 Apple Pencil／觸控筆、手指／滑鼠；iPad 使用 Pencil 時可選僅 Pencil，避免手掌誤觸。
-
-若仍有卡頓，可開啟同區塊的「顯示書寫診斷」並錄影，診斷僅在本機顯示。保留原本評分、每題儲存、自動發音、讀音錯題補練及貼底導覽。從 V1.3.6 更新只需 GitHub Pages 前端發布；不需要重新部署 Cloudflare 或執行 db:init。Worker 線上仍顯示前版版本屬正常。
-
-驗證包含自動化輸入、畫布重用、快取評分一致性及既有回歸測試；不代表已完成 iPad／iPhone 真機 Pencil 延遲測量。
-
-五十音讀音每答錯一次，尾端追加一次補練，直到追加題也完成答對。原定 25 題、共答錯 3 次，實際完成 28 題。所有作答計入統計。
-
-將本資料夾內檔案上傳 GitHub 專案根目錄並覆蓋同名檔案，等待 Pages 發布，重新開啟 PWA，確認版本 V1.3.7。從已完成部署的 V1.3.5 升級，本次不需重新初始化 D1 或部署 Worker。
-
-# 日文練習 · 藍墨 V1.3.7
-
-GitHub Pages： https://lihe-source.github.io/PWA-JP-GD/
-
-本版以使用者已確認的 V1.3.4 為基底：若使用者在設定的提醒時間前已完成任一正式練習，Cloudflare 當天就不發送每日練習通知，隔天恢復判斷。保留貼底排版、讀音隱藏提示、資料、帳戶與原通知訂閱。
-
-## 這次更新
-
-- 單字拼寫、五十音手寫、五十音讀音、閱讀、文章撰寫或 AI 詢問完成時，都會寫入正式練習日並同步完成時間。
-- Worker 排程在發送前依該訂閱的時區核對：同一天、且完成時間早於或等於原定提醒時間，就略過當天通知。
-- 完成判斷和通知訂閱一樣以裝置為單位；每台裝置只傳送隨機識別的匿名雜湊，不傳 Email 或 Google Token。
-- 測試通知仍會立即發送，不受「今日已完成」影響，方便測試通知本身。
-- 離線完成先留在本機，恢復網路後自動重試；若直到提醒時間後仍無法連上 Worker，雲端排程無法預先知道該次完成。
-- 上傳本包 46 個同層檔案後，確認版本為 V1.3.7。此版須建立兩個 D1 輔助表並重新部署 Worker，但不必更換 VAPID Keys 或重新建立 D1。
-
-### 保留已確認的貼底排版
-
-- 與英文版相同，viewport 由瀏覽器管理安全邊界，移除 viewport-fit=cover；頁面仍允許正常縮放。
-- 導覽列固定於 bottom: 0，基準高度 64px；保留環境提供的安全區 fallback，移除日文版額外的底部內距與獨立滿版高度。
-- App 內容區預留與導覽列相同的高度。手寫評分／下一題仍有獨立操作列，內容能完整捲動至最下方。
-- 藍色選取狀態、至少 48px 導覽觸控目標與 iPad／桌面側邊導覽保留；寬版移除底部預留，避免側邊導覽時仍出現底部空白。
-- 這次以程式語法及自動化回歸檢查驗證；未在 iPhone／iPad 實機驗證顯示。更新後請確認首頁底部與手寫操作列，並試一次直橫向切換及讀音鍵盤。
-
-### 保留 V1.3.0 設計
-
-- 首頁：品牌列、連續／歷史最長天數、真實本週紀錄、每日推薦與例句，以及手寫／讀音捷徑。
-- 例句與天數使用實際資料，不含提案圖的範例數字。未設定 Gemini 或沒有紀錄時會顯示說明。
-- 所有練習模式共用緊湊選單、霧藍選取狀態與統一按鈕。
-- iPhone 手寫：上方題目、可捲動內容、獨立的評分／下一題操作列；操作列不蓋住畫布或成績。
-- iPad 寬版：左側範例與評分，右側正方形畫布與操作列。以視窗寬度適應橫豎向及分割畫面；更多設定仍可手動指定版面。
-- 預設保留正常縮放、16px 輸入文字與至少 44px 主要觸控目標。畫布區維持手寫手勢，其他區域可捲動。
-- 「資料保存」仍位於設定頁最下方。
-- 46 個同層檔案；說明固定為 README.md、ARCHITECTURE.md、CHANGELOG.md。
-
-## 從 V1.3.2 或舊版更新：手機操作
-
-1. 在舊程式「設定」先完成上傳備份；也建議匯出救援備份，保存在裝置。
-2. 下載並解壓本 ZIP。開啟與 ZIP 同名的外層資料夾，裡面是 46 個檔案。
-3. 到 https://github.com/lihe-source/PWA-JP-GD ，使用 **Add file → Upload files** 上傳這 46 個檔案，覆寫同名檔案。不要把外層資料夾整個上傳，index.html 必須仍在 Repository 根目錄。
-4. Commit 到原本的 main。維持 **Settings → Pages → Deploy from a branch → main → /(root)**。
-5. GitHub Pages 部署完成後開啟 PWA。設定頁會顯示目前版本、最新版本和檢查更新按鈕；開啟程式也會檢查更新。
-6. 練習中、備份中或本機寫入未完成時，新版不會強制重載；作業結束且資料保存成功後才套用。
-7. 確認首頁右上角與設定頁目前版本均為 V1.3.7。若仍顯示舊版，回到首頁結束練習／備份後，在設定頁按「檢查更新」及「立即更新」。請勿清除網站資料或移除 PWA，以免影響尚未備份的本機紀錄。
-8. 在 Codespaces 專案根目錄依下方 Cloudflare 步驟執行 `npm run db:init` 及 `npm run worker:deploy`。原 VAPID Secrets 保留，不要重新產生。
-
-上傳新版不會自動刪除 GitHub 已有的舊檔。下方列出的舊文件及原始圖可在確認更新正常後做一次性清理。不要刪除不在清單中的程式、設定或授權檔。
-
-### 一次性清理舊檔
-
-可刪除 `ARCHITECTURE_V*.md`、`CHANGELOG_V*.md`、`QA_V*.md`、`UPDATE_V*.md`，以及 `CURRENT_SETTINGS_INCLUDED.md`、`MOBILE_UPLOAD_GUIDE.md`、`SETUP_PUSH_NOTIFICATIONS.md`、`icon-source-1024.png`、誤植的 `indexl.html`。
-
-新版的三個固定文件已承接現行架構、部署與更新說明。旧版本仍可從 Git commit 紀錄查閱。若在 Codespaces 操作，先執行 `git status` 確認沒有尚未保存的工作，再依上述明確檔名刪除，檢查 diff 後提交。不要刪除整個 Repository 或先清空再上傳。
-
-系統可能沿用已安裝 PWA 的舊圖示；即使圖示尚未刷新，只要設定顯示 V1.3.7 就是新版。不要為更新圖示直接刪除 PWA 或網站資料。必要重裝前先備份並確認可以還原；重装後每台裝置須重新檢查通知訂閱。
-
-## 已保留設定
-
-| 項目 | 內容 |
-|---|---|
-| OAuth Client ID | `171837667604-mtcf91qudt6ff79u382v37rjqpp7l51q.apps.googleusercontent.com` |
-| Drive 資料夾 ID | `1kAtVOK2qqhK0BY9vmp8Sm4NhQaWMJYeb` |
-| OAuth JavaScript 來源 | `https://lihe-source.github.io`，不加路徑 |
-| Worker | `japanese-daily-reminder` |
-| Worker URL | `https://japanese-daily-reminder.rexchre.workers.dev` |
-| D1 | 沿用 wrangler.toml 的 vocabulary-reminders Binding；日文表 japanese_reminders |
-| Cron | `* * * * *` |
-| 學習偏好 | 原使用者的等級、來源、行別、次數、模式均不重設 |
-
-API Key、VAPID 私密金鑰、Cloudflare Token 及 Google access token 不包含在 ZIP。不要把這些內容 commit 到 GitHub。Google 首次授權、工作階段失效或撤銷授權時仍可能要求操作；自動登入不是繞過 Google 的授權機制。
-
-## Cloudflare（尚未部署「完成練習略過提醒」功能時才需要）
-
-完成回報 API 與兩個 D1 輔助表屬既有功能。已可使用此功能者，本次 V1.4.0 更新不需執行下列步驟。首次建立此功能時，在專案根目錄依序執行：
-
-```bash
-npm ci
-npm run db:init
-npm run worker:deploy
-```
-
-`db:init` 使用 `CREATE TABLE IF NOT EXISTS`，不會清除既有 `japanese_reminders`、訂閱或提醒時間。出現確認時輸入 `Y`。部署後開啟 Worker 根網址，應顯示 `version: V1.3.7`、`configured: true`。
-
-首次建立此服務才執行以下流程：
-
-```bash
-npm ci
-npx wrangler login
-npm run db:init
-npm run worker:deploy
-```
-
-確認登入的 Cloudflare 帳號具有 wrangler.toml 所列 D1 的權限，才執行遠端資料庫命令。schema.sql 只建立日文資料表與索引，不删除資料。如果既有 D1 不屬於該帳號，先確認正確帳號或自行建立新的 D1，再修改綁定；不要覆蓋仍在使用的資料庫設定。
-
-### 三個 Secrets
-
-保留原來成對的 VAPID Keys；不要因 UI 升級而重新產生。首次設定才執行：
-
-```bash
-npx wrangler secret put VAPID_PUBLIC_KEY
-npx wrangler secret put VAPID_PRIVATE_KEY
-npx wrangler secret put VAPID_SUBJECT
-npm run worker:deploy
-```
-
-SUBJECT 使用 `mailto:你的Email`。找不到原始 private key 才使用 `npm run vapid:generate` 產生新的一對；換 Keys 後每台裝置都需要重新啟用訂閱。
-
-若 `wrangler login` 顯示 localhost:8976 被占用，在原先的登入終端機按 Ctrl+C 結束舊登入再重試；Codespaces 是遠端環境，回呼位置需正確轉送。不要把舊 OAuth 連結反覆重開，也不要公開 Token。
-
-### 通知排除順序
-
-1. Worker 根網址的 `configured` 和 `checks`。若資料庫項目 false，檢查 D1 綁定與資料表；若 VAPID 項目 false，檢查对应 Secrets，公開和私密 Key 必須成對。
-2. `APP_URL` 應為完整日文 Pages 網址；`ALLOWED_ORIGINS` 為 `https://lihe-source.github.io`。
-3. iPhone／iPad 從 Safari 加入主畫面，再從 PWA 設定啟用通知；各裝置各自授權與訂閱。
-4. Apple 測試失敗時，先檢查 Worker 紀錄的 HTTP 狀態與 `providerReason`，不要把所有錯誤當成網路問題。既有失效訂閱重建及一次重試機制保留。
-5. 測試成功但排程未顯示時，再檢查 Cron、裝置時區、下次提醒、通知權限和專注模式。
-
-```bash
-npx wrangler secret list
-npx wrangler tail japanese-daily-reminder --format pretty
-```
-
-請不要公開完整推播 endpoint、Keys 或包含私人資料的紀錄。每日排程會在發送前檢查 `japanese_practice_days`；測試通知則刻意略過此檢查。Web Push 仍須系統／網路傳遞，無法保證精準秒級到達。
-
-## 資料、備份與更新保護
-
-- 日文仍使用獨立的 `pwa_japanese_v1` IndexedDB 與 `pwa_japanese:` 前綴。
-- 不刪除使用者資料，不改 Schema 1；可讀取相容的舊日文備份。
-- 手寫筆跡取樣、繪圖批次、讀音鍵盤與音效維持原來流程。
-- 六種練習模式、每日一詞及例句紀錄、統計與跨裝置練習天數均保留。
-- 完整備份涵蓋學習偏好與紀錄；通知授權、訂閱及「今天已完成」的通知判斷均是每台裝置獨立。
-- 自動更新保留等待儲存和練習結束的保護。
-
-## 開發檢查
-
-需要 Node.js 20 或更新版本；前端不用編譯，直接上傳即可。Cloudflare 部署才需要安裝套件。
+Node.js 20 以上：
 
 ```bash
 npm ci
@@ -174,8 +34,8 @@ npm run check
 npm test
 ```
 
-本次交付執行本機語法與回歸檢查；不等同於 iPhone／iPad 真機、Google 授權、實際 Drive 寫入或 Apple Push 端到端測試。圖像提案中的評分展示以現有實際欄位「筆形／畫數／方向／起收筆／配置」落實；評分只是本機輔助，不宣稱能辨識筆順。
+前端是靜態檔案，不需要 npm build。Worker 設定見 `wrangler.toml`；已建立 D1 的使用者不要為前端更新重新建立資料庫或更換 VAPID 金鑰。
 
-部署後驗收：首頁資料正確、六種模式可切換、手寫可連續畫筆／評分／下一題、讀音 Enter 可送出與換題、設定資料保存仍在最下方、備份還原正常、各裝置測試通知成功、版本顯示 V1.3.7。另把提醒暫設為數分鐘後，完成一個練習並確認首頁顯示「今天已完成練習」；時間到後不應收到每日提醒。測試通知仍應立即收到。
+真實 Gemini Key、Google 帳號、Drive 寫入、Cloudflare 推播及 iOS 真機鍵盤／手寫／通知，需在使用者環境另外驗證。金鑰、access token、VAPID 私鑰不包含在 ZIP 或備份中。Google 工作階段失效時可能需要再次授權。
 
-技術架構見 ARCHITECTURE.md，變更歷程見 CHANGELOG.md。JSZip、KanjiVG 與 icon 授權見三份授權文件。
+第三方素材與套件授權見隨附 LICENSE／NOTICE；架構說明見 `ARCHITECTURE.md`。

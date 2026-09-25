@@ -1,31 +1,34 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_0';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_0';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_0';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_1';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_1';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_1';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_0';
-import { BackupSchema } from './backup-schema.js?v=V1_5_0';
-import { VersionManager } from './version-manager.js?v=V1_5_0';
-import { TrendChart } from './chart-renderer.js?v=V1_5_0';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_0';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_0';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_0';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_0';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_0';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_0';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_0';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_0';
+import { AppStorage } from './storage.js?v=V1_5_1';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_1';
+import { VersionManager } from './version-manager.js?v=V1_5_1';
+import { TrendChart } from './chart-renderer.js?v=V1_5_1';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_1';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_1';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_1';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_1';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_1';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_1';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_1';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_1';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_0
-// V1.5.0：同日保留多筆例句，精準反藍目標日文詞與假名讀音
+// 日本語練習 PWA - app.js V1_5_1
+// V1.5.1：同日保留多筆例句，精準反藍目標日文詞與假名讀音
 // ===========================
 
-const APP_VERSION = 'V1_5_0';
-const APP_DISPLAY_VERSION = 'V1.5.0';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_0';
+const APP_VERSION = 'V1_5_1';
+const APP_DISPLAY_VERSION = 'V1.5.1';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_1';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
-  cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress || !!Views.practice?._pendingSessionSave
+  cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
+    !!Views.practice?._pendingSessionSave || !!Views.home?._dailyVocabularyRequest ||
+    !!Views.home?._databaseSentenceRequest || !!Views.home?._dailySentenceRequests?.size ||
+    !!DB._generatedWriteTask && AppStorage.getStatus().saveState === 'saving'
 });
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
@@ -755,13 +758,11 @@ const DB = {
 
   addPracticeSession(date, totalWords, wrongWordDetails) {
     const correct = totalWords - wrongWordDetails.length; const wrong = wrongWordDetails.length;
-    const history = this.getHistory(); const existing = history.find(h => h.date === date);
-    if (existing) {
-      existing.correct += correct; existing.wrong += wrong; existing.total += totalWords;
-      if (!existing.wrongWordDetails) existing.wrongWordDetails = [];
-      wrongWordDetails.forEach(wd => { if (!existing.wrongWordDetails.find(e => e.english === wd.english)) existing.wrongWordDetails.push(wd); });
-    } else { history.push({ date, correct, wrong, total: totalWords, wrongWordDetails }); }
-    this.saveHistory(history);
+    const id = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    this.saveHistory(mergePracticeHistory(this.getHistory(), [{
+      date, total: totalWords, correct, wrong, wrongWordDetails,
+      sessions: [{ id, ts: Date.now(), total: totalWords, correct, wrong, wrongWordDetails }]
+    }]));
     recordStudyActivity(STUDY_ACTIVITY_TYPES.WORD_QUIZ, `word:${date}:${Date.now()}`);
   },
   getApiKey() { return AppStorage.getItem('geminiApiKey') || ''; },
@@ -967,7 +968,7 @@ const DB = {
     }
     catch { return null; }
   },
-  saveTodaySentence(data) { AppStorage.setItem('todaySentence', JSON.stringify({ ...data, date: todayStr() })); },
+  saveTodaySentence(data) { AppStorage.setItem('todaySentence', JSON.stringify({ ...data, date: data?.date || todayStr() })); },
   // AI-generated sentence log
   getSentenceLog() { try { return JSON.parse(AppStorage.getItem('sentenceLog') || '[]'); } catch { return []; } },
   saveSentenceToLog(entry) {
@@ -975,7 +976,7 @@ const DB = {
     const now = new Date();
     const record = {
       ...entry,
-      id: entry?.id || `${now.getTime()}-${Math.random().toString(36).slice(2, 10)}`,
+      id: entry?.id || entry?.generationId || `${now.getTime()}-${Math.random().toString(36).slice(2, 10)}`,
       generatedAt: entry?.generatedAt || now.toISOString()
     };
     // Only an identical record id is idempotent. Different examples generated
@@ -989,30 +990,41 @@ const DB = {
   quarantineInvalidSentence(entry, reason = 'INVALID_FORMAT') {
     if (!entry || entry.source === 'csv') return null;
     const log = this.getSentenceLog();
-    const key = `${entry.date || ''}|${entry.wordEn || ''}`;
-    const index = log.findIndex(item => `${item?.date || ''}|${item?.wordEn || ''}` === key && item?.source !== 'csv');
+    const index = entry.id ? log.findIndex(item => item?.id === entry.id && item?.source !== 'csv') : -1;
+    if (index < 0) return null;
     const invalid = {
-      ...(index >= 0 ? log[index] : entry),
+      ...log[index],
       source: 'daily-recommendation-invalid',
       validationStatus: 'invalid',
       validationReason: reason,
       quarantinedAt: new Date().toISOString()
     };
-    if (index >= 0) log.splice(index, 1, invalid); else log.push(invalid);
+    log.splice(index, 1, invalid);
     AppStorage.setItem('sentenceLog', JSON.stringify(log));
     const today = (() => { try { return JSON.parse(AppStorage.getItem('todaySentence') || 'null'); } catch { return null; } })();
-    if (today && `${today.date || ''}|${today.wordEn || ''}` === key) AppStorage.removeItem('todaySentence');
+    if (today?.id === entry.id) AppStorage.removeItem('todaySentence');
     return invalid;
   },
-  async saveGeneratedSentence(entry) {
-    let saved = entry;
-    const commit = () => {
-      saved = this.saveSentenceToLog(entry);
-      this.saveTodaySentence(saved);
-    };
-    if (AppStorage.getStatus().mode === 'indexeddb') await AppStorage.atomicUpdate(commit);
-    else { commit(); await AppStorage.flush(); }
-    return saved;
+  async saveGeneratedSentence(entry, { isCurrent = () => true } = {}) {
+    const previous = this._generatedWriteTask || Promise.resolve();
+    const task = previous.catch(() => {}).then(async () => {
+      let saved = entry;
+      const commit = () => {
+        saved = this.saveSentenceToLog(entry);
+        if (isCurrent()) this.saveTodaySentence(saved);
+      };
+      if (AppStorage.getStatus().mode === 'indexeddb') {
+        try { await AppStorage.atomicUpdate(commit); }
+        catch (error) {
+          if (error?.message !== 'ATOMIC_UPDATE_IN_PROGRESS') throw error;
+          await AppStorage.flush();
+          await AppStorage.atomicUpdate(commit);
+        }
+      } else { commit(); await AppStorage.flush(); }
+      return saved;
+    });
+    this._generatedWriteTask = task;
+    return task;
   },
   // Imported sentence bank (CSV)
   getImportedSentences() { try { return JSON.parse(AppStorage.getItem('importedSentences') || '[]'); } catch { return []; } },
@@ -1020,28 +1032,48 @@ const DB = {
   importSentencesCSV(text) {
     const records = this._splitCSVRecords(text.replace(/^\uFEFF/, '').trim());
     if (records.length < 2) return { added: 0, total: 0 };
-    // ── 格式驗證 ──
-    const headerLine = records[0].replace(/\r/,'').trim().replace(/^\uFEFF/,'').replace(/"/g,'');
-    if (headerLine !== this.CSV_HEADERS.sentences) throw new Error('FORMAT_MISMATCH_SENTENCES');
+    const headers = this._parseCSVLine(records[0]).map(field => field.trim());
+    const oldHeaders = this.CSV_HEADERS.sentences.split(',');
+    if (oldHeaders.some(field => !headers.includes(field))) throw new Error('FORMAT_MISMATCH_SENTENCES');
+    const hasIds = headers.includes('id');
+    const column = (row, name) => row[headers.indexOf(name)] || '';
     const existing = this.getImportedSentences();
-    const existingKeys = new Set(existing.map(s => s.date + '|' + s.wordEn));
+    const existingIds = new Set([...existing, ...this.getSentenceLog()].map(item => item.id).filter(Boolean));
+    const legacyKey = item => [item.date, item.wordEn, item.en, item.reading, item.zh].join('\u0000');
+    const existingLegacy = new Set(existing.map(legacyKey));
     let added = 0;
     for (let i = 1; i < records.length; i++) {
       const cols = this._parseCSVLine(records[i]);
-      if (cols.length < 6) continue;
-      const date = (cols[0] || '').trim();
-      const wordEn = (cols[1] || '').trim().toLowerCase();
-      const wordPos = (cols[2] || '').trim();
-      const wordZh = (cols[3] || '').trim();
-      const en = (cols[4] || '').trim();
-      const reading = (cols[5] || '').trim();
-      const zh = (cols[6] || '').trim();
-      if (!date || !wordEn || !en || !zh) continue;
-      const key = date + '|' + wordEn;
-      if (!existingKeys.has(key)) {
-        existing.unshift({ date, wordEn, wordPos, wordZh, en, reading, zh, id: Date.now().toString() + i, source: 'csv' });
-        existingKeys.add(key); added++;
+      if (cols.length !== headers.length) throw new Error(`CSV_SENTENCE_ROW_${i + 1}_INVALID`);
+      const date = column(cols, 'date').trim();
+      const wordEn = column(cols, 'wordJa').trim();
+      const wordPos = column(cols, 'wordPos').trim();
+      const wordZh = column(cols, 'wordZh').trim();
+      const en = column(cols, 'ja').trim();
+      const reading = column(cols, 'reading').trim();
+      const zh = column(cols, 'zh').trim();
+      if (!date || !wordEn || !en || !zh) throw new Error(`CSV_SENTENCE_ROW_${i + 1}_INVALID`);
+      const value = {
+        date, wordEn, wordPos, wordZh, en, reading, zh,
+        id: hasIds ? column(cols, 'id').trim() : `legacy-csv-${i}-${date}-${wordEn}`,
+        generatedAt: column(cols, 'generatedAt').trim(),
+        wordReading: column(cols, 'wordReading').trim(),
+        wordRomaji: column(cols, 'wordRomaji').trim(),
+        generationId: column(cols, 'generationId').trim(),
+        learningSignature: column(cols, 'learningSignature').trim(),
+        source: column(cols, 'source').trim() || 'csv'
+      };
+      if (hasIds && value.id) {
+        if (existingIds.has(value.id)) continue;
+        existingIds.add(value.id);
+      } else {
+        const key = legacyKey(value);
+        if (existingLegacy.has(key)) continue;
+        existingLegacy.add(key);
+        value.id = `legacy-csv-${i}-${Date.now()}`;
       }
+      existing.unshift(value);
+      added++;
     }
     this.saveImportedSentences(existing);
     return { added, total: existing.length };
@@ -1053,12 +1085,16 @@ const DB = {
       date: e.date, wordEn: e.wordEn, wordPos: e.wordPos||'',
       // wordZh: use stored value, fall back to DB lookup so older entries still highlight
       wordZh: e.wordZh || wordMap[(e.wordEn||'').toLowerCase()] || '',
-      en: e.en, reading: e.reading || '', zh: e.zh, source: 'ai'
+      en: e.en, reading: e.reading || '', zh: e.zh, source: e.source || 'ai',
+      id: e.id, generatedAt: e.generatedAt, wordReading: e.wordReading,
+      wordRomaji: e.wordRomaji, generationId: e.generationId, learningSignature: e.learningSignature
     }));
     const imported = this.getImportedSentences();
     const all = [...imported, ...ai];
-    const header = ['date','wordJa','wordPos','wordZh','ja','reading','zh'];
-    const rows = all.map(e => [e.date, e.wordEn, e.wordPos||'', e.wordZh||'', e.en, e.reading||'', e.zh].map(v => `"${String(v).replace(/"/g,'""')}"`));
+    const header = this.CSV_HEADERS.sentencesV2.split(',');
+    const rows = all.map(e => [e.date, e.wordEn, e.wordPos||'', e.wordZh||'', e.en, e.reading||'', e.zh,
+      e.id||'', e.generatedAt||'', e.wordReading||'', e.wordRomaji||'', e.source||'', e.generationId||'', e.learningSignature||'']
+      .map(v => `"${String(v ?? '').replace(/"/g,'""')}"`));
     return [header.join(','), ...rows.map(r => r.join(','))].join('\n');
   },
   // Combined sentence log for home display
@@ -1100,6 +1136,7 @@ const DB = {
     vocab:     '日文語彙,假名讀音,羅馬拼音,詞性,繁體中文,JLPT,答錯次數,建立日期,頻率加權',
     essay:     '日期,使用單字,文章,AI批改,分數,模式,題目',
     sentences: 'date,wordJa,wordPos,wordZh,ja,reading,zh',
+    sentencesV2: 'date,wordJa,wordPos,wordZh,ja,reading,zh,id,generatedAt,wordReading,wordRomaji,source,generationId,learningSignature',
     stats:     '日期,總題數,正確,錯誤,正確率%',
     reading:   '日期,分數,正確題數,總題數,使用單字,文章,題目結果,時間戳',
     aiask:     'ID,問題,回覆,時間戳',
@@ -1114,6 +1151,9 @@ const DB = {
     const clean = firstLine.replace(/^\uFEFF/,'').replace(/"/g,'');
     if (clean === this.CSV_HEADERS.vocab)     return 'vocab';
     if (clean === this.CSV_HEADERS.sentences)  return 'sentences';
+    if (clean === this.CSV_HEADERS.sentencesV2) return 'sentences';
+    const sentenceColumns = this._parseCSVLine(firstLine.replace(/^\uFEFF/, '')).map(value => value.trim());
+    if (this.CSV_HEADERS.sentences.split(',').every(field => sentenceColumns.includes(field))) return 'sentences';
     if (clean === this.CSV_HEADERS.stats)      return 'stats';
     if (clean === this.CSV_HEADERS.reading)    return 'reading';
     if (clean === this.CSV_HEADERS.essay)      return 'essay';
@@ -1210,7 +1250,7 @@ const DB = {
     for (let i = 0; i < src.length; i++) {
       const ch = src[i];
       if (ch === '"') {
-        if (inQuote && src[i + 1] === '"') { current += '"'; i++; }
+        if (inQuote && src[i + 1] === '"') { current += '""'; i++; }
         else { inQuote = !inQuote; current += ch; }
       } else if (ch === '\n' && !inQuote) {
         records.push(current); current = '';
@@ -1281,7 +1321,7 @@ function refreshStudyStreakUI() {
   }
   const week = document.getElementById('study-week');
   if (week) {
-    const practiced = new Set(StudyStreak.getDays().map(day => day.date));
+    const practiced = new Set(StudyStreak.getDayKeys());
     const today = new Date();
     const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (today.getDay() + 6) % 7, 12);
     week.innerHTML = ['一', '二', '三', '四', '五', '六', '日'].map((label, index) => {
@@ -1303,7 +1343,7 @@ function refreshStudyStreakUI() {
 function recordStudyActivity(type, eventId = '') {
   const recorded = StudyStreak.recordActivity(type, { eventId: `${getOrCreateJapaneseDeviceId()}:${eventId || Date.now()}` });
   DailyReminder.recordPracticeCompletion({
-    occurredAt: recorded.day?.lastActivityAt || new Date(),
+    occurredAt: recorded.day?.firstActivityAt || new Date(),
     activityType: type
   });
   refreshStudyStreakUI();
@@ -1312,16 +1352,18 @@ function recordStudyActivity(type, eventId = '') {
 
 function syncDailyReminderFromStudyDays() {
   const today = dateKeyFor(new Date());
-  const day = StudyStreak.getDays().find(item => item.date === today);
+  const day = StudyStreak.getDay(today);
   if (!day) return false;
   return DailyReminder.recordPracticeCompletion({
-    occurredAt: day.lastActivityAt || day.firstActivityAt || new Date(),
+    occurredAt: day.firstActivityAt || day.lastActivityAt || new Date(),
     activityType: day.activities?.at(-1) || 'practice'
   });
 }
 
 // ===== GEMINI API =====
 const Gemini = {
+  _modelCatalog: null,
+  _modelCatalogPromise: null,
   // All selectable models (display name -> API id)
   AVAILABLE_MODELS: [
     { label: 'Gemini 3.8 Flash',      id: 'gemini-3.8-flash',      tag: '推薦・最新穩定', tier: 'stable' },
@@ -1337,16 +1379,72 @@ const Gemini = {
     { label: 'Gemini 3 Flash Preview', id: 'gemini-3-flash-preview', tag: '預覽', tier: 'preview' },
   ],
 
+  async discoverModels() {
+    const apiKey = DB.getApiKey();
+    if (!apiKey) throw new Error('NO_API_KEY');
+    // Keep only a one-way fingerprint and public model metadata in the cache.
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(apiKey));
+    const fingerprint = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    if (this._modelCatalog?.fingerprint === fingerprint && Date.now() < this._modelCatalog.expiresAt) {
+      return this._modelCatalog.models;
+    }
+    if (this._modelCatalogPromise?.fingerprint === fingerprint) return this._modelCatalogPromise.promise;
+    const promise = (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      try {
+        const models = [];
+        let pageToken = '';
+        for (let page = 0; page < 5; page++) {
+          const params = new URLSearchParams({ pageSize: '1000' });
+          if (pageToken) params.set('pageToken', pageToken);
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?${params}`, {
+            headers: { 'x-goog-api-key': apiKey }, signal: controller.signal, cache: 'no-store'
+          });
+          if (!response.ok) {
+            const error = this._tagError(new Error('MODEL_LIST_FAILED'), { status: response.status });
+            throw error;
+          }
+          const data = await response.json();
+          for (const model of data.models || []) {
+            if (!model.supportedGenerationMethods?.includes('generateContent')) continue;
+            const id = String(model.name || '').replace(/^models\//, '');
+            if (!/^gemini-[a-z0-9.-]+$/i.test(id)) continue;
+            models.push({ id, label: model.displayName || id, tier: /preview|experimental|exp(?:-|$)/i.test(id) ? 'preview' : 'stable' });
+          }
+          pageToken = String(data.nextPageToken || '');
+          if (!pageToken) break;
+          if (page === 4) throw new Error('MODEL_LIST_INCOMPLETE');
+        }
+        if (!models.length) throw new Error('NO_GENERATION_MODELS');
+        this._modelCatalog = { fingerprint, expiresAt: Date.now() + 6 * 60 * 60 * 1000, models };
+        return models;
+      } finally { clearTimeout(timer); }
+    })();
+    this._modelCatalogPromise = { fingerprint, promise };
+    try { return await promise; }
+    finally { if (this._modelCatalogPromise?.promise === promise) this._modelCatalogPromise = null; }
+  },
+
   // Production fallback stays on stable endpoints. Preview models are tried only when explicitly selected.
   _getModelList() {
     const selected = DB.getModel();
-    const selectedMeta = this.AVAILABLE_MODELS.find(m => m.id === selected);
-    const stableIds = this.AVAILABLE_MODELS.filter(m => m.tier === 'stable').map(m => m.id);
+    const catalog = this._modelCatalog?.models || this.AVAILABLE_MODELS;
+    const selectedMeta = catalog.find(m => m.id === selected);
+    const stableIds = catalog.filter(m => m.tier === 'stable').map(m => m.id);
     const previewIds = selectedMeta?.tier === 'preview'
-      ? this.AVAILABLE_MODELS.filter(m => m.tier === 'preview').map(m => m.id)
+      ? catalog.filter(m => m.tier === 'preview').map(m => m.id)
       : [];
-    return [...new Set([selected, ...stableIds, ...previewIds])].filter(Boolean);
+    return [...new Set([selectedMeta ? selected : '', ...stableIds, ...previewIds])].filter(Boolean);
   },
+
+  _shortTaskModels() {
+    const list = this._getModelList();
+    const compatible = list.find(id => /^gemini-2\.5-flash$/.test(id));
+    return [...new Set([list[0], list.find(id => id !== list[0] && id !== compatible), compatible])].filter(Boolean);
+  },
+
+  _shortTaskBudget() { return { deadline: Date.now() + 60000, requests: 0, maxRequests: 3 }; },
 
   // Read final visible output only. Thought parts are never a substitute for a
   // missing final answer because they may contain fragments, labels or drafts.
@@ -1376,7 +1474,7 @@ const Gemini = {
   },
 
   _isSchemaCompatibilityError(error) {
-    return Number(error?.status) === 400 && /schema|responsemime|response_mime|invalid argument|unknown name/i.test(error?.message || '');
+    return Number(error?.status) === 400 && /responseSchema|response_schema|responseMimeType|response_mime_type|schema is not supported|unknown name ["']?(?:responseSchema|responseMimeType)/i.test(error?.message || '');
   },
 
   _canTryAnotherModel(error) {
@@ -1418,7 +1516,7 @@ const Gemini = {
     });
   },
 
-  async _callStructured(model, { prompt, responseSchema, maxOutputTokens }, apiKey, retryTransient = true) {
+  async _callStructured(model, { prompt, responseSchema, maxOutputTokens }, apiKey, retryTransient = true, budget = null) {
     const structuredBody = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
@@ -1428,7 +1526,7 @@ const Gemini = {
       }
     });
     try {
-      return await this._callModelDetailed(model, structuredBody, apiKey, 0, retryTransient);
+      return await this._callModelDetailed(model, structuredBody, apiKey, 0, retryTransient, budget);
     } catch (error) {
       // Some older or restricted endpoints reject responseSchema even though
       // they can still return valid JSON. Retry once without the schema.
@@ -1438,18 +1536,24 @@ const Gemini = {
         this._plainJsonBody(prompt, maxOutputTokens),
         apiKey,
         0,
-        retryTransient
+        retryTransient,
+        budget
       );
     }
   },
 
-  async _callModelDetailed(model, body, apiKey, attempt = 0, retryTransient = true) {
+  async _callModelDetailed(model, body, apiKey, attempt = 0, retryTransient = true, budget = null) {
+    if (budget && (budget.requests >= budget.maxRequests || Date.now() >= budget.deadline)) {
+      throw this._tagError(new Error('API_TIMEOUT'), { model, fallback: false });
+    }
+    if (budget) budget.requests += 1;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
+    const requestTimeout = budget ? Math.min(30000, Math.max(1, budget.deadline - Date.now())) : 45000;
+    const timeoutId = setTimeout(() => controller.abort(), requestTimeout);
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal }
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body, signal: controller.signal }
       );
       if (!res.ok) {
         let errMsg = `HTTP ${res.status}`;
@@ -1462,15 +1566,16 @@ const Gemini = {
         const lower = String(errMsg).toLowerCase();
         const err = this._tagError(new Error(errMsg), { status: res.status, apiStatus, model });
         const apiKeyProblem = lower.includes('api key') || lower.includes('apikey') || lower.includes('permission denied') || lower.includes('authentication');
-        const modelProblem = lower.includes('model') || lower.includes('not found') || lower.includes('not supported') || lower.includes('deprecated') || lower.includes('quota') || lower.includes('rate limit') || lower.includes('unavailable') || lower.includes('schema');
+        const modelProblem = lower.includes('model') || lower.includes('not found') || lower.includes('not supported') || lower.includes('deprecated') || lower.includes('quota') || lower.includes('rate limit') || lower.includes('unavailable') || this._isSchemaCompatibilityError(err);
         if (retryTransient && !apiKeyProblem && attempt < 2 && [408, 429, 500, 502, 503, 504].includes(res.status)) {
           const delay = Math.min(700 * (2 ** attempt) + Math.floor(Math.random() * 250), 2500);
+          if (budget && (budget.requests >= budget.maxRequests || Date.now() + delay >= budget.deadline)) throw err;
           await new Promise(resolve => setTimeout(resolve, delay));
-          return this._callModelDetailed(model, body, apiKey, attempt + 1, retryTransient);
+          return this._callModelDetailed(model, body, apiKey, attempt + 1, retryTransient, budget);
         }
         err.fallback = !apiKeyProblem && (
           [404, 408, 429, 500, 502, 503, 504].includes(res.status) ||
-          (res.status === 400 && modelProblem)
+          (res.status === 400 && modelProblem && this._isSchemaCompatibilityError(err))
         );
         throw err;
       }
@@ -1610,7 +1715,7 @@ Rules:
     if (!apiKey) throw new Error('NO_API_KEY');
     const target = {
       word: String(word.english || '').trim(),
-      reading: String(word.reading || '').trim(),
+      reading: String(word.reading || word.phonetic || '').trim(),
       romaji: String(word.romaji || '').trim(),
       partOfSpeech: String(word.partOfSpeech || '語彙').trim(),
       meaning: String(word.chinese || '').trim(),
@@ -1629,7 +1734,8 @@ Rules:
       propertyOrdering: ['ja', 'kana', 'zh']
     };
     let lastErr = null;
-    const models = this._getModelList().slice(0, 4);
+    const models = this._shortTaskModels();
+    const budget = this._shortTaskBudget();
     for (let attempt = 0; attempt < models.length; attempt++) {
       const model = models[attempt];
       const correction = lastErr?.validationReason
@@ -1655,7 +1761,7 @@ Rules:
           prompt,
           responseSchema,
           maxOutputTokens: 1600
-        }, apiKey, true);
+        }, apiKey, true, budget);
         if (!response.text) {
           lastErr = this._tagError(new Error('EMPTY_FINAL_RESPONSE'), { model, fallback: true });
           continue;
@@ -1748,13 +1854,14 @@ Requirements:
     };
     let best = [];
     let lastError = null;
-    for (const model of this._getModelList().slice(0, 5)) {
+    const budget = this._shortTaskBudget();
+    for (const model of this._shortTaskModels()) {
       try {
         const response = await this._callStructured(model, {
           prompt,
           responseSchema,
           maxOutputTokens: 1400
-        }, apiKey, true);
+        }, apiKey, true, budget);
         if (!response.text) {
           lastError = this._tagError(new Error('EMPTY_FINAL_RESPONSE'), { model, fallback: true });
           continue;
@@ -1780,41 +1887,14 @@ Requirements:
   },
 
   async testConnection() {
-    const apiKey = DB.getApiKey();
-    if (!apiKey) throw new Error('NO_API_KEY');
-    const responseSchema = {
-      type: 'OBJECT',
-      properties: { ok: { type: 'BOOLEAN' } },
-      required: ['ok'],
-      propertyOrdering: ['ok']
-    };
-    const prompt = 'Return exactly one JSON object confirming the API can generate content: {"ok":true}';
-    let lastError = null;
-    for (const model of this._getModelList().slice(0, 5)) {
-      try {
-        const response = await this._callStructured(model, {
-          prompt,
-          responseSchema,
-          maxOutputTokens: 256
-        }, apiKey, true);
-        const start = response.text.indexOf('{');
-        const end = response.text.lastIndexOf('}');
-        const parsed = start >= 0 && end > start
-          ? JSON.parse(response.text.slice(start, end + 1))
-          : null;
-        if (parsed?.ok === true) return { model, modelVersion: response.modelVersion || '' };
-        lastError = this._tagError(new Error('AI_OUTPUT_INVALID'), { model, fallback: true });
-      } catch (error) {
-        if (error.message === 'NETWORK_ERROR') throw error;
-        if (error instanceof SyntaxError) {
-          lastError = this._tagError(new Error('AI_OUTPUT_INVALID'), { model, fallback: true });
-          continue;
-        }
-        if (this._canTryAnotherModel(error)) { lastError = error; continue; }
-        throw error;
-      }
-    }
-    throw lastError || new Error('API_ERROR');
+    // Use the exact sentence schema and semantic validator used by the home
+    // card. A trivial {ok:true} response gave a false success when real
+    // sentence generation failed. This probe never writes to learning history.
+    const result = await this.generateSentence({
+      english: '猫', reading: 'ねこ', romaji: 'neko',
+      partOfSpeech: '名詞', chinese: '貓', level: 'N5'
+    });
+    return { model: result.generation.model, validated: 'sentence', saved: false };
   },
 
 
@@ -1922,19 +2002,18 @@ Rules:
       if (start === -1 || end === -1 || end <= start) return null;
       return text.slice(start, end + 1);
     };
-    const normalizeQuestion = (q, wordObj, idx) => {
+    const normalizeQuestion = (q, wordObj) => {
       const correct = String(q?.correctSynonym || '').trim();
-      let options = Array.isArray(q?.options) ? q.options.map(o => String(o || '').trim()).filter(Boolean) : [];
-      if (correct && !options.some(o => o.toLowerCase() === correct.toLowerCase())) options.unshift(correct);
-      options = [...new Set(options)].slice(0, 3);
-      while (options.length < 3) options.push(['同じ意味', '反対の意味', '別の表現'][options.length] + String(idx + 1));
+      const options = Array.isArray(q?.options) ? q.options.map(o => String(o || '').trim()).filter(Boolean) : [];
+      const unique = [...new Map(options.map(option => [option.toLocaleLowerCase(), option])).values()];
+      if (!correct || unique.length !== 3 || unique.filter(option => option.toLocaleLowerCase() === correct.toLocaleLowerCase()).length !== 1) return null;
       return {
         word: wordObj.english,
         wordId: wordObj.id || '',
         chinese: wordObj.chinese || '',
         partOfSpeech: wordObj.partOfSpeech || '',
-        correctSynonym: correct || options[0],
-        options: options.sort(() => Math.random() - 0.5).slice(0, 3)
+        correctSynonym: correct,
+        options: unique.sort(() => Math.random() - 0.5)
       };
     };
 
@@ -1956,9 +2035,9 @@ Rules:
         const questions = cleanWords.map((cw, i) => {
           const originalWord = words.find(w => normalizeJapaneseAnswer(w.english) === normalizeJapaneseAnswer(cw.english)) || cw;
           const match = rawQuestions.find(q => normalizeJapaneseAnswer(q?.word) === normalizeJapaneseAnswer(cw.english)) || rawQuestions[i] || {};
-          return normalizeQuestion(match, originalWord, i);
+          return normalizeQuestion(match, originalWord);
         });
-        if (questions.every(q => q.correctSynonym && q.options.length === 3)) return { article, questions };
+        if (questions.every(q => q && q.options.length === 3)) return { article, questions };
         lastErr = new Error('PARSE_ERROR: invalid questions');
       } catch(err) {
         if (err.message === 'NETWORK_ERROR') throw err;
@@ -2117,6 +2196,7 @@ If the input is not valid Japanese vocabulary, return: []`;
 
 // ===== GOOGLE DRIVE SYNC =====
 const GDrive = {
+  _authEpoch: 0,
   _token: null,
   _email: null,
   _client: null,
@@ -2202,12 +2282,32 @@ const GDrive = {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+      const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+      if (!response.body || response.status === 204) {
+        clearTimeout(timeout);
+        return response;
+      }
+      // Keep the deadline alive until the body is consumed. Fetch can resolve
+      // headers while Drive stalls indefinitely during response.json().
+      return new Proxy(response, {
+        get(target, property) {
+          if (['json', 'text', 'arrayBuffer', 'blob', 'formData'].includes(property)) {
+            return async (...args) => {
+              try { return await target[property](...args); }
+              catch (error) {
+                if (error?.name === 'AbortError') throw new Error('DRIVE_TIMEOUT');
+                throw error;
+              } finally { clearTimeout(timeout); }
+            };
+          }
+          const value = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        }
+      });
     } catch (error) {
+      clearTimeout(timeout);
       if (error?.name === 'AbortError') throw new Error('DRIVE_TIMEOUT');
       throw new Error('DRIVE_NETWORK_ERROR: ' + (error?.message || 'Fetch failed'));
-    } finally {
-      clearTimeout(timeout);
     }
   },
 
@@ -2222,7 +2322,7 @@ const GDrive = {
   _saveSession(token, email, expiresIn, clientId) {
     const exp = Date.now() + (Number(expiresIn) || 3500) * 1000;
     this._token = token;
-    this._email = email || this.getUserEmail();
+    this._email = email === undefined ? this.getUserEmail() : email;
     // Access tokens are intentionally session-only and never written to localStorage/IndexedDB.
     sessionStorage.setItem(this.SESSION_KEYS.token, token);
     sessionStorage.setItem(this.SESSION_KEYS.expiry, String(exp));
@@ -2273,13 +2373,14 @@ const GDrive = {
   },
 
   async _refreshUserEmail(accessToken) {
+    const epoch = this._authEpoch;
     try {
       const response = await this._fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
         headers: { Authorization: 'Bearer ' + accessToken }
       }, 12000);
       if (!response.ok) return;
       const info = await response.json();
-      if (this._token !== accessToken || !info.email) return;
+      if (this._authEpoch !== epoch || this._token !== accessToken || !info.email) return;
       this._email = info.email;
       AppStorage.setItem(this.SESSION_KEYS.email, info.email);
       this.scheduleStudyStreakSync(500);
@@ -2291,7 +2392,9 @@ const GDrive = {
   async _requestToken({ promptMode, accountHint = '' } = {}) {
     const clientId = DB.getGDriveClientId();
     if (!clientId) throw new Error('NO_CLIENT_ID');
+    const epoch = this._authEpoch;
     await this._loadGIS();
+    if (epoch !== this._authEpoch || clientId !== DB.getGDriveClientId()) throw new Error('AUTH_CONTEXT_CHANGED');
     const hint = accountHint || this.getUserEmail();
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -2304,10 +2407,13 @@ const GDrive = {
       };
       const handleToken = (resp) => {
         if (settled) return;
+        if (epoch !== this._authEpoch || clientId !== DB.getGDriveClientId()) { fail(new Error('AUTH_CONTEXT_CHANGED')); return; }
         if (resp.error) { fail(new Error(resp.error)); return; }
         settled = true;
         clearTimeout(timer);
-        this._saveSession(resp.access_token, this.getUserEmail(), resp.expires_in, clientId);
+        this._authEpoch++;
+        const choosingAccount = /select_account/.test(promptMode || '');
+        this._saveSession(resp.access_token, choosingAccount ? '' : this.getUserEmail(), resp.expires_in, clientId);
         resolve();
         // User info is useful for display, but it must not delay login or Drive operations.
         void this._refreshUserEmail(resp.access_token);
@@ -2360,7 +2466,8 @@ const GDrive = {
       return;
     }
     try { await this.silentRefresh(); }
-    catch {
+    catch (error) {
+      if (error?.message === 'AUTH_CONTEXT_CHANGED') throw error;
       this._clearTokenOnly();
       throw new Error('TOKEN_EXPIRED');
     }
@@ -2372,11 +2479,12 @@ const GDrive = {
     if (!this.hasRememberedSession()) return false;
     if (this._silentRestorePromise) return this._silentRestorePromise;
     this._silentRestorePromise = (async () => {
+      const epoch = this._authEpoch;
       try {
         await this.silentRefresh();
         return true;
       } catch (error) {
-        this._clearTokenOnly();
+        if (epoch === this._authEpoch) this._clearTokenOnly();
         console.info('[GDrive] Silent account restore deferred:', error?.message || error);
         return false;
       } finally {
@@ -2387,6 +2495,7 @@ const GDrive = {
   },
 
   signOut() {
+    this._authEpoch++;
     if (this._token && window.google?.accounts?.oauth2) {
       google.accounts.oauth2.revoke(this._token, () => {});
     }
@@ -2658,6 +2767,7 @@ const GDrive = {
     try {
     this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
+    const authEpoch = this._authEpoch;
     this._progress(options, '整理本機備份資料…', 30);
     await new Promise(resolve => requestAnimationFrame(() => resolve()));
     await AppStorage.flush();
@@ -2684,6 +2794,7 @@ const GDrive = {
     const body = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
       + JSON.stringify(metadata) + '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n'
       + JSON.stringify(data) + '\r\n--' + boundary + '--';
+    if (authEpoch !== this._authEpoch || folderId !== DB.getGDriveFolderId()) throw new Error('AUTH_CONTEXT_CHANGED');
     this._progress(options, '上傳至 Google Drive…', 55);
     const r = await this._fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
@@ -2695,6 +2806,7 @@ const GDrive = {
       if (r.status === 401) { this._clearTokenOnly(); throw new Error('TOKEN_EXPIRED'); }
       throw new Error('UPLOAD_FAILED: ' + (err.error?.message || r.status));
     }
+    if (authEpoch !== this._authEpoch) throw new Error('AUTH_CONTEXT_CHANGED');
     const now = new Date().toLocaleString('zh-TW');
     DB.setGDriveLastSync(now);
     await AppStorage.flush();
@@ -2781,14 +2893,18 @@ const GDrive = {
     if (this._streakSyncPromise) throw new Error('學習資料正在同步，請完成後再還原。');
     const validation = BackupSchema.validate(data);
     if (!validation.valid) throw new Error('BACKUP_INVALID_' + validation.reason);
+    const authEpoch = this._authEpoch;
     this._restoreInProgress = true;
     try {
     const normalized = validation.collections;
+    const present = new Set(validation.presentCollections);
+    await AppStorage.flush();
     if (!options.skipSnapshot) {
       const snapshot = await AppStorage.createRecoverySnapshot(this._buildPayload(), 'before-manual-cloud-restore');
       if (!snapshot && mode === 'overwrite') throw new Error('無法建立復原點，已停止覆蓋。請先匯出救援備份。');
     }
     if (isPracticeActive(document, Router)) throw new Error('請完成練習後再還原備份。');
+    if (authEpoch !== this._authEpoch) throw new Error('AUTH_CONTEXT_CHANGED');
     if (options.expectedCollections && JSON.stringify(this._buildCollections()) !== options.expectedCollections) {
       throw new Error('等待還原期間本機資料已變更，已停止覆蓋，請重新比較。');
     }
@@ -2798,38 +2914,55 @@ const GDrive = {
       : async mutator => { mutator(); await AppStorage.flush(); };
     await applyAtomically(() => {
     if (mode === 'overwrite') {
-      if (Array.isArray(data.words))        AppStorage.setItem('vocabWords',        JSON.stringify(data.words.map(normalizeJapaneseWord)));
-      if (Array.isArray(data.history))      AppStorage.setItem('practiceHistory',   JSON.stringify(data.history));
-      if (Array.isArray(data.sentences))    AppStorage.setItem('sentenceLog',       JSON.stringify(data.sentences));
-      if (Array.isArray(data.imported))     AppStorage.setItem('importedSentences', JSON.stringify(data.imported));
-      if (Array.isArray(data.boosted))      AppStorage.setItem('boostedWords',      JSON.stringify(data.boosted));
-      if (Array.isArray(data.readingQuizHistory)) AppStorage.setItem('readingQuizHistory', JSON.stringify(data.readingQuizHistory));
-      if (Array.isArray(data.essayHistory)) AppStorage.setItem('essayHistory',      JSON.stringify(data.essayHistory));
-      if (Array.isArray(data.aiAskHistory)) AppStorage.setItem('aiAskHistory',      JSON.stringify(data.aiAskHistory));
-      if (Array.isArray(data.handwritingHistory)) KanaProgress.saveHistory(data.handwritingHistory);
-      if (Array.isArray(data.kanaReadingHistory)) KanaReadingProgress.saveHistory(data.kanaReadingHistory);
+      if (present.has('words'))        AppStorage.setItem('vocabWords',        JSON.stringify(data.words.map(normalizeJapaneseWord)));
+      if (present.has('history'))      AppStorage.setItem('practiceHistory',   JSON.stringify(data.history));
+      if (present.has('sentences'))    AppStorage.setItem('sentenceLog',       JSON.stringify(data.sentences));
+      if (present.has('imported'))     AppStorage.setItem('importedSentences', JSON.stringify(data.imported));
+      if (present.has('boosted'))      AppStorage.setItem('boostedWords',      JSON.stringify(data.boosted));
+      if (present.has('readingQuizHistory')) AppStorage.setItem('readingQuizHistory', JSON.stringify(data.readingQuizHistory));
+      if (present.has('essayHistory')) AppStorage.setItem('essayHistory',      JSON.stringify(data.essayHistory));
+      if (present.has('aiAskHistory')) AppStorage.setItem('aiAskHistory',      JSON.stringify(data.aiAskHistory));
+      if (present.has('handwritingHistory')) KanaProgress.saveHistory(data.handwritingHistory);
+      if (present.has('kanaReadingHistory')) KanaReadingProgress.saveHistory(data.kanaReadingHistory);
       if (data.preferences?.[0]) {
         DB.saveJlptLevel(data.preferences[0].jlptLevel || 'N5');
-        DB.saveTtsDelay(Number(data.preferences[0].ttsDelay) || 300);
+        if (data.preferences[0].ttsDelay !== undefined) DB.saveTtsDelay(Number(data.preferences[0].ttsDelay));
         if (data.preferences[0].geminiModel) DB.saveModel(data.preferences[0].geminiModel);
         if (data.preferences[0].practice) DB.applyPracticePreferenceBundle(data.preferences[0].practice);
       }
-      StudyStreak.replace(data.studyDays || [], { markPending: true });
+      if (present.has('studyDays')) StudyStreak.replace(data.studyDays, { markPending: true });
     } else {
       const lw = DB.getWords(); const cw = data.words || [];
-      const merged = [...lw]; cw.forEach(w => { const key = String(w.english || w.wordEn || '').toLowerCase(); if (key && !merged.find(x => String(x.english || x.wordEn || '').toLowerCase() === key)) merged.push(w); });
+      const wordKey = w => [w.english || w.wordEn || '', w.reading || w.phonetic || '', w.partOfSpeech || ''].map(v => String(v).trim()).join('\u0000');
+      const merged = [...lw];
+      const wordIds = new Map();
+      cw.forEach(w => {
+        const found = merged.find(item => wordKey(item) === wordKey(w));
+        if (found) { if (w.id) wordIds.set(String(w.id), found.id); return; }
+        const added = merged.some(item => String(item.id) === String(w.id))
+          ? { ...w, id: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}` } : w;
+        merged.push(added);
+        if (w.id) wordIds.set(String(w.id), added.id);
+      });
       AppStorage.setItem('vocabWords', JSON.stringify(merged.map(normalizeJapaneseWord)));
-      const lh = DB.getHistory(); const ch = data.history || []; const hm = {};
-      [...lh, ...ch].forEach(h => { if (!hm[h.date] || h.total > hm[h.date].total) hm[h.date] = h; });
-      AppStorage.setItem('practiceHistory', JSON.stringify(Object.values(hm)));
+      AppStorage.setItem('practiceHistory', JSON.stringify(mergePracticeHistory(DB.getHistory(), data.history || [])));
       const ls = DB.getSentenceLog(); const cs = data.sentences || [];
       const sentenceIdentity = sentence => sentence?.id || [sentence?.date, sentence?.wordEn, sentence?.en, sentence?.reading, sentence?.zh, sentence?.source].join('|');
       const ss = new Set(ls.map(sentenceIdentity));
       AppStorage.setItem('sentenceLog', JSON.stringify([...ls, ...cs.filter(sentence => { const key = sentenceIdentity(sentence); if (ss.has(key)) return false; ss.add(key); return true; })]));
       const li = DB.getImportedSentences(); const ci = data.imported || [];
-      const iss = new Set(li.map(s => s.word + s.english));
-      AppStorage.setItem('importedSentences', JSON.stringify([...li, ...ci.filter(s => !iss.has(s.word + s.english))]));
-      const lb = new Set(DB.getBoostedWords()); (data.boosted || []).forEach(id => lb.add(id));
+      const importedIdentity = sentence => sentence?.id
+        ? `id:${sentence.id}`
+        : `legacy:${[sentence?.date, sentence?.wordEn, sentence?.en, sentence?.reading, sentence?.zh].join('\u0000')}`;
+      const iss = new Set(li.map(importedIdentity));
+      AppStorage.setItem('importedSentences', JSON.stringify([...li, ...ci.filter(sentence => {
+        const id = importedIdentity(sentence);
+        if (iss.has(id)) return false;
+        iss.add(id);
+        return true;
+      })]));
+      const lb = new Set(DB.getBoostedWords());
+      (data.boosted || []).forEach(id => lb.add(wordIds.get(String(id)) ?? id));
       AppStorage.setItem('boostedWords', JSON.stringify([...lb]));
       if (Array.isArray(data.readingQuizHistory)) {
         const lr = DB.getReadingQuizHistory(); const rm = {};
@@ -3073,7 +3206,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_0" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_1" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -3289,14 +3422,14 @@ Views.home = {
   _dailySentenceErrorMessage(error) {
     const message = String(error?.message || '');
     if (message === 'STALE_DAILY_SENTENCE_REQUEST') return '';
-    if (/STORAGE_WRITE_FAILED|ATOMIC_|資料尚未完整儲存/.test(message)) return '例句已建立，但本機保存失敗；請重試儲存後再關閉程式。';
+    if (/STORAGE_WRITE_FAILED|STORAGE_READ_ONLY|ATOMIC_|資料尚未完整儲存/.test(message)) return '例句已建立，但本機保存失敗；請重試儲存後再關閉程式。';
     return `推薦詞已保留；${Gemini.describeError(error, '例句建立')}`;
   },
   async ensureDailyVocabularySentence(data, { forceNew = false } = {}) {
     const word = Array.isArray(data?.words) ? data.words[0] : null;
     if (!word?.word) return null;
     const context = {
-      id: ++this._dailySentenceSerial,
+      id: crypto.randomUUID?.() || `${Date.now()}-${++this._dailySentenceSerial}`,
       date: String(data.date || todayStr()),
       signature: String(data.signature || dailyLearningSignature({ date: todayStr(), ...DB.getDailyLearningPreferences() })),
       word: String(word.word),
@@ -3304,11 +3437,28 @@ Views.home = {
       level: String(data.level || DB.getJlptLevel()),
       rows: Array.isArray(data.rows) ? [...data.rows] : ['all']
     };
-    const requestKey = `${context.date}|${context.signature}|${context.word}|${context.reading}|${forceNew ? 'fresh' : 'reuse'}`;
+    const requestKey = `${context.date}|${context.signature}|${context.word}|${context.reading}`;
+    this._dailySentenceActiveKey = requestKey;
     if (this._dailySentenceRequests.has(requestKey)) return this._dailySentenceRequests.get(requestKey);
 
     const request = (async () => {
       const getStatus = () => document.getElementById('daily-vocab-sentence-status');
+      const pending = this._dailySentenceUnsaved?.get(requestKey);
+      if (pending) {
+        try {
+          const recovered = await DB.saveGeneratedSentence(pending, { isCurrent: () => this._dailySentenceContextIsCurrent(context) && this._dailySentenceActiveKey === requestKey });
+          this._dailySentenceUnsaved.delete(requestKey);
+          if (this._dailySentenceContextIsCurrent(context) && this._dailySentenceActiveKey === requestKey) {
+            this.renderSentenceLog();
+            this.displayRecommendedSentence(recovered);
+          }
+          return recovered;
+        } catch (error) {
+          const status = getStatus();
+          if (status) status.textContent = this._dailySentenceErrorMessage(error);
+          return null;
+        }
+      }
       const existing = DB.getSentenceLog().find(entry =>
         entry?.date === context.date && entry?.source === 'daily-recommendation' &&
         normalizeJapaneseAnswer(entry?.wordEn) === normalizeJapaneseAnswer(context.word)
@@ -3316,11 +3466,13 @@ Views.home = {
       if (existing && !forceNew) {
         const validation = validateStoredGeneratedSentence(existing);
         if (validation.ok) {
-          DB.saveTodaySentence(existing);
-          await AppStorage.flush();
-          const status = getStatus();
-          if (status) status.textContent = '已儲存至今日例句練習';
-          this.displayRecommendedSentence(existing);
+          if (this._dailySentenceContextIsCurrent(context) && this._dailySentenceActiveKey === requestKey) {
+            DB.saveTodaySentence(existing);
+            await AppStorage.flush();
+            const status = getStatus();
+            if (status) status.textContent = '已儲存至今日例句練習';
+            this.displayRecommendedSentence(existing);
+          }
           return existing;
         }
         DB.quarantineInvalidSentence(existing, validation.reason);
@@ -3345,8 +3497,9 @@ Views.home = {
           error.validationReason = finalValidation.reason;
           throw error;
         }
-        if (!this._dailySentenceContextIsCurrent(context)) throw new Error('STALE_DAILY_SENTENCE_REQUEST');
         const entry = {
+          id: context.id,
+          generationId: context.id,
           date: context.date,
           wordEn: context.word,
           wordZh: word.meaning || '',
@@ -3360,17 +3513,27 @@ Views.home = {
           generation: result.generation || null,
           learningSignature: context.signature
         };
-        const savedEntry = await DB.saveGeneratedSentence(entry) || entry;
-        if (!this._dailySentenceContextIsCurrent(context)) return null;
-        this.renderSentenceLog();
-        const status = getStatus();
-        if (status) status.textContent = '已檢查並儲存至今日例句練習';
-        this.displayRecommendedSentence(savedEntry);
+        let savedEntry;
+        try {
+          savedEntry = await DB.saveGeneratedSentence(entry, {
+            isCurrent: () => this._dailySentenceContextIsCurrent(context) && this._dailySentenceActiveKey === requestKey
+          });
+        } catch (error) {
+          this._dailySentenceUnsaved ||= new Map();
+          this._dailySentenceUnsaved.set(requestKey, entry);
+          throw error;
+        }
+        if (this._dailySentenceContextIsCurrent(context) && this._dailySentenceActiveKey === requestKey) {
+          this.renderSentenceLog();
+          const status = getStatus();
+          if (status) status.textContent = '已檢查並儲存至今日例句練習';
+          this.displayRecommendedSentence(savedEntry);
+        }
         return savedEntry;
       } catch (error) {
         const message = this._dailySentenceErrorMessage(error);
         const status = getStatus();
-        if (status && message && this._dailySentenceContextIsCurrent(context)) status.textContent = message;
+        if (status && message && this._dailySentenceContextIsCurrent(context) && this._dailySentenceActiveKey === requestKey) status.textContent = message;
         return null;
       }
     })().finally(() => {
@@ -3395,25 +3558,42 @@ Views.home = {
     }
     const words = DB.getWords();
     if (!words.length) { heroContent.innerHTML = `<div style="font-size:13px;opacity:0.8">請先在資料庫新增單字</div>`; return; }
+    if (this._databaseSentenceRequest) return this._databaseSentenceRequest;
+    const generationId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    const generationDate = todayStr();
+    this._databaseSentenceActiveId = generationId;
     heroContent.innerHTML = `<div class="hero-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>正在生成例句...</span></div>`;
-    try {
+    const request = (async () => { try {
       const word = words[Math.floor(Math.random() * words.length)];
       const result = await Gemini.generateSentence(word);
       if (!result.en || !result.zh) throw new Error('Invalid');
-      if (!document.getElementById('hero-content')) return;
       const entry = {
-        date: todayStr(), wordEn: word.english, wordZh: word.chinese, wordPos: word.partOfSpeech,
+        id: generationId, generationId, date: generationDate, wordEn: word.english, wordZh: word.chinese, wordPos: word.partOfSpeech,
+        wordReading: word.reading || word.phonetic || '', wordRomaji: word.romaji || '',
         en: result.en, reading: result.reading || '', zh: result.zh,
         source: 'database-generated', validationStatus: 'valid', contentVersion: 2,
         generation: result.generation || null
       };
-      await DB.saveGeneratedSentence(entry);
-      this.displaySentence(entry); this.renderSentenceLog();
+      const saved = await DB.saveGeneratedSentence(entry, { isCurrent: () =>
+        this._databaseSentenceActiveId === generationId &&
+        DB.getDailyLearningPreferences().source !== DAILY_LEARNING_SOURCES.LEVEL
+      });
+      if (this._databaseSentenceActiveId === generationId && document.getElementById('hero-content') &&
+          DB.getDailyLearningPreferences().source !== DAILY_LEARNING_SOURCES.LEVEL) {
+        this.displaySentence(saved);
+        this.renderSentenceLog();
+      }
+      return saved;
     } catch(e) {
-      if (!document.getElementById('hero-content')) return;
+      if (this._databaseSentenceActiveId !== generationId || !document.getElementById('hero-content')) return null;
       const errText = Gemini.describeError(e, '例句生成');
-      heroContent.innerHTML = `<div style="font-size:13px;opacity:0.85;line-height:1.6">${escapeHTML(errText)}<br><span style="font-size:11px;opacity:0.6">點右上角 ↻ 重試</span></div>`;
-    }
+      document.getElementById('hero-content').innerHTML = `<div style="font-size:13px;opacity:0.85;line-height:1.6">${escapeHTML(errText)}<br><span style="font-size:11px;opacity:0.6">點右上角 ↻ 重試</span></div>`;
+      return null;
+    } })().finally(() => {
+      if (this._databaseSentenceRequest === request) this._databaseSentenceRequest = null;
+    });
+    this._databaseSentenceRequest = request;
+    return request;
   },
   displaySentence(entry) {
     const heroContent = document.getElementById('hero-content');
@@ -3425,8 +3605,8 @@ Views.home = {
         : `<span class="hero-source-tag">✨ AI</span>`;
     heroContent.innerHTML = `
       <div class="hero-sentence">
-        <div>${highlightEn(entry.en, entry.wordEn)}</div>
-        ${entry.reading ? `<div class="japanese-reading">${escapeHTML(entry.reading)}</div>` : ''}
+        <div>${highlightJapaneseTarget(entry.en, entry.wordEn)}</div>
+        ${entry.reading ? `<div class="japanese-reading" lang="ja">${highlightJapaneseTarget(entry.reading, entry.wordReading)}</div>` : ''}
         <span class="zh-text">${highlightZh(entry.zh, entry.wordZh)}</span>
         <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
           <span class="log-word-chip" style="margin:0">${escapeHTML(entry.wordEn)} <span style="opacity:0.6;font-size:10px">${escapeHTML(entry.wordPos||'')}</span></span>
@@ -3442,8 +3622,10 @@ Views.home = {
       logContent.innerHTML = `<div class="log-empty">尚無例句記錄<br><span style="font-size:12px">可生成 AI 例句，或在設定頁匯入 CSV 例句</span></div>`;
       return;
     }
-    // Show all entries in a scrollable container (shows ~4 at a time)
-    logContent.innerHTML = `<div class="sentence-log-scroll">${log.map(entry => `
+    // Keep the first paint bounded even after years of sentence history.
+    this._sentenceLogLimit ||= 40;
+    const visible = log.slice(0, this._sentenceLogLimit);
+    logContent.innerHTML = `<div class="sentence-log-scroll">${visible.map(entry => `
       <div class="log-entry-card">
         <div class="log-entry-header">
           <span class="log-date">${escapeHTML(entry.date)}</span>
@@ -3453,7 +3635,11 @@ Views.home = {
         <div class="log-entry-en">${highlightJapaneseTarget(entry.en, entry.wordEn)}</div>
         ${entry.reading ? `<div class="japanese-reading" lang="ja">${highlightJapaneseTarget(entry.reading, entry.wordReading)}</div>` : ''}
         <div class="log-entry-zh">${highlightZh(entry.zh, entry.wordZh)}</div>
-      </div>`).join('')}</div>`;
+      </div>`).join('')}${visible.length < log.length ? `<button type="button" class="btn-secondary" id="sentence-log-more">顯示更多例句（還有 ${log.length - visible.length} 筆）</button>` : ''}</div>`;
+    logContent.querySelector('#sentence-log-more')?.addEventListener('click', () => {
+      this._sentenceLogLimit += 40;
+      this.renderSentenceLog();
+    });
   }
 };
 
@@ -4514,7 +4700,7 @@ Views.kanaPractice = {
       },
       onDiagnostic: metrics => {
         const status = document.getElementById('kana-diagnostic-status');
-        if (status) status.textContent = `繪製最慢 ${metrics.maxDrawMs.toFixed(1)}ms・事件等待最長 ${metrics.maxSampleAgeMs.toFixed(1)}ms・中斷 ${metrics.interruptions}・縮放 ${metrics.resizes}`;
+        if (status) status.textContent = `事件處理 P95 ${metrics.handlerP95Ms.toFixed(1)}ms / P99 ${metrics.handlerP99Ms.toFixed(1)}ms・繪製 P95 ${metrics.drawP95Ms.toFixed(1)}ms・事件間隔 P95 ${metrics.inputGapP95Ms.toFixed(1)}ms・中斷 ${metrics.interruptions}`;
       },
       onChange: count => {
         const label = document.getElementById('kana-stroke-live');
@@ -7741,13 +7927,16 @@ Views.settings = {
           <div class="model-dropdown-row">
             <label class="model-dropdown-label">AI 模型</label>
             <select class="model-dropdown-select" id="gemini-model-select">
+              ${!Gemini.AVAILABLE_MODELS.some(model => model.id === savedModel)
+                ? `<option value="${escapeAttr(savedModel)}" selected disabled>${escapeHTML(savedModel)}（需重新選擇）</option>` : ''}
               ${Gemini.AVAILABLE_MODELS.map(m =>
                 `<option value="${escapeHTML(m.id)}" ${savedModel===m.id?'selected':''}>${escapeHTML(m.label)}${m.tag ? '（' + escapeHTML(m.tag) + '）' : ''}</option>`
               ).join('')}
             </select>
           </div>
+          <div class="settings-tip" id="gemini-model-status">正在查詢此金鑰可呼叫的 Gemini 模型…</div>
           <button class="btn-secondary gemini-test-button" id="test-gemini-btn" type="button" ${hasKey?'':'disabled'}>測試 Gemini 連線與生成</button>
-          <div class="gemini-test-status" id="gemini-test-status" role="status" aria-live="polite">測試會實際呼叫 generateContent，並自動尋找可用的穩定模型。</div>
+          <div class="gemini-test-status" id="gemini-test-status" role="status" aria-live="polite">測試會用正式例句的格式與檢查規則產生測試句；不會寫入學習記錄。</div>
           <a class="api-link" href="https://aistudio.google.com/app/apikey" target="_blank">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             取得 Gemini Key（Google AI Studio）
@@ -7840,6 +8029,38 @@ Views.settings = {
 
       <input type="file" id="one-click-import-input" accept=".csv,.zip" multiple style="display:none">
     `;
+
+    if (hasKey) {
+      void Gemini.discoverModels().then(models => {
+        const select = document.getElementById('gemini-model-select');
+        const status = document.getElementById('gemini-model-status');
+        if (!select || !status || DB.getApiKey() !== savedKey || !container.contains(select)) return;
+        const selected = DB.getModel();
+        select.replaceChildren();
+        if (!models.some(model => model.id === selected)) {
+          const invalid = document.createElement('option');
+          invalid.value = selected;
+          invalid.textContent = `${selected}（此金鑰的模型列表未包含，請重新選擇）`;
+          invalid.disabled = true;
+          invalid.selected = true;
+          select.append(invalid);
+        }
+        models.forEach(model => {
+          const option = document.createElement('option');
+          option.value = model.id;
+          option.textContent = model.label;
+          option.selected = model.id === selected;
+          select.append(option);
+        });
+        status.textContent = `已查詢 ${models.length} 個支援文字生成的模型；仍需實際生成確認配額。`;
+      }).catch(() => {
+        const status = document.getElementById('gemini-model-status');
+        if (status && container.contains(status)) status.textContent = '暫時無法取得模型列表；可使用內建選項，並執行例句測試。';
+      });
+    } else {
+      const status = document.getElementById('gemini-model-status');
+      if (status) status.textContent = '儲存 API Key 後會查詢可用模型。';
+    }
 
     // ── 每日 Web Push 提醒 ──
     const reminderStatusEl = document.getElementById('reminder-status');
@@ -7976,13 +8197,13 @@ Views.settings = {
       const originalText = button.textContent;
       button.disabled = true;
       button.textContent = '正在測試…';
-      if (status) { status.className = 'gemini-test-status is-testing'; status.textContent = '正在驗證 API Key、模型與 JSON 生成能力…'; }
+      if (status) { status.className = 'gemini-test-status is-testing'; status.textContent = '正在驗證 API Key、模型與例句格式…'; }
       try {
         const result = await Gemini.testConnection();
         const label = Gemini.AVAILABLE_MODELS.find(item => item.id === result.model)?.label || result.model;
         if (status) {
           status.className = 'gemini-test-status is-success';
-          status.textContent = `連線與生成成功：${label}`;
+          status.textContent = `例句生成與內容檢查成功：${label}。此測試未保存資料。`;
         }
         showToast(`✓ Gemini 可用：${label}`, 3200);
       } catch (error) {

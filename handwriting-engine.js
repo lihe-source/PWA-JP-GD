@@ -81,6 +81,8 @@ export class HandwritingEngine {
       maxHandlerMs: 0, delayedInputs: 0, longTasks: 0, maxLongTaskMs: 0,
       lastScoreMs: 0, interruptions: 0, resizes: 0
     };
+    this.timingSamples = this.diagnostics ? { handler: [], draw: [], inputGap: [] } : null;
+    this.timingPositions = { handler: 0, draw: 0, inputGap: 0 };
     this.lastInputTime = 0;
     this.longTaskObserver = null;
     this.kana = null;
@@ -167,6 +169,7 @@ export class HandwritingEngine {
       if (this.diagnostics && Number.isFinite(event.timeStamp)) {
         const gap = this.lastInputTime ? Math.max(0, event.timeStamp - this.lastInputTime) : 0;
         this.metrics.maxInputGapMs = Math.max(this.metrics.maxInputGapMs, gap);
+        this._trackTiming('inputGap', gap);
         if (gap > 50) this.metrics.delayedInputs += 1;
         this.lastInputTime = event.timeStamp;
         const age = handlerStartedAt - event.timeStamp;
@@ -174,7 +177,11 @@ export class HandwritingEngine {
       }
       if (this.activePointerType === 'pen') this.penRecentlyActiveUntil = Date.now() + 1200;
       this._appendPointerSamples(event);
-      if (this.diagnostics) this.metrics.maxHandlerMs = Math.max(this.metrics.maxHandlerMs, performance.now() - handlerStartedAt);
+      if (this.diagnostics) {
+        const duration = performance.now() - handlerStartedAt;
+        this.metrics.maxHandlerMs = Math.max(this.metrics.maxHandlerMs, duration);
+        this._trackTiming('handler', duration);
+      }
     };
     this._pointerUp = event => {
       if (event.pointerId !== this.pointerId) return;
@@ -241,7 +248,7 @@ export class HandwritingEngine {
     try { this.canvas.releasePointerCapture?.(pointerId); } catch {}
     this.options.onStrokeEnd?.(this.strokes.length);
     this.options.onChange?.(this.strokes.length);
-    if (this.diagnostics) this.options.onDiagnostic?.({ ...this.metrics });
+    if (this.diagnostics) this.options.onDiagnostic?.(this._diagnosticSnapshot());
     if (this.resizePending) this._scheduleResize();
     else if (this.fullRenderPending) this._render();
   }
@@ -249,6 +256,26 @@ export class HandwritingEngine {
   _refreshCanvasRect() {
     this.canvasRect = this.canvas.getBoundingClientRect();
     return this.canvasRect;
+  }
+
+  _trackTiming(kind, duration) {
+    if (!this.timingSamples || !Number.isFinite(duration)) return;
+    const samples = this.timingSamples[kind];
+    const position = this.timingPositions[kind];
+    samples[position % 200] = duration;
+    this.timingPositions[kind] = position + 1;
+  }
+
+  _diagnosticSnapshot() {
+    const percentile = (kind, fraction) => {
+      const samples = [...this.timingSamples[kind]].sort((a, b) => a - b);
+      return samples.length ? samples[Math.ceil(fraction * samples.length) - 1] : 0;
+    };
+    return {
+      ...this.metrics,
+      handlerP95Ms: percentile('handler', 0.95), handlerP99Ms: percentile('handler', 0.99),
+      drawP95Ms: percentile('draw', 0.95), inputGapP95Ms: percentile('inputGap', 0.95)
+    };
   }
 
   _drawContact(point) {
@@ -338,7 +365,9 @@ export class HandwritingEngine {
     this.drawnPointIndex = stroke.length - 1;
     if (this.diagnostics) {
       this.metrics.frames += 1;
-      this.metrics.maxDrawMs = Math.max(this.metrics.maxDrawMs, performance.now() - startedAt);
+      const duration = performance.now() - startedAt;
+      this.metrics.maxDrawMs = Math.max(this.metrics.maxDrawMs, duration);
+      this._trackTiming('draw', duration);
       this.metrics.maxSampleAgeMs = Math.max(this.metrics.maxSampleAgeMs, Math.max(0, startedAt - stroke.at(-1).time));
     }
   }
@@ -553,7 +582,7 @@ export class HandwritingEngine {
     this._render();
     if (this.diagnostics) {
       this.metrics.lastScoreMs = performance.now() - scoreStartedAt;
-      this.options.onDiagnostic?.({ ...this.metrics });
+      this.options.onDiagnostic?.(this._diagnosticSnapshot());
     }
     // `order` remains a legacy API alias, not a claim of stroke-order recognition.
     return { score, strokeCount, expectedStrokeCount, shape, strokeCountScore: order, order, direction, endpoints, balance };

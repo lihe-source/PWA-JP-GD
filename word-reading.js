@@ -1,7 +1,7 @@
-import { kanaToRomaji, readingMatchesRows, katakanaToHiragana } from './daily-learning.js?v=V1_5_2';
-import { toKatakana } from './japanese-learning.js?v=V1_5_2';
-import { normalizeRomajiAnswer } from './kana-reading.js?v=V1_5_2';
-import { KANA_ROWS } from './kana-data.js?v=V1_5_2';
+import { kanaToRomaji, readingMatchesRows, katakanaToHiragana } from './daily-learning.js?v=V1_5_3';
+import { toKatakana } from './japanese-learning.js?v=V1_5_3';
+import { normalizeRomajiAnswer } from './kana-reading.js?v=V1_5_3';
+import { KANA_ROWS } from './kana-data.js?v=V1_5_3';
 
 const ROW_IDS = new Set(KANA_ROWS.map(row => row.id));
 export const WORD_READING_COUNTS = Object.freeze([5, 10, 15, 20, 25, 30]);
@@ -33,20 +33,22 @@ export function normalizeWordReadingPreferences(value = {}) {
 }
 
 export function makeWordReadingPool(words = [], rows = ['all']) {
-  const seen = new Set();
-  return (Array.isArray(words) ? words : []).flatMap(word => {
+  const byReading = new Map();
+  for (const word of Array.isArray(words) ? words : []) {
     const surface = String(word?.english || word?.word || word?.japanese || '').trim();
     const reading = katakanaToHiragana(String(word?.reading || word?.phonetic || '').trim()).normalize('NFC');
-    if (!surface || !readingMatchesRows(reading, rows)) return [];
+    if (!surface || !readingMatchesRows(reading, rows)) continue;
     const romaji = kanaToRomaji(reading);
-    if (!/^[a-z]+$/.test(romaji)) return [];
+    if (!/^[a-z]+$/.test(romaji)) continue;
     // The learner only sees the kana reading, so homonyms with the same prompt
-    // are one exercise even if their written words differ.
-    const key = reading;
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [{ id: String(word.id || key), word: surface, reading, romaji, meaning: String(word.chinese || word.meaning || '') }];
-  });
+    // are one exercise even if their written words differ. Prefer an entry with
+    // a translation when duplicates occur, keeping its spelling and meaning paired.
+    const meaning = String(word.chinese || '').trim() || String(word.meaning || '').trim();
+    if (!byReading.has(reading) || (!byReading.get(reading).meaning && meaning)) {
+      byReading.set(reading, { id: String(word.id || reading), word: surface, reading, romaji, meaning });
+    }
+  }
+  return [...byReading.values()];
 }
 
 function shuffle(items, random) {

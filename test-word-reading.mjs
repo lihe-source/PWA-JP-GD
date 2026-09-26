@@ -24,6 +24,10 @@ test('word pool checks every pronounced kana against all selected rows', () => {
   assert.equal(makeWordReadingPool(words, ['a', 'ta']).some(w => w.word === 'お茶'), false);
   assert.equal(makeWordReadingPool(words, ['a', 'ta', 'ya']).some(w => w.word === 'お茶'), true);
   assert.equal(makeWordReadingPool([{ english: '橋', reading: 'はし' }, { english: '箸', reading: 'はし' }], ['ha', 'sa']).length, 1);
+  assert.deepEqual(
+    makeWordReadingPool([{ english: '傘', reading: 'かさ', chinese: ' ' }, { word: '傘', reading: 'かさ', meaning: '雨傘' }], ['ka', 'sa']).map(item => [item.word, item.meaning]),
+    [['傘', '雨傘']]
+  );
 });
 
 test('word questions display the chosen script, remain random and avoid immediate repeats', () => {
@@ -54,7 +58,7 @@ test('word reading preserves keyboard input, requeues wrong words, and shows eve
   const source = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
   const block = source.slice(source.indexOf('Views.wordReadingPractice ='), source.indexOf('// READING QUIZ VIEW'));
   const elements = new Map();
-  for (const id of ['answer', 'submit', 'feedback', 'progress-text', 'progress-fill', 'character']) {
+  for (const id of ['answer', 'submit', 'feedback', 'progress-text', 'progress-fill', 'character', 'meaning']) {
     elements.set(`word-reading-${id}`, { value: '', style: {}, setAttribute() {}, isConnected: true, focus() {}, setSelectionRange() {} });
   }
   const calls = [], timers = [], records = [];
@@ -75,12 +79,14 @@ test('word reading preserves keyboard input, requeues wrong words, and shows eve
   view.paintQuestion();
   const input = elements.get('word-reading-answer');
   const first = view.state.items[0];
+  assert.equal(elements.get('word-reading-meaning').textContent, first.meaning);
   input.value = 'wrong'; view.submitAnswer(container);
   assert.equal(view.state.items.length, 6);
   assert.equal(records.length, 1);
   assert.equal(calls[0], 'wrong');
   timers.shift()();
   assert.equal(elements.get('word-reading-answer'), input);
+  assert.equal(elements.get('word-reading-meaning').textContent, view.state.items[1].meaning);
   for (let index = 1; index < 5; index++) {
     input.value = view.state.items[index].romaji; view.submitAnswer(container); timers.shift()();
   }

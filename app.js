@@ -1,29 +1,29 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_2';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_2';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_2';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_3';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_3';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_3';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_2';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_2';
-import { VersionManager } from './version-manager.js?v=V1_5_2';
-import { TrendChart } from './chart-renderer.js?v=V1_5_2';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_2';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_2';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_2';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_2';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_2';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_2';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_2';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_2';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_2';
+import { AppStorage } from './storage.js?v=V1_5_3';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_3';
+import { VersionManager } from './version-manager.js?v=V1_5_3';
+import { TrendChart } from './chart-renderer.js?v=V1_5_3';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_3';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_3';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_3';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_3';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_3';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_3';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_3';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_3';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_3';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_2
-// V1.5.2：新增單詞讀音練習，選行出題、音效、統計與雲端備份
+// 日本語練習 PWA - app.js V1_5_3
+// V1.5.3：新增單詞讀音練習，選行出題、音效、統計與雲端備份
 // ===========================
 
-const APP_VERSION = 'V1_5_2';
-const APP_DISPLAY_VERSION = 'V1.5.2';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_2';
+const APP_VERSION = 'V1_5_3';
+const APP_DISPLAY_VERSION = 'V1.5.3';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_3';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -3230,7 +3230,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_2" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_3" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -5309,6 +5309,7 @@ Views.wordReadingPractice = {
     container.innerHTML = `<div class="kana-reading-session word-reading-session">
       <header class="kana-session-header"><button class="kana-back-btn" id="word-reading-exit" type="button" aria-label="離開單詞讀音練習">‹</button><div class="kana-session-progress"><span id="word-reading-progress-text"></span><div><i id="word-reading-progress-fill"></i></div></div></header>
       <main class="kana-reading-question-card"><div class="kana-reading-character word-reading-character" id="word-reading-character" lang="ja"></div>
+        <div class="word-reading-meaning" id="word-reading-meaning" aria-label="單詞中文翻譯"></div>
         <p>輸入完整羅馬拼音，按鍵盤「下一個／換行」送出並自動換題</p>
         <form class="kana-reading-answer-form" id="word-reading-form"><input id="word-reading-answer" type="text" inputmode="text" lang="en" enterkeyhint="next" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="80" autofocus aria-label="輸入單詞羅馬拼音" placeholder="例如：kasa"><button class="btn-primary" id="word-reading-submit" type="submit">送出並下一題</button></form>
         <div class="kana-reading-feedback" id="word-reading-feedback" role="status" aria-live="polite"></div>
@@ -5332,11 +5333,13 @@ Views.wordReadingPractice = {
     const progress = document.getElementById('word-reading-progress-text');
     const fill = document.getElementById('word-reading-progress-fill');
     const character = document.getElementById('word-reading-character');
+    const meaning = document.getElementById('word-reading-meaning');
     const input = document.getElementById('word-reading-answer');
     const submit = document.getElementById('word-reading-submit');
     if (progress) progress.textContent = `單詞讀音 ${this.state.index + 1} / ${this.state.items.length}`;
     if (fill) fill.style.width = `${Math.round(this.state.index / this.state.items.length * 100)}%`;
     if (character) character.textContent = item.display;
+    if (meaning) meaning.textContent = item.meaning || '尚無中文翻譯';
     if (input) { input.value = ''; input.setAttribute('aria-label', `輸入 ${item.display} 的完整羅馬拼音`); }
     if (submit) { submit.disabled = false; submit.textContent = '送出並下一題'; }
     const feedback = document.getElementById('word-reading-feedback'); if (feedback) feedback.innerHTML = '';

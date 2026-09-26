@@ -270,6 +270,16 @@ html, body {
   line-height: 1.18;
   overflow-wrap: anywhere;
 }
+.word-reading-meaning {
+  max-width: 100%;
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: clamp(16px, 4vw, 20px);
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
 .word-reading-result-list { margin: 18px 0; text-align: left; }
 .word-reading-result-list h2 { margin: 0 0 8px; color: var(--text); font-size: 16px; }
 .word-reading-result-item {
@@ -311,6 +321,9 @@ html, body {
   }
   .kana-reading-question-card:focus-within .word-reading-character {
     font-size: clamp(42px, 13vw, 72px);
+  }
+  .kana-reading-question-card:focus-within .word-reading-meaning {
+    margin-bottom: 4px;
   }
   .kana-reading-question-card:focus-within > p { margin-block: 2px 8px; }
 }
@@ -4014,7 +4027,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.5.2 藍墨: one shared visual system ===== */
+/* ===== V1.5.3 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4230,7 +4243,7 @@ body { position: relative; height: 100%; min-height: 0; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-/* ===== V1.5.2 inline scoring, identical geometry before/after =====
+/* ===== V1.5.3 inline scoring, identical geometry before/after =====
    Reserve metrics from the start. Only values and enabled states change.
    Small/landscape screens can scroll the body, never underneath the action. */
 .kana-session .kana-session-body {

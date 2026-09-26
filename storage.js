@@ -6,7 +6,7 @@ const RECORD_STORE = 'records';
 const LOCAL_PREFIX = 'pwa_japanese:';
 const LEGACY_ENGLISH_DB = 'pwa_vocabulary_v7';
 
-const RECORD_COLLECTIONS = new Set(['handwritingHistory', 'kanaReadingHistory']);
+const RECORD_COLLECTIONS = new Set(['handwritingHistory', 'kanaReadingHistory', 'wordReadingHistory']);
 const INDEXED_KEYS = new Set([
   'vocabWords', 'practiceHistory', 'readingQuizHistory', 'essayHistory', 'aiAskHistory',
   ...RECORD_COLLECTIONS, 'studyActivityDays', 'sentenceLog', 'importedSentences',

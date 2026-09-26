@@ -4,8 +4,9 @@ const V1_COLLECTION_KEYS = Object.freeze([
   'readingQuizHistory', 'essayHistory', 'aiAskHistory', 'studyDays',
   'handwritingHistory', 'kanaProgress', 'preferences'
 ]);
-const COLLECTION_KEYS = Object.freeze([...V1_COLLECTION_KEYS, 'kanaReadingHistory']);
-const SUPPORTED_SCHEMA_VERSIONS = new Set([1, 2]);
+const V2_COLLECTION_KEYS = Object.freeze([...V1_COLLECTION_KEYS, 'kanaReadingHistory']);
+const COLLECTION_KEYS = Object.freeze([...V2_COLLECTION_KEYS, 'wordReadingHistory']);
+const SUPPORTED_SCHEMA_VERSIONS = new Set([1, 2, 3]);
 const MAX_BACKUP_BYTES = 25 * 1024 * 1024;
 const MAX_COLLECTION_ITEMS = 100000;
 
@@ -94,7 +95,7 @@ export function mergePracticeHistory(...sources) {
 
 export const BackupSchema = {
   product: PRODUCT_ID,
-  schemaVersion: 2,
+  schemaVersion: 3,
   collectionKeys: COLLECTION_KEYS,
 
   normalize(data = {}) {
@@ -117,6 +118,7 @@ export const BackupSchema = {
       studyDays: collections.studyDays.length,
       handwriting: collections.handwritingHistory.length,
       kanaReading: collections.kanaReadingHistory.length,
+      wordReading: collections.wordReadingHistory.length,
       kanaProgress: collections.kanaProgress.length,
       preferences: collections.preferences.length
     };
@@ -160,9 +162,10 @@ export const BackupSchema = {
     if (invalidRecord) return { valid: false, reason: `INVALID_RECORD_${invalidRecord}` };
     if (sourceSchemaVersion >= 2 && !data.payloadChecksum) return { valid: false, reason: 'CHECKSUM_REQUIRED' };
     if (data.payloadChecksum && data.payloadChecksum !== this.checksum(collections)) {
-      const legacyCollections = Object.fromEntries(V1_COLLECTION_KEYS.map(key => [key, safeArray(source[key])]));
+      const legacyKeys = sourceSchemaVersion === 1 ? V1_COLLECTION_KEYS : V2_COLLECTION_KEYS;
+      const legacyCollections = Object.fromEntries(legacyKeys.map(key => [key, safeArray(source[key])]));
       const legacyChecksum = hashString(stableStringify(legacyCollections));
-      if (sourceSchemaVersion > 1 || data.payloadChecksum !== legacyChecksum) {
+      if (sourceSchemaVersion >= 3 || data.payloadChecksum !== legacyChecksum) {
         return { valid: false, reason: 'CHECKSUM_MISMATCH', actual: this.checksum(collections) };
       }
     }
@@ -184,7 +187,7 @@ export const BackupSchema = {
     return {
       ...normalized,
       product: PRODUCT_ID,
-      schemaVersion: 2,
+      schemaVersion: 3,
       backupId: crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       deviceId: deviceId || 'unknown-device',
       revision: revision || Date.now(),

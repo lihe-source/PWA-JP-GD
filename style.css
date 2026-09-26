@@ -263,6 +263,32 @@ html, body {
 .kana-reading-perfect { margin: 18px 0; padding: 18px; border-radius: 14px; background: color-mix(in srgb, var(--correct) 10%, transparent); color: var(--correct); font-weight: 800; }
 .kana-reading-stat-note { margin: 8px 0 12px; color: var(--text-muted); font-size: 12px; text-align: center; }
 
+/* Word reading shares the compact kana setup and the keyboard-stable question form. */
+.word-reading-character {
+  max-width: 100%;
+  font-size: clamp(48px, 13vw, 100px);
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+.word-reading-result-list { margin: 18px 0; text-align: left; }
+.word-reading-result-list h2 { margin: 0 0 8px; color: var(--text); font-size: 16px; }
+.word-reading-result-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  margin: 8px 0;
+  border: 1px solid currentColor;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.word-reading-result-item.is-correct { color: var(--primary); }
+.word-reading-result-item.is-wrong { color: var(--danger); }
+.word-reading-result-item > div:first-child { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; }
+.word-reading-result-item b { font-family: 'Noto Sans JP', sans-serif; font-size: 22px; }
+.word-reading-result-item small { color: var(--text-muted); overflow-wrap: anywhere; }
+.word-reading-result-item > div:last-child { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--text); font-size: 13px; }
+.word-reading-result-item strong { color: inherit; }
+
 @media (min-width: 700px) {
   .kana-reading-setup-grid { grid-template-columns: 1fr 1fr; }
   .kana-reading-setup-grid > :nth-child(2) { grid-column: 1 / -1; }
@@ -282,6 +308,9 @@ html, body {
   .kana-reading-question-card:focus-within .kana-reading-character {
     margin-block: 5px 2px;
     font-size: clamp(76px, 26vw, 108px);
+  }
+  .kana-reading-question-card:focus-within .word-reading-character {
+    font-size: clamp(42px, 13vw, 72px);
   }
   .kana-reading-question-card:focus-within > p { margin-block: 2px 8px; }
 }
@@ -3985,7 +4014,7 @@ html.kana-view-active #global-go-bottom {
   .practice-five-grid .chip { font-size: 10px; }
 }
 
-/* ===== V1.5.1 藍墨: one shared visual system ===== */
+/* ===== V1.5.2 藍墨: one shared visual system ===== */
 :root {
   --primary: #2463d5; --primary-dark: #1749a2; --primary-light: #5789e5;
   --primary-faint: #eaf2ff; --accent: #2463d5;
@@ -4201,7 +4230,7 @@ body { position: relative; height: 100%; min-height: 0; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-/* ===== V1.5.1 inline scoring, identical geometry before/after =====
+/* ===== V1.5.2 inline scoring, identical geometry before/after =====
    Reserve metrics from the start. Only values and enabled states change.
    Small/landscape screens can scroll the body, never underneath the action. */
 .kana-session .kana-session-body {

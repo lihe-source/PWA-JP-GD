@@ -1,6 +1,6 @@
 export function isPracticeActive(document, router = {}) {
   if (router.quizActive || router.essayActive || router.handwritingActive) return true;
-  if (document.querySelector('#quiz-ghost-input, #kana-reading-answer, .kana-writing-canvas, .reading-quiz-shell, .reading-loading, .ai-loading')) return true;
+  if (document.querySelector('#quiz-ghost-input, #kana-reading-answer, #word-reading-answer, .kana-writing-canvas, .reading-quiz-shell, .reading-loading, .ai-loading')) return true;
   return [...document.querySelectorAll('.essay-textarea, .aiask-textarea')]
     .some(input => String(input.value || '').trim());
 }

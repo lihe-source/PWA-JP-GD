@@ -1,3 +1,13 @@
+# 日文練習架構 · V1.5.2
+
+`word-reading.js` 從現有詞庫和當日推薦詞建立候選集，沿用 `daily-learning.js` 的完整讀音行別檢查與假名轉羅馬拼音。只要任一發音假名不屬所選行，就拒絕候選詞。題目以平假名或片假名顯示；同一輸入節點在換題時保留，iOS 鍵盤可持續使用。錯題會補入隊尾，每題結果含單詞、假名、正確拼音、實際作答、正誤與時間。
+
+`wordReadingHistory` 使用 `StorageBridge` 的逐筆 IndexedDB records store。完整 Google Drive 備份的 `BackupSchema` 升至 3，仍驗證並支援 Schema 1／2 的備份；跨裝置學習資料由 `learning-sync.js` 依作答 ID 合併，連續學習日也納入單詞讀音。偏好隨既有 `preferences.practice` 備份；本機一鍵 ZIP 可匯出／匯入單詞讀音 CSV。Worker、D1 與推播不變。
+
+目前發布資料夾為 49 個同層檔案；新增 `word-reading.js` 與 `test-word-reading.mjs`。執行 `npm run check` 和 `npm test` 後，應自行在 iPhone／iPad 驗證鍵盤和音效。
+
+以下保留歷史架構說明。
+
 # 日文練習架構 · V1.5.1
 
 V1.5.1 在既有 V1.5.0 架構上加入保存協調：`StorageBridge` 把原子提交與其後的一般寫入分開排程，`flush()` 等待兩者完成並回報未解決的失敗。舊資料搬移只在目的寫入成功後清除來源。例句以 `id` 和 `generationId` 區分各次生成；首頁卡片只顯示目前任務，歷史不依畫面是否存在而丟棄。備份自動覆蓋需要逐筆包含確認。通知完成回報以本機學習日去重、當天優先。PWA 更新啟用前詢問已開啟頁面的操作狀態。

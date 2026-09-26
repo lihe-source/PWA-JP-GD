@@ -9,6 +9,7 @@ const collections = {
   studyDays: [{ date: '2026-08-18', activities: ['kana_handwriting'], eventIds: ['e1'], sessionCount: 1 }],
   handwritingHistory: [{ id: 'h1', character: 'あ', score: 88 }],
   kanaReadingHistory: [{ id: 'kr1', character: 'あ', romaji: 'a', answer: 'a', correct: true }],
+  wordReadingHistory: [{ id: 'wr1', word: '愛', reading: 'あい', romaji: 'ai', answer: 'ai', correct: true }],
   kanaProgress: [{ key: 'hiragana:あ', bestScore: 88 }],
   preferences: [{
     jlptLevel: 'N5',
@@ -35,10 +36,11 @@ const hashString = text => {
 test('Japanese backup includes streak, handwriting, kana reading and preferences', () => {
   const payload = BackupSchema.attach(collections, { appVersion: 'V1.0.0', deviceId: 'test' });
   assert.equal(payload.product, 'pwa-japanese-gd');
-  assert.equal(payload.schemaVersion, 2);
+  assert.equal(payload.schemaVersion, 3);
   assert.equal(payload.collectionCounts.studyDays, 1);
   assert.equal(payload.collectionCounts.handwriting, 1);
   assert.equal(payload.collectionCounts.kanaReading, 1);
+  assert.equal(payload.collectionCounts.wordReading, 1);
   assert.equal(payload.collectionCounts.preferences, 1);
   assert.deepEqual(payload.preferences[0].practice.kanaPractice.rows, ['a', 'ka']);
   assert.equal(payload.preferences[0].practice.kanaPractice.repeat, 5);

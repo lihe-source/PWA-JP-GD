@@ -1,12 +1,14 @@
-import { mergeStudyDays } from './study-streak.js?v=V1_5_1';
-import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_5_1';
-import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_5_1';
+import { mergeStudyDays } from './study-streak.js?v=V1_5_2';
+import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_5_2';
+import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_5_2';
+import { mergeWordReadingHistory } from './word-reading.js?v=V1_5_2';
 
 export function mergeLearningStates(...states) {
   return {
     studyDays: mergeStudyDays(...states.map(s => s?.studyDays || [])),
     handwritingHistory: mergeHandwritingHistory(...states.map(s => s?.handwritingHistory || [])),
-    kanaReadingHistory: mergeKanaReadingHistory(...states.map(s => s?.kanaReadingHistory || []))
+    kanaReadingHistory: mergeKanaReadingHistory(...states.map(s => s?.kanaReadingHistory || [])),
+    wordReadingHistory: mergeWordReadingHistory(...states.map(s => s?.wordReadingHistory || []))
   };
 }
 

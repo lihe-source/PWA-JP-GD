@@ -1,29 +1,29 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_3';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_3';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_3';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_4';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_4';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_4';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_3';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_3';
-import { VersionManager } from './version-manager.js?v=V1_5_3';
-import { TrendChart } from './chart-renderer.js?v=V1_5_3';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_3';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_3';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_3';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_3';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_3';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_3';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_3';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_3';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_3';
+import { AppStorage } from './storage.js?v=V1_5_4';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_4';
+import { VersionManager } from './version-manager.js?v=V1_5_4';
+import { TrendChart } from './chart-renderer.js?v=V1_5_4';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_4';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_4';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_4';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_4';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_4';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_4';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_4';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_4';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_4';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_3
-// V1.5.3：新增單詞讀音練習，選行出題、音效、統計與雲端備份
+// 日本語練習 PWA - app.js V1_5_4
+// V1.5.4：每日推薦例句完成後自動收錄單字，重複詞保留原加入時間
 // ===========================
 
-const APP_VERSION = 'V1_5_3';
-const APP_DISPLAY_VERSION = 'V1.5.3';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_3';
+const APP_VERSION = 'V1_5_4';
+const APP_DISPLAY_VERSION = 'V1.5.4';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_4';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -569,6 +569,56 @@ const DB = {
     const newWord = { ...normalized, id: Date.now().toString(), wrongCount: 0, createdAt: todayStr(), frequencyWeight: 1 };
     words.push(newWord); this.saveWords(words); return newWord;
   },
+  upsertDailyVocabularyWord(entry) {
+    if (entry?.source !== 'daily-recommendation') return null;
+    const candidate = normalizeJapaneseWord({
+      english: entry.wordEn,
+      reading: entry.wordReading,
+      romaji: entry.wordRomaji,
+      partOfSpeech: entry.wordPos,
+      chinese: entry.wordZh,
+      jlpt: entry.wordJlpt || entry.level || 'N5'
+    });
+    const key = normalizeJapaneseAnswer(candidate.english);
+    if (!key) return null;
+
+    const words = this.getWords();
+    const duplicates = words
+      .map((word, index) => ({ word, index }))
+      .filter(item => normalizeJapaneseAnswer(item.word?.english || item.word?.japanese) === key)
+      .sort((a, b) => String(a.word.createdAt || '9999-12-31').localeCompare(String(b.word.createdAt || '9999-12-31')) || a.index - b.index);
+
+    if (duplicates.length) {
+      const { word: existing, index } = duplicates[0];
+      const fill = (current, incoming) => String(current || '').trim() || String(incoming || '').trim();
+      words[index] = normalizeJapaneseWord({
+        ...existing,
+        english: fill(existing.english || existing.japanese, candidate.english),
+        reading: fill(existing.reading || existing.phonetic, candidate.reading),
+        romaji: fill(existing.romaji, candidate.romaji),
+        partOfSpeech: fill(existing.partOfSpeech, candidate.partOfSpeech),
+        chinese: fill(existing.chinese, candidate.chinese),
+        jlpt: fill(existing.jlpt, candidate.jlpt),
+        id: existing.id,
+        createdAt: existing.createdAt || todayStr(),
+        wrongCount: Number(existing.wrongCount) || 0,
+        frequencyWeight: Number(existing.frequencyWeight) || 1
+      });
+      this.saveWords(words);
+      return { word: words[index], added: false };
+    }
+
+    const added = {
+      ...candidate,
+      id: `daily-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      wrongCount: 0,
+      createdAt: todayStr(),
+      frequencyWeight: 1
+    };
+    words.push(added);
+    this.saveWords(words);
+    return { word: added, added: true };
+  },
   updateWord(id, data) {
     const words = this.getWords(); const idx = words.findIndex(w => w.id === id);
     if (idx !== -1) { words[idx] = { ...words[idx], ...data }; this.saveWords(words); return words[idx]; }
@@ -1023,6 +1073,7 @@ const DB = {
       let saved = entry;
       const commit = () => {
         saved = this.saveSentenceToLog(entry);
+        this.upsertDailyVocabularyWord(saved);
         if (isCurrent()) this.saveTodaySentence(saved);
       };
       if (AppStorage.getStatus().mode === 'indexeddb') {
@@ -3230,7 +3281,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_3" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_4" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -3494,6 +3545,7 @@ Views.home = {
       if (existing && !forceNew) {
         const validation = validateStoredGeneratedSentence(existing);
         if (validation.ok) {
+          DB.upsertDailyVocabularyWord(existing);
           if (this._dailySentenceContextIsCurrent(context) && this._dailySentenceActiveKey === requestKey) {
             DB.saveTodaySentence(existing);
             await AppStorage.flush();
@@ -3534,6 +3586,7 @@ Views.home = {
           wordPos: word.partOfSpeech || '語彙',
           wordReading: context.reading,
           wordRomaji: word.romaji || '',
+          wordJlpt: context.level,
           ...finalValidation.value,
           source: 'daily-recommendation',
           validationStatus: 'valid',

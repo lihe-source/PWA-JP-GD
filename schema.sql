@@ -45,3 +45,42 @@ CREATE TABLE IF NOT EXISTS japanese_practice_days (
 
 CREATE INDEX IF NOT EXISTS idx_japanese_practice_days_updated
   ON japanese_practice_days (updated_at);
+
+-- V1.6.0: additive OAuth tables. Existing reminders/practice days stay intact.
+-- Credential values are AES-GCM ciphertext; device tokens are SHA-256 hashes.
+CREATE TABLE IF NOT EXISTS japanese_auth_accounts (
+  subject TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  credentials_cipher TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  reauth_required INTEGER NOT NULL DEFAULT 0,
+  lock_id TEXT,
+  lock_until INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS japanese_auth_sessions (
+  token_hash TEXT PRIMARY KEY,
+  subject TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  absolute_expires_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_japanese_auth_sessions_subject ON japanese_auth_sessions(subject);
+CREATE INDEX IF NOT EXISTS idx_japanese_auth_sessions_expiry ON japanese_auth_sessions(expires_at);
+CREATE TABLE IF NOT EXISTS japanese_auth_transactions (
+  state TEXT PRIMARY KEY,
+  challenge TEXT NOT NULL,
+  context_cipher TEXT NOT NULL,
+  status TEXT NOT NULL,
+  result_cipher TEXT,
+  error_code TEXT,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_japanese_auth_transactions_expiry ON japanese_auth_transactions(expires_at);
+CREATE TABLE IF NOT EXISTS japanese_auth_limits (
+  id TEXT PRIMARY KEY,
+  hits INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_japanese_auth_limits_expiry ON japanese_auth_limits(expires_at);

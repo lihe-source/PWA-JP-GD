@@ -10,6 +10,7 @@ crons = ["* * * * *"]
 [vars]
 APP_URL = "https://lihe-source.github.io/PWA-JP-GD/"
 ALLOWED_ORIGINS = "https://lihe-source.github.io"
+GOOGLE_CLIENT_ID = "171837667604-mtcf91qudt6ff79u382v37rjqpp7l51q.apps.googleusercontent.com"
 
 [[d1_databases]]
 binding = "DB"

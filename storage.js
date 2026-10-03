@@ -6,7 +6,7 @@ const RECORD_STORE = 'records';
 const LOCAL_PREFIX = 'pwa_japanese:';
 const LEGACY_ENGLISH_DB = 'pwa_vocabulary_v7';
 
-const RECORD_COLLECTIONS = new Set(['handwritingHistory', 'kanaReadingHistory', 'wordReadingHistory']);
+const RECORD_COLLECTIONS = new Set(['handwritingHistory', 'kanaReadingHistory', 'wordReadingHistory', 'sentenceLog']);
 const INDEXED_KEYS = new Set([
   'vocabWords', 'practiceHistory', 'readingQuizHistory', 'essayHistory', 'aiAskHistory',
   ...RECORD_COLLECTIONS, 'studyActivityDays', 'sentenceLog', 'importedSentences',
@@ -14,11 +14,23 @@ const INDEXED_KEYS = new Set([
 ]);
 
 function cloneRecord(value) { return value && typeof value === 'object' ? { ...value } : value; }
+function stableRecordText(value) {
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(stableRecordText).join(',') + ']';
+  return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stableRecordText(value[key])).join(',') + '}';
+}
+function legacyRecordId(record) {
+  const text = stableRecordText(record); let first = 0x811c9dc5; let second = 5381;
+  for (let i = 0; i < text.length; i++) { first = Math.imul(first ^ text.charCodeAt(i), 0x01000193); second = Math.imul(second, 33) ^ text.charCodeAt(i); }
+  return `legacy-${(first >>> 0).toString(16)}-${(second >>> 0).toString(16)}`;
+}
+function recordTime(record) { return Number(record.ts) || Date.parse(record.generatedAt || '') || Date.parse(String(record.date || '').replace(/\//g, '-')) || 0; }
 function normalizeRecordList(records = []) {
-  const byId = new Map();
+  const byId = new Map(); const occurrences = new Map();
   (Array.isArray(records) ? records : []).forEach((record, index) => {
     if (!record || typeof record !== 'object') return;
-    const id = String(record.id || `legacy-${Number(record.ts) || Date.now()}-${index}`);
+    let id = String(record.id || record.generationId || '');
+    if (!id) { const base = legacyRecordId(record); const occurrence = occurrences.get(base) || 0; occurrences.set(base, occurrence + 1); id = `${base}-${occurrence}`; }
     byId.set(id, { ...record, id });
   });
   return byId;
@@ -169,8 +181,10 @@ export class StorageBridge {
   setItem(key, value) {
     if (this.readOnly) throw new Error('STORAGE_READ_ONLY');
     if (RECORD_COLLECTIONS.has(key) && this._recordStoreAvailable()) {
-      try { this.replaceRecordCollection(key, JSON.parse(String(value))); }
-      catch { this.replaceRecordCollection(key, []); }
+      let records;
+      try { records = JSON.parse(String(value)); } catch { throw new Error('INVALID_RECORD_COLLECTION'); }
+      if (!Array.isArray(records)) throw new Error('INVALID_RECORD_COLLECTION');
+      this.replaceRecordCollection(key, records);
       return;
     }
     const stringValue = String(value);
@@ -198,7 +212,7 @@ export class StorageBridge {
       try { legacy = JSON.parse(this.cache.get(collection) || '[]'); } catch {}
       const merged = normalizeRecordList(legacy);
       this.recordCache.get(collection)?.forEach((record, id) => merged.set(id, record));
-      return [...merged.values()].sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+      return [...merged.values()].sort((a, b) => recordTime(b) - recordTime(a));
     }
     if (!this._recordStoreAvailable() && !this.readOnly) {
       try { return JSON.parse(this.getItem(collection) || '[]'); } catch { return []; }
@@ -206,7 +220,7 @@ export class StorageBridge {
     const staged = this.atomicStage?.collections.get(collection);
     const map = staged || this.atomicStage?.baseRecords.get(collection) || this.recordCache.get(collection) || new Map();
     if (!this.atomicStage && this.recordSortedCache.has(collection)) return this.recordSortedCache.get(collection).map(cloneRecord);
-    const sorted = [...map.values()].map(cloneRecord).sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+    const sorted = [...map.values()].map(cloneRecord).sort((a, b) => recordTime(b) - recordTime(a));
     if (!this.atomicStage) this.recordSortedCache.set(collection, sorted);
     return sorted.map(cloneRecord);
   }
@@ -216,7 +230,8 @@ export class StorageBridge {
     if (!RECORD_COLLECTIONS.has(collection) || !record || typeof record !== 'object') return;
     if (!this._recordStoreAvailable()) {
       const list = this.getRecordCollection(collection);
-      const raw = JSON.stringify([{ ...record }, ...list]);
+      const id = record.id || record.generationId;
+      const raw = JSON.stringify([{ ...record }, ...list.filter(item => !id || item.id !== id)]);
       this.cache.set(collection, raw);
       this._persist(collection, raw);
       return;

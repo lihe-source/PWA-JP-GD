@@ -1,150 +1,62 @@
-# 日文練習架構 · V1.5.4
+# 日文練習架構 V1.6.0
 
-每日推薦例句透過 `saveGeneratedSentence()` 提交時，同一個保存交易會呼叫 `upsertDailyVocabularyWord()`。比對鍵為正規化後的日文單字；新詞建立完整單字庫欄位，重複詞選擇最早 `createdAt` 的既有紀錄並保留其 ID、加入日期、錯誤次數與加權值，只填補空白的讀音、羅馬拼音、詞性、中文及 JLPT。有效的舊例句重新載入時也會補做收錄。單字庫原本已納入備份與同步，因此備份 Schema 不變。
+GitHub main 基準 commit：`5747ae6fc099cde4fda9268ee8e49ca713d9ce9e`（V1.5.4）。本版僅交付完整扁平 ZIP，不更改遠端資料。
 
-# 日文練習架構 · V1.5.3
+## 模組
 
-單詞讀音題庫保留原有 `meaning` 欄位，顯示題目時在假名下方以純文字呈現中文；相同讀音的來源優先選擇有中文者。題目切換與翻譯更新同步進行，既有備份 Schema 不變。
-
-# 日文練習架構 · V1.5.2
-
-`word-reading.js` 從現有詞庫和當日推薦詞建立候選集，沿用 `daily-learning.js` 的完整讀音行別檢查與假名轉羅馬拼音。只要任一發音假名不屬所選行，就拒絕候選詞。題目以平假名或片假名顯示；同一輸入節點在換題時保留，iOS 鍵盤可持續使用。錯題會補入隊尾，每題結果含單詞、假名、正確拼音、實際作答、正誤與時間。
-
-`wordReadingHistory` 使用 `StorageBridge` 的逐筆 IndexedDB records store。完整 Google Drive 備份的 `BackupSchema` 升至 3，仍驗證並支援 Schema 1／2 的備份；跨裝置學習資料由 `learning-sync.js` 依作答 ID 合併，連續學習日也納入單詞讀音。偏好隨既有 `preferences.practice` 備份；本機一鍵 ZIP 可匯出／匯入單詞讀音 CSV。Worker、D1 與推播不變。
-
-目前發布資料夾為 49 個同層檔案；新增 `word-reading.js` 與 `test-word-reading.mjs`。執行 `npm run check` 和 `npm test` 後，應自行在 iPhone／iPad 驗證鍵盤和音效。
-
-以下保留歷史架構說明。
-
-# 日文練習架構 · V1.5.1
-
-V1.5.1 在既有 V1.5.0 架構上加入保存協調：`StorageBridge` 把原子提交與其後的一般寫入分開排程，`flush()` 等待兩者完成並回報未解決的失敗。舊資料搬移只在目的寫入成功後清除來源。例句以 `id` 和 `generationId` 區分各次生成；首頁卡片只顯示目前任務，歷史不依畫面是否存在而丟棄。備份自動覆蓋需要逐筆包含確認。通知完成回報以本機學習日去重、當天優先。PWA 更新啟用前詢問已開啟頁面的操作狀態。
-
-以下保留 V1.5.0 的設計與相容性說明。
-
-# 日文練習架構 · V1.5.0
-
-V1.5.0 將 `sentenceLog` 從「日期＋單字唯一」改為事件型紀錄。每次真正完成 Gemini 例句生成時，`saveSentenceToLog()` 建立獨立 `id` 與 `generatedAt`；只有相同 ID 的重送才具冪等性，同一天與相同單字的不同生成均保留。`getCombinedSentenceLog()`、Drive 還原合併及 CSV 匯出不再按日期＋單字去重。
-
-一般返回首頁會沿用目前推薦詞與已保存例句，不重複消耗 API；使用者主動按重新產生時，`ensureDailyVocabularySentence(..., { forceNew: true })` 會建立新例句並附加新紀錄。畫面以 `splitTargetMatches()` 切分純文字，再逐段跳脫及包上 `.hl-ja-target`，分別標示日文原詞與 `wordReading`，避免整行反藍或插入模型回傳的 HTML。
-
-V1.4.9 恢復整組手寫完成總結，同時保留 V1.4.5 起的逐題同頁評分。`scoreCurrent()` 最後一題仍只更新既有分數欄與按鈕文字，不重建 Canvas；使用者再按一次「查看練習總結」才由 `_finishWriterSession()` 進入 `renderResult()`。因此不會在評分瞬間移走最後字跡，也不會讓每題多一個結果頁。
-
-總結頁將本輪 `state.results` 聚合為平均、達標、最高與需加強數，逐題列表使用內部有限高度捲動；重練從本輪唯一假名重建亂序題列，返回則回到原設定。進入總結前先 `cleanup()` 銷毀 Canvas 事件與解除手寫中的更新鎖，避免結果頁仍持有 Pencil 資源。
-
-V1.4.8 將每日推薦由「首字行別」提升為「完整讀音行別」驗證。`readingMatchesRows()` 把片假名正規化為平假名後逐字尋找所屬行；促音與長音符為中性，小寫假名映射回原行，任何未知字元或未選行都使候選詞失效。相同驗證由 AI 回覆解析、保存前與每日快取讀取共同使用，舊的不合格詞會自動失效。
-
-Gemini 提示會列出完整允許字元，並明確禁止讀音跨入未選行；提示範例會依第一個已選行切換，避免固定「あ行」範例干擾模型。若候選詞未通過本機驗證，最多沿既有穩定模型清單重試；不合格資料永不進入每日詞卡或例句來源。
-
-V1.4.7 將首頁推薦單字與例句的請求狀態固定在 `Views.home`。同一日期及設定簽章只允許一個推薦請求；`_dailyVocabularySerial` 阻止過期回覆保存或更新 UI，`_dailyVocabularyRequest` 讓自動載入、手動重試與重新進入首頁共用同一 Promise。推薦詞保存與畫面顯示完成後，例句工作以獨立狀態執行，例句錯誤不再進入推薦詞的 catch 區塊。
-
-切頁不取消已送出的 API；回覆仍可安全寫入快取，但 UI 更新前重新取得目前的 `#hero-content`。返回首頁時優先讀取同一簽章的推薦快取，再以 `_dailySentenceRequests` single-flight 建立例句。這使 API 成功、保存成功與畫面成功三個狀態不會互相誤判。
-
-V1.4.6 將 Gemini 呼叫拆成「當前穩定模型清單 → 結構化 JSON 請求 → 有限重試／模型備援 → 語意驗證 → 原子保存」。每日推薦輸出額度為 1400，例句為 1600；不設定偏低溫度覆蓋 Gemini 3.x 預設。`_callModelDetailed()` 保存 HTTP 狀態、API 狀態與模型名稱，但不保存 API Key、原始提示或完整回覆。
-
-429、408 與 5xx 最多重試兩次，使用有上限的指數退避及 jitter；401／403 不重試。所選模型 404、暫時不可用或回覆不完整時，才切換下一個穩定模型。若端點以 HTTP 400 拒絕 `responseSchema`，同一模型只改用一次純 JSON 指令，避免舊端點相容性造成整體失敗。首頁以安全分類顯示權限、模型、配額、逾時、服務或輸出格式問題，設定頁可執行最小的實際生成測試。
-
-V1.4.5 將每題評分改成純欄位更新。`renderWriter()` 一開始就建立六格指標與固定高度回饋欄；`scoreCurrent()` 只計分、記錄及呼叫 `_updateInlineScore()` 更新既有節點的 `textContent`。不替換 `innerHTML`、不導頁、不捲動、不呼叫 Canvas resize，也不因評分隱藏題目／工具列。刪除不再使用的手寫 `renderResult()`，避免再次引入獨立成績頁。
-
-手機內容區用 Grid 分成題目、可用空間內的畫布及預留分數欄；iPad 的分數也放在右側畫布下方。評分前後 Grid 完全相同，`is-scored` 不改幾何尺寸，只停止筆跡編輯。畫布最小書寫空間 180px，矮視窗以內容捲動保留工具可達性；評分／下一題操作列維持獨立保留列，底部導覽仍貼底。
-
-最後一題的總平均與達標題數取代同一回饋欄文字，不新增面板造成畫布縮小。原 Canvas 與 strokes 保留到使用者按完成離開；下一題才清除筆跡與分數。評分忽略空白、已評分重送與尚未抬筆的情況，防止重複紀錄。Google Drive 同步先排程，待離開畫布後執行。評分算法、儲存格式、學習天數與帳戶設定不变。
-
-V1.4.1 在 V1.4.0 的資料可靠性基礎上，將每日例句拆成「模型最終輸出 → JSON 結構解析 → 語言與目標詞驗證 → 原子保存 → UI 顯示」。任何階段失敗都不會污染今日卡片、例句紀錄或 Google Drive 備份。舊版異常 AI 紀錄標記為隔離資料，仍隨原有 sentences 集合備份，但不進入正常顯示、匯出或練習。
-
-同一日期、設定簽章與推薦詞使用 single-flight 請求；快速重複點擊只共用一個 Promise。回覆完成時再次比對日期、簽章與推薦詞，避免過期請求覆蓋新內容。例句最多嘗試四個穩定模型，每次均先通過 JSON、語言與目標詞驗證。
-
-V1.4.0 將即時輸入、持久化與雲端同步分成三條路徑。手寫期間只在 Canvas 增量繪圖；每題完成後，手寫／讀音紀錄各追加一筆 IndexedDB record；練習結束後才允許 Drive 合併。長期紀錄不截斷，統計、備份與跨裝置合併都讀取完整資料。
-
-IndexedDB 升至 Schema 2，新增 `records` store，原有 `kv` 與 `snapshots` 保留；V1.3.8 的兩份歷史陣列會在首次啟動自動、完整遷移。備份覆寫或合併先通過結構驗證，再以單一交易提交，失敗時不更新記憶體快取與同步時間。Worker 不需變更 D1 結構，只將同日完成時間改存最早值。發布包仍為 46 個同層檔案。
-
-V1.3.7 的手寫練習在同一輪重用 Canvas，`_resetWriterQuestion()` 僅更新題目資訊；按鈕事件從目前索引取得題目。引擎即時繪製落筆墨點，移動仍採合併樣本及逐幀增量繪圖。標準筆畫取樣以路徑為鍵快取（上限 128 組），历史快取以原始儲存字串判斷失效，還原資料後會重新正規化。
-
-`inputMode` 與 `diagnostics` 納入既有手寫偏好與備份。落筆期間延後外層版面切換；診斷僅儲存固定大小的彙總數值，不保留無限事件清單。既有同步閘門保留，每題仍立即交由本機儲存層保存。
-
-V1.3.7 在 V1.3.4 基礎上加入「提醒前已完成練習則略過當日通知」。六種練習仍由同一個 `recordStudyActivity()` 寫入正式學習日，並非只靠開啟頁面；前端將完成時間非阻塞地同步至 Worker，Cron 發送前再依提醒時區核對。已驗證的 V1.3.3 貼底配置、五十音讀音隱藏提示與其他學習功能不變。
-
-## 部署結構
-
-同一層共 46 個檔案：25 個前端執行檔、5 個 Cloudflare／npm 檔、10 個測試檔、3 個授權檔、3 個固定說明檔。ZIP 外層資料夾與 ZIP 同名，但上傳 GitHub 時只上傳該資料夾內的檔案。
-
-GitHub Pages 提供 HTTPS 靜態前端；Google Identity 提供授權，Google Drive 儲存備份與裝置學習狀態；Cloudflare Worker、D1、Cron 負責每日推播與完成狀態核對。V1.4.6 未變更 Worker 或 D1，因此更新本版不需執行 `db:init` 或重新部署 Worker。
-
-| 檔案 | 責任 |
+| 模組 | 責任 |
 |---|---|
-| index.html | 入口、CSP、viewport 安全區、導覽與載入模組 |
-| app.js | 六種模式、首頁、Google Drive、統計、設定與路由 |
-| style.css | 基礎元件與最後的 V1.3 藍墨設計層 |
-| storage.js | 批量啟動讀取、KV／逐筆紀錄、原子交易、寫入追蹤與重試 |
-| storage-status-ui.js | 狀態、救援備份、驗證後合併匯入 |
-| backup-schema.js | 備份 Schema 2、容量／欄位／筆數／checksum 與產品隔離 |
-| study-streak.js | 日期／時區、連續紀錄、事件去重與合併 |
-| japanese-learning.js | 預設設定、正規化、手寫進度与版面判斷 |
-| daily-learning.js | JLPT、五十音行、每日推薦與回應驗證 |
-| learning-sync.js | 重入安全的多裝置學習合併 |
-| practice-lifecycle.js | 練習、草稿與更新安全狀態 |
-| kana-data.js / kana-strokes.js | 假名、筆畫資料、重複且不相鄰的隨機出題 |
-| handwriting-engine.js | 取樣、增量批次繪圖、手掌處理與輔助評分 |
-| kana-reading.js | 羅馬音判定、別名與讀音紀錄 |
-| chart-renderer.js | 原有統計圖 |
-| reminder-manager.js / push-config.js | 裝置訂閱、時間、完成回報、測試、錯誤與自動修復 |
-| sw.js / version-manager.js / version.json | 離線快取、版本比較、安全啟用 |
-| manifest.json / icon-192.png / icon-512.png | PWA 安裝與品牌 |
-| jszip.min.js | 原有 ZIP 備份 |
-| worker.js / schema.sql / wrangler.toml | 通知 API、D1 表及 Cron 綁定 |
-| package.json / package-lock.json | 固定依賴與檢查、部署命令 |
+| app.js | 原有路由、練習畫面、生成／資料服務與 Drive 串接 |
+| auth-client.js | 持久裝置工作階段、首次授權、背景恢復、登出與 Drive Proxy |
+| auth-service.js | Worker 授權碼交換、PKCE、加密憑證、D1 租約續期與撤銷 |
+| audio-manager.js | 設定還原、同步發音、utterance 保存、舊事件隔離與診斷 |
+| backup-tasks.js | 懶載背景 Worker，attach／serialize／parse／validate／compare |
+| storage.js | KV／records、交易式還原、失敗提示、遷移與復原點 |
+| backup-schema.js | schema 1–3、checksum、類型／大小限制與完整集合比較 |
+| learning-sync.js / study-streak.js | 裝置獨立雲端檔、答案聯集、日期去重 |
+| handwriting-engine.js / kana-strokes.js | 增量繪製、筆順、換題復用 canvas |
+| daily-learning.js | 全部發音行驗證、例句檢查、目標詞分段／反藍 |
+| kana-reading.js / word-reading.js | 輸入比對、錯題補練與歷史 |
+| reminder-manager.js / worker.js | 推播、當日已練判斷、排程與新增授權路由 |
+| version-manager.js / sw.js | 閒置檢查、跨分頁保護和完整離線依賴 |
 
-## V1.3 介面
+## 啟動與授權
 
-共用色票：文字 #16324F、主色 #2463D5、背景 #F3F7FC、卡片 #FFFFFF。主要元件 10–16px 圓角；主要觸控按鈕至少 44px，輸入欄位 16px；保留縮放與 reduced-motion。
+IndexedDB 初始化後才還原 TTS、排序與裝置工作階段；首頁先渲染，網路、Service Worker 註冊與 badge 不阻擋。啟動不載入 GIS、不呼叫 requestAccessToken、不開授權視窗。正在練習時延後背景登入／比較、雲端資料合併與更新啟用。
 
-### 首頁
+首次授權按鈕在 await 前開視窗以保留 iOS 使用者手勢。前端 proof 綁定結果，後端 PKCE 保護 Google authorization code；callback 用 D1 compare-and-swap，只允許一次交換。callback 的 HTML／URL／postMessage 不傳 token。
 
-真實學習日透過 dateKeyFor() 和 StudyStreak.getDays() 顯示本週狀態。推薦詞沿用每日一詞快取；只有該詞對應的例句完成產生／讀取後才顯示例句預覽。沒有 API Key 或資料時顯示真實空狀態，不塞入示意詞或示意天數。
+Google 憑證以 AES-GCM、隨機 IV 和帳號綁定 additionalData 加密；D1 只保存裝置憑證的 SHA-256。續期以 isolate single-flight 加 D1 revision／20 秒租約保護，過期租約可恢復，舊續期不能覆蓋新授權。invalid_grant 只標記需重新連結。
 
-首頁保留一般練習、手寫、讀音、資料庫、統計、設定與每日例句入口。帳號按鈕只前往設定，不觸發新的授權要求。所有動態資料經 HTML escaping。
+Drive Proxy 限定 Google Drive v3 備份／學習檔 list、GET、multipart POST、media PATCH；不接受任意網域、DELETE 或權限操作。Origin 限 APP_URL 來源、無 Cookie、no-store、上傳有限制，access token 遭拒時有一次受控續期重試。登出或帳號變更透過 epoch 隔離舊回應，備份只包含明確 allowlist。
 
-### 手寫操作
+## 資料不變項
 
-- index.html 沿用英文版的預設 viewport fit（移除 cover，但不移植禁止縮放）。html／body／App 高度為 100%；不使用獨立的 vh／dvh 外框，不猜測 screen.height。App 維持正常文件流。
-- 手機導覽固定在視窗 bottom: 0，height: calc(64px + safe-area-inset-bottom)，上方內距 6px、底部內距 0；預設 viewport 由瀏覽器安排安全邊界，CSS 仍保留 env fallback。
-- App 的 padding-bottom 與導覽 height 使用同一算式，讓手寫的有限高度容器亦預留導覽空間；view-container 只有一般內容內距。寬度 >=900px 時 App 的 padding-bottom 歸零，側導覽仍 absolute 定位於 App。
-- iPhone：session 為固定可用高度的 flex 容器；header 與 action 為不可壓縮列，只有 session-body 可捲動。評分前後使用同一操作列，不切換 sticky／floating 定位。
-- iPad：data-layout=tablet 且寬度至少 760px 時，session 使用 grid；reference 在左上，score 在左下，canvas 在右側，action 在右下。
-- 畫布外層為 size container，內部寬高同為 min(100cqw,100cqh)，維持實際正方形，不以 object-fit 製造視覺與輸入座標的差異。
-- 自動模式沿用既有裝置與尺寸判斷。手動選 iPad 但視窗不足 760px 時，CSS 仍採安全單欄。
-- 手機導覽由 App padding 預留位置；900px 以上是已預留寬度的側列。
-- 示範動畫、評分、pointer capture、Apple Pencil、取消輸入恢复和 requestAnimationFrame 批次不變；只換視覺與容器。
+- 同一 IndexedDB 名稱、前綴和 object stores，備份 schema 不改。
+- sentenceLog 先完整提交逐筆 records，再刪舊 KV；失敗保留來源、唯讀提示。無 ID 舊紀錄以穩定內容 fingerprint 加重複序號，保留全部歷史例句。
+- 每次生成以獨立 ID 保存，同日多筆不覆蓋；相同 ID 重試 idempotent。例句／詞收錄仍在同一安全交易中提交。
+- 同詞只補缺欄位，保留原 ID、加入時間、錯誤次數與權重。
+- 還原先驗證、建立復原點、檢查本機變動與練習狀態；衝突不自動覆寫。
+- 自動發音沿用 kanaPracticePreferencesV1.autoSpeak；新增 spellingEnabled 在合併模式保留既有本機選擇。
+- 所有 Google 憑證、secret、裝置工作階段和通知訂閱都不進備份。
 
-### Icon
+## 手寫、音效與 PWA 規範
 
-192／512 PNG 為不透明藍色背景，系統安裝時套用圓角或遮罩。白色「あ」使用專案內 KanjiVG 向量，附簡潔書本線條。相較生成提案，實際圖示使用可驗證假名字形且不依賴字型。
+- 開始、下一題和重播直接同步 speak；語音清單為空也使用系統 ja-JP 預設，voiceschanged 只更新快取，不重播。
+- 關閉／換題／離開取消舊語音，舊回應不改新題。答題 Web Audio 音效與手寫發音開關分開。
+- 評分只更新預留區，不導航、不重建 DOM、不變 canvas 尺寸、不強制捲動。保留完成總結。
+- 沿用確認的藍色 UI、方形 PNG icon、英文主題式貼底導覽。保留 viewport，不新增 viewport-fit=cover、不重複累加 safe-area。
+- 評分按鈕使用實際 reserved row，手機 session body 可捲動，不能蓋住畫布／分數。
+- 所有前端依賴和背景備份 Worker 使用 V1_6_0，列入 SW APP_SHELL；auth-service.js 僅在 Cloudflare 使用。
+- 保留啟動閒置自動檢查與設定頁目前／最新版本及檢查按鈕。
+- 55 個平面檔案：原 49 個，加 4 個模組與 2 個測試檔；不提交 node_modules、dry-run 產物、截圖、secret、舊版副本。ZIP 與外層資料夾同名。
 
-可用 kana-strokes.js 的 あ paths 重建：512 viewBox、漸層 #3282FA → #2463D5 → #1749A2；paths transform 為 translate(69 21) scale(3.43)，white stroke-width 6.7、round caps/joins；書本線為 M133 372 Q198 353 256 383 Q314 353 379 372，stroke #A9D0FF、13px。授權詳見 THIRD_PARTY_NOTICES.md。
+## 驗證與後續範圍
 
-## 儲存與同步不變
+157 項測試覆蓋生成驗證、完整行過濾、歷史聯集、交易回滾、50 題引擎復用、OAuth 模擬、並行續期、登出競態、例句遷移與背景備份；另進行 Worker dry-run。版面沿用已確認的樣式；本次環境無法啟用瀏覽器，手機／平板視覺與操作尚未完成實機驗證。
 
-- 沿用 pwa_japanese_v1 與 pwa_japanese:，沒有 deleteDatabase 或資料遷移。
-- 寫入序號避免舊失敗覆蓋新成功；flush 必須真正寫入完成。
-- 跨裝置以事件 ID 合併、至多三次有界確認，未完成保留 pending。
-- Drive 查詢限制在設定資料夾。任一來源讀取失敗會停止寫回，不把不完整合併當成功。
-- 各裝置更新自己的狀態檔，仍讀取 legacy 共用狀態。跨裝置一致性需要各端完成同步，並非即時交易。
-- JSON／CSV／ZIP、checksum、回復點與錯誤處理保留。機密不寫入交付包。
+實際 Google／Cloudflare 帳號、iOS 播放和 Apple Pencil 要發布後實機確認。後端一次設定見 README。
 
-## 更新與相容性
+本版優先完成啟動、登入、發音、設定與備份／例句效能。app.js 尚未全部拆分；vocabWords、practiceHistory、文章和 AI 問答仍以 KV 保存。大型還原主執行緒交易仍有記憶體複製成本。
 
-使用新 V1_3_7 版本參數與獨立快取名稱；sw.js 仍完整預載前端依賴。開啟時檢查 version.json；先保存資料，再於非練習／非雲端作業狀態啟用及重載。設定頁保留目前版本、最新版本與手動檢查。V1.3.3 未改變此更新流程。
-
-Cloudflare 新增 `POST /api/reminders/activity`。`japanese_reminder_scopes` 只保存匿名裝置 scope 與訂閱的對應；`japanese_practice_days` 保存當地日期、完成時間與活動類型。scope 由本機隨機值經 SHA-256 產生，Worker 不接收 Email 或 Google Token。Cron 先鎖定到期提醒，再查詢同 scope、同當地日期且完成時間不晚於原定提醒時間的紀錄；符合時直接排到隔天，不呼叫推播供應商。測試通知不套用此條件。
-
-兩個新表以 `CREATE TABLE IF NOT EXISTS` 建立，不修改或清空 `japanese_reminders`。更新須執行 db:init 和 Worker deploy，但不用換 VAPID、Worker URL、D1 綁定或重新授權通知。離線完成會留在本機並於恢復連線後重試；若裝置直到提醒時間後仍無法連上 Worker，雲端排程無法預先得知該次完成。
-
-## 測試邊界
-
-本次以用戶提供的 V1.3.2 與綠色英文版並列截圖為依據：藍色外部留白已消失，但日文版按鈕下方空間仍較多。比對 https://github.com/lihe-source/PWA-Vocabulary-GD 的 index.html／style.css：英文版未指定 viewport-fit=cover，底部採 64px + env safe inset 的 fixed 列。V1.3.3 移植此邊界與導覽幾何設定，保留日文 UI、資料與手寫容器；未取得真機執行時的尺寸，仍須實機驗證。
-
-保留 10 份測試檔，檢查資料合併、備份、輸入效能、出題、讀音、版本與配置；V1.3 調整版面契約測試。靜態斷言不取代 Safari／iPad 真機排版、Pencil 行為、Google OAuth、Drive 或推播端到端測試。未改的外部服務仍須以原部署帳號驗收。
-
-## 後續檔案管理
-
-固定更新這三份說明，不新增 ARCHITECTURE_V*、CHANGELOG_V*、QA_V*、UPDATE_V*。不打包 node_modules、暫存、錄影、設計提案大圖或 icon 原始大圖。46 是現階段基準，未來若有真正必要模組可增加，不為湊數犧牲功能、授權或測試。
+後續依實際量測分批加入歷史分頁、更多 records 集合、Views／DB 拆分、Worker CSV／ZIP 匯出及 CSS 去重。每次保留舊資料與完整備份、跑相關回歸測試，避免同版同時重寫儲存、手寫和整體 UI。

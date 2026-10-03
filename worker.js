@@ -1,6 +1,7 @@
 import webpush from 'web-push';
+import { handleAuthRequest, cleanupAuth } from './auth-service.js';
 
-const SERVICE_VERSION = 'V1.4.1';
+const SERVICE_VERSION = 'V1.6.0';
 const MAX_DUE_PER_RUN = 25;
 const formatterCache = new Map();
 
@@ -555,6 +556,8 @@ async function processDueReminders(env, scheduledTime = Date.now()) {
 }
 
 async function handleFetch(request, env) {
+  const authResponse = await handleAuthRequest(request, env);
+  if (authResponse) return authResponse;
   const url = new URL(request.url);
 
   if (request.method === 'OPTIONS') {
@@ -620,5 +623,6 @@ export default {
 
   async scheduled(controller, env, ctx) {
     ctx.waitUntil(processDueReminders(env, controller.scheduledTime));
+    ctx.waitUntil(cleanupAuth(env, controller.scheduledTime).catch(() => {}));
   }
 };

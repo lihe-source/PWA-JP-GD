@@ -1,62 +1,117 @@
-# 日文練習 PWA V1.5.4
+# 日文練習 PWA V1.6.0
 
-以 V1.5.1 的資料格式升級；加入第七種練習「單詞讀音」，保留每日推薦、手寫同頁評分與完成總結。網站可在 GitHub Pages 的 `/PWA-JP-GD/` 子路徑使用。本 ZIP 只提供完整檔案，沒有自動部署。
+完整程式，以 GitHub main 的 V1.5.4 為基礎。本次只提供完整 ZIP，未部署 GitHub 或 Cloudflare。所有檔案在同一層，不含 node_modules、私人金鑰或舊版副本。
 
-## V1.5.4 修正
+## 更新內容
 
-- 每日推薦詞的例句成功生成並保存後，自動把推薦詞加入單字庫，之後可直接用於單詞練習與單詞讀音練習。
-- 以正規化後的日文單字判斷重複；已存在時不新增第二筆，保留原本的 ID、加入日期、答錯次數及加權值，只補齊空白的讀音、羅馬拼音、詞性、中文及 JLPT 等級。
-- 舊版已保存的每日例句再次載入時，也會補做單字庫收錄。單字庫本來就在完整備份與跨裝置同步範圍內，不需調整備份格式。
-- PWA 版本、離線快取與資源網址已同步更新為 V1.5.4；開啟程式及設定頁的檢查更新功能會依 `version.json` 套用新版。
+- 開啟直接進入首頁，使用 Cloudflare 後端在背景恢復 Google 雲端連線；啟動不載入 GIS、不開登入視窗。
+- 第一次連結仍需點擊並同意 Google 授權；權限撤銷或工作階段過期時在設定頁提示，練習仍可使用。
+- 手寫設定與書寫頁新增可保存的自動發音開關。開始／下一題同步播放、失敗提示與手動重播。
+- IndexedDB 載入完成後還原音效與排序。最新詞排序支援數字 ID、daily ID 與匯入日期；同詞保留原加入時間。
+- 備份整理、雜湊、驗證、解析和比對交由背景 Worker。每日例句逐筆寫入，保留同日全部生成記錄。
+- 保留貼底導覽、原頁筆跡下方分數、手寫完成總結、讀音鍵盤和答題音效、例句反藍、完整行過濾、例句詞自動收錄、通知與 schema 1–3 備份相容。
 
-## V1.5.3 修正
+## 先更新前端
 
-- 單詞讀音練習在日文單詞正下方顯示中文翻譯；換題時同步更新。若來源缺中文，明確顯示「尚無中文翻譯」。
-- 同讀音有多筆來源時，優先保留帶中文翻譯的單詞。
-- PWA 版本、快取與資源網址更新為 V1.5.3，既有資料與備份格式維持不變。
+1. 設定頁先匯出完整備份或救援 JSON。
+2. 解壓 `PWA-Japanese-GD-V1_6_0-FLAT.zip`，外層資料夾與 ZIP 檔名相同。
+3. 將裡面的檔案更新至原 GitHub repository 根目錄，保留 GitHub Pages 設定，不再包一層版本子資料夾。
+4. 發布後開啟 PWA，等待閒置時自動更新；或在設定頁按「檢查更新」，確認目前／最新版本為 V1.6.0。
+5. 不刪除 PWA、不清除網站儲存，不改 IndexedDB 名稱。未完成後端設定前本機練習和原通知照常使用；舊 Google access token 在有效期內可暫時使用。
 
-## V1.5.2 新增
+## 一次設定 Cloudflare 自動登入後端
 
-- 練習模式選擇「單詞讀音」，可選平假名、片假名或兩者混合，五十音行可多選，題數可選 5–30 題。
-- 只從資料庫與當日推薦詞選取**整段假名讀音**均屬已選行的單詞；未知字元或跨行讀音不出題。候選詞不足時可重複，答錯會追加至尾端補練。
-- 題目以假名呈現，輸入完整羅馬拼音；答對、答錯及結束沿用既有音效。完成總表逐題顯示單詞、使用者答案與正確答案，正確為藍色、錯誤為紅色。
-- 作答紀錄和練習偏好納入 Google Drive 完整備份與跨裝置同步；設定頁可單獨匯出／清除紀錄，一鍵 ZIP 含單詞讀音 CSV 且可匯回。舊版備份仍可還原。
-- 此版只更新前端，不需重新初始化 D1 或更換 VAPID Key。
+本版沿用 `japanese-daily-reminder` Worker 和 `vocabulary-reminders` D1，新增四個授權表，不刪除通知或學習資料。Cloudflare 的 Wrangler 登入與使用者的 Google 登入是兩件事。
 
-## 前版修正
+### 1. Google OAuth 設定
 
-- 儲存交易依序提交，失敗會回報；舊資料搬移成功前保留原始資料。
-- 雲端備份按紀錄身分比較，分岔資料不因筆數較多就自動覆蓋；同日多次練習及多筆例句保留。
-- 例句的 ID、讀音、時間與跨行內容可經 CSV 往返；切頁後完成的生成會存入歷史。首頁例句紀錄先顯示 40 筆，可繼續載入。
-- Gemini 設定頁按金鑰查詢支援文字生成的模型，並以正式例句格式測試生成；測試句不寫入學習記錄。短例句與每日推薦有 60 秒及 3 次 HTTP 請求上限。
-- Google Drive 回應內容的讀取也有逾時控制；登出、切換帳號或資料夾後，過期授權與還原結果不能覆蓋目前資料。
-- 每日通知的完成回報優先傳送今天，略過過期紀錄，同一天已確認的結果不再每題重送。Worker 加強訂閱目的地與輸入驗證。
-- PWA 更新會等待儲存與使用中頁面安全，再切換新版；保留上一版快取作離線回退。
+在 Google Cloud Console 選擇目前專案：
 
-完整技術變更見 `CHANGELOG.md`。手寫卡頓診斷可在設定頁開啟；桌面回歸測試無法證明 iPhone、iPad 及 Apple Pencil 的真機延遲已消失。
+1. 啟用 Google Drive API。
+2. 編輯「網頁應用程式」OAuth 用戶端，在「已授權重新導向 URI」加入：
 
-交接文件中的長期結構項目仍需後續分版處理：將所有例句搬成逐筆索引、5 萬筆資料效能基準、Worker 端限流與跨表原子修復，以及裝置上的音訊／推播／手寫實測。本版沒有執行這些高風險資料搬移或雲端部署。
+   `https://japanese-daily-reminder.rexchre.workers.dev/api/auth/callback`
 
-## 使用完整 ZIP
+3. 使用其他 Worker 網域時替換前半段，結尾仍為 `/api/auth/callback`，必須精確相同。
+4. 保留前端來源 `https://lihe-source.github.io`，並確認允許登入的帳號符合測試使用者／目標對象設定。
+5. 取得同一用戶端的 Client ID 與 Client Secret。`wrangler.toml` 的 `GOOGLE_CLIENT_ID` 預設沿用既有 ID；建立新用戶端時改成新 ID。
+6. 本版請求 `openid`、`email`、`drive.file`。外部應用若仍為 Testing，含 Drive 權限的 refresh token 可能在 7 天後失效；長期使用請依 Google 規則完成正式發布。第一次或撤銷授權後的同意程序不能跳過。
 
-解壓後，ZIP 內只有一層同名資料夾。需要自行發布時，將該資料夾**內**的檔案放在 Repository 根目錄，使 `index.html` 位於根目錄。不要上傳外層資料夾、`node_modules` 或先刪除網站資料。這次沒有替使用者寫入 GitHub 或 Cloudflare。
+### 2. 確認 Cloudflare 帳號
 
-更新前先在設定頁匯出救援備份。更新後檢查首頁及設定頁版本都是 V1.5.4，並實測一輪手寫、讀音、每日例句生成、單字庫收錄與備份。現有 IndexedDB、Google OAuth 設定、D1 綁定及 VAPID Key 不因本版改變。
-
-如果只使用前端修正，不需執行 `db:init`。只有要讓新的通知 Worker 驗證在雲端生效時，才需自行部署 Worker；既有 D1 資料及 VAPID Key 應保留。
-
-## 本機檢查
-
-Node.js 20 以上：
+在本版 package.json 所在資料夾：
 
 ```bash
 npm ci
-npm run check
-npm test
+npx wrangler whoami
 ```
 
-前端是靜態檔案，不需要 npm build。Worker 設定見 `wrangler.toml`；已建立 D1 的使用者不要為前端更新重新建立資料庫或更換 VAPID 金鑰。
+尚未登入時，Codespaces 可透過 secret 設定 `CLOUDFLARE_API_TOKEN`，權限包含該帳號的 Workers Scripts Edit 與 D1 Edit，再重新開啟終端機。也可用 `npx wrangler login`，但 localhost 回呼必須能送回執行 Wrangler 的環境。
 
-真實 Gemini Key、Google 帳號、Drive 寫入、Cloudflare 推播及 iOS 真機鍵盤／手寫／通知，需在使用者環境另外驗證。金鑰、access token、VAPID 私鑰不包含在 ZIP 或備份中。Google 工作階段失效時可能需要再次授權。
+### 3. 加入兩個新的 Worker secrets
 
-第三方素材與套件授權見隨附 LICENSE／NOTICE；架構說明見 `ARCHITECTURE.md`。
+```bash
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npm run auth:key
+npx wrangler secret put CREDENTIAL_ENCRYPTION_KEY
+```
+
+- 第一個提示貼上同一 OAuth 用戶端的 Client Secret。
+- auth:key 產生 32 bytes 的 base64url 加密金鑰，將輸出貼至最後一個指令的 secret 提示，不要貼到公開對話或存進原始碼。
+- 安全備份加密金鑰，日後更新沿用原值，不要每次重新產生。更換金鑰會使舊密文無法解密，需要重新連結 Google。
+- 原有 `VAPID_PUBLIC_KEY`、`VAPID_PRIVATE_KEY`、`VAPID_SUBJECT` 沿用，無須重新生成。
+
+### 4. 初始化新增資料表並發布 Worker
+
+先確認 wrangler.toml：
+
+| 設定 | 本專案值 |
+|---|---|
+| APP_URL | `https://lihe-source.github.io/PWA-JP-GD/` |
+| ALLOWED_ORIGINS | `https://lihe-source.github.io` |
+| DB | 保留既有 vocabulary-reminders 和 database_id |
+| GOOGLE_CLIENT_ID | 與新 secret 配對的用戶端 ID |
+
+```bash
+npm run db:init
+npm run worker:deploy
+npx wrangler secret list
+```
+
+db:init 僅使用 CREATE TABLE IF NOT EXISTS 與索引，無 DROP 或清除資料。接受 Wrangler 的 D1 提示後部署；secret 清單應包含新增兩個名稱和原三個 VAPID 名稱，不會顯示內容。
+
+Worker 網址不同時，也要更新 push-config.js 的公開 apiBaseUrl，並在 PWA 設定頁保存「Cloudflare 自動登入服務網址」。預設支援 workers.dev 網域；自訂網域也須加入 index.html 的 CSP connect-src。Google Secret、refresh token 與加密金鑰只放 Worker，不放 GitHub 或前端。
+
+### 5. PWA 首次連結一次
+
+1. 設定 → Google Drive 設定 →「檢查自動登入服務設定」，應顯示設定完成。
+2. 按「首次連結 Google 帳號」；原帳號者按「重新連結 Google（啟用自動登入）」。
+3. 選帳號並同意備份權限，授權成功後回到 PWA。
+4. 確認已連結，測試上傳／還原清單，再完全關閉並重開 PWA。首頁直接出現，雲端連線背景恢復。
+5. 手寫開始／下一題應發音；關閉開關後停止自動播放，仍可手動重播，重開保留選擇。
+
+指定資料夾發生 403／404 時，確認資料夾已授權給同一 Google 應用；drive.file 不代表可存取整個 Drive。可清空資料夾 ID 改在根目錄測試，舊檔案不會自動刪除。
+
+## 連線與離線行為
+
+Google access／refresh token 經 AES-GCM 加密留在 D1。裝置僅保存可撤銷的隨機工作階段憑證，不依賴第三方 Cookie。Google Secret、裝置登入憑證和通知訂閱都不放備份。
+
+裝置工作階段閒置 30 天失效，有效連線可延長至初次授權起最多 180 天。新裝置、過期或撤銷權限需要重新連結。離線不自動登出、不跳視窗，本機練習不受影響。
+
+「登出這台裝置」只撤銷本裝置，離線登出在恢復連線後補送。「解除 Google 連結（所有裝置）」撤銷 Google 授權，其他裝置須重新連結。
+
+## 驗證與操作
+
+建議 Node.js 22.13+，本版驗證使用 Node.js 24：
+
+```bash
+npm run check
+npm test
+npx wrangler deploy --dry-run
+```
+
+157 項測試包含 OAuth 模擬／真 SQLite D1 介面、並行續期、登出競態、歷史資料遷移與失敗保留、背景備份、相容、原頁評分和連續 50 題 canvas 復用。Node 20 會略過 SQLite 後端測試。
+
+本機畫面可用 `python3 -m http.server 8000`。Google 正式授權與 Web Push 須使用正確 HTTPS 前端和已設定的 Worker。測試環境未登入您的 Google／Cloudflare，且未能啟用瀏覽器；iPhone／iPad 版面、iOS 播放與 Apple Pencil 須發布後實機確認。
+
+剩餘效能改善範圍和程式規範見 ARCHITECTURE.md，更新記錄見 CHANGELOG.md。

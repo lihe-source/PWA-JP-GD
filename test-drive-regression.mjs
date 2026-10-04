@@ -12,8 +12,6 @@ const objectSource = app.slice(app.indexOf('const GDrive = {'), app.indexOf('// 
 function makeDrive() {
   const writes = [];
   const ctx = {
-    CloudAuth: { active: false, remembered: false, email: '', logout: async () => {}, restore: async () => false, resumePending: async () => false },
-    TTS: { init() {} },
     URLSearchParams, Response, AbortController, setTimeout, clearTimeout,
     mergeLearningStates, escapeDriveQuery, normalizeJapaneseWord,
     APP_DISPLAY_VERSION: 'V1.5.0', isPracticeActive: () => false, document: {}, Router: {},
@@ -26,11 +24,9 @@ function makeDrive() {
     },
     BackupSchema: { validate(data) { return data.invalid ? { valid: false, reason: 'TEST' } : { valid: true, collections: data }; } }
   };
-  ctx.BackupTasks = { run: async (_type, data) => ctx.BackupSchema.validate(data) };
   vm.runInNewContext(objectSource, ctx);
   const drive = ctx.drive;
   drive._buildPayload = () => ({ words: [{ english: 'old' }] });
-  drive._preparePayload = async () => ({ data: drive._buildPayload() });
   drive._buildCollections = () => ({ words: [{ english: 'old' }] });
   drive.scheduleStudyStreakSync = () => {};
   drive._getDeviceId = () => 'test-phone';
@@ -94,18 +90,21 @@ test('a sign-out or account change during backup snapshot prevents old-account r
   assert.equal(writes.length, 0);
 });
 
-test('a remembered email alone never opens Google or silently requests a browser token', async () => {
+test('an authorization callback arriving after sign-out cannot restore a token', async () => {
   const { drive, ctx } = makeDrive();
-  let restored = 0;
-  drive.tryRestoreFromStorage = () => false;
-  ctx.AppStorage.getItem = () => 'remembered@example.test';
-  ctx.CloudAuth.restore = async () => { restored++; return true; };
-  assert.equal(await drive.tryRestoreToken(), false);
-  assert.equal(restored, 0);
-  assert.equal(drive._requestToken, undefined);
-  ctx.CloudAuth.remembered = true;
-  assert.equal(await drive.tryRestoreToken(), true);
-  assert.equal(restored, 1);
+  let callback; let saved = false;
+  ctx.DB.getGDriveClientId = () => 'test-client';
+  ctx.AppStorage.getItem = () => '';
+  drive._loadGIS = async () => {};
+  drive._saveSession = () => { saved = true; };
+  drive._createClient = (_id, done) => ({ requestAccessToken() { callback = done; } });
+  const pending = drive._requestToken({ promptMode: 'none' });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(typeof callback, 'function');
+  drive._authEpoch++;
+  callback({ access_token: 'stale-token', expires_in: 3600 });
+  await assert.rejects(pending, /AUTH_CONTEXT_CHANGED/);
+  assert.equal(saved, false);
 });
 
 test('disk failure during restore is reported and no success timestamp is written', async () => {

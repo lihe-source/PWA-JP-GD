@@ -53,41 +53,6 @@ export function normalizeJapaneseWord(word = {}) {
   };
 }
 
-// Legacy numeric ids and daily-<ms>-… ids share one creation-time comparator.
-// Honor an imported earlier date even when its id was assigned during import.
-export function wordCreatedAt(word = {}) {
-  if (Number.isFinite(Number(word.createdAtTs)) && Number(word.createdAtTs) > 0) return Number(word.createdAtTs);
-  const match = String(word.id || '').match(/^(?:daily-)?(\d{13})(?:-|$)/);
-  const timestamp = match ? Number(match[1]) : 0;
-  const dateMatch = String(word.createdAt || '').match(/^(\d{4})[/-](\d{2})[/-](\d{2})$/);
-  if (dateMatch) {
-    const [year, month, day] = dateMatch.slice(1).map(Number);
-    const date = new Date(timestamp);
-    if (timestamp && date.getFullYear() === year && date.getMonth() + 1 === month && date.getDate() === day) return timestamp;
-    return new Date(year, month - 1, day).getTime();
-  }
-  const iso = Date.parse(String(word.createdAt || ''));
-  return Number.isFinite(iso) ? iso : timestamp;
-}
-export function compareWordsNewest(a, b) {
-  return wordCreatedAt(b) - wordCreatedAt(a) || String(b.id || '').localeCompare(String(a.id || ''));
-}
-export function choosePracticeWords(words, { count = 10, mode = 'all', boostedIds = [], random = Math.random } = {}) {
-  if (!Array.isArray(words) || !words.length || count <= 0) return [];
-  const size = Math.min(words.length, Math.floor(Number(count) || 10));
-  const pool = mode === 'newest' ? [...words].sort(compareWordsNewest).slice(0, Math.max(size * 2, 30)) : words;
-  const boosted = new Set(boostedIds.map(String));
-  const seen = new Set();
-  // Weighted sampling without replacement; memory stays proportional to words.
-  return pool.filter(word => {
-    const id = String(word.id); if (seen.has(id)) return false; seen.add(id); return true;
-  }).map(word => {
-    const weight = Math.max(1, Math.min(100, Number(word.frequencyWeight) || 1)) * (boosted.has(String(word.id)) ? 3 : 1);
-    const uniform = Math.max(Number.EPSILON, Math.min(1 - Number.EPSILON, random()));
-    return { word, rank: -Math.log(uniform) / weight };
-  }).sort((a, b) => a.rank - b.rank).slice(0, size).map(item => item.word);
-}
-
 export function mergeHandwritingHistory(...collections) {
   const byId = new Map();
   collections.flat().filter(Boolean).forEach(entry => {

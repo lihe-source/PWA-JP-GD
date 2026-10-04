@@ -11,9 +11,8 @@ export function mountStorageStatus({ storage, cloudState, exportPayload, restore
       node.dataset.state = state.saveState;
     });
   };
-  const exportBackup = async () => {
-    const payload = await exportPayload();
-    const blob = new Blob([typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const exportBackup = () => {
+    const blob = new Blob([JSON.stringify(exportPayload(), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -34,7 +33,7 @@ export function mountStorageStatus({ storage, cloudState, exportPayload, restore
     button.disabled = true;
     try {
       if (button.dataset.storageAction === 'retry') await storage.retryFailedWrites();
-      else if (button.dataset.storageAction === 'export') await exportBackup();
+      else if (button.dataset.storageAction === 'export') exportBackup();
       else if (button.dataset.storageAction === 'import') document.getElementById('storage-recovery-file')?.click();
       if (status) status.textContent = button.dataset.storageAction === 'retry' ? '本機資料已成功儲存。' : '';
     } catch (error) {

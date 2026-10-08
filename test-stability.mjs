@@ -135,10 +135,10 @@ test('IndexedDB errors are handled, reported by flush, and do not erase legacy c
   const storage = new StorageBridge();
   storage.db = {};
   storage._putRecord = async () => { throw new Error('disk full'); };
-  storage.setItem('handwritingHistory', 'new');
+  storage.setItem('handwritingHistory', '[{"id":"new"}]');
   await assert.rejects(storage.flush());
   assert.equal(adapter.getItem('pwa_japanese:handwritingHistory'), 'legacy');
-  assert.equal(storage.getItem('handwritingHistory'), 'new');
+  assert.equal(storage.getItem('handwritingHistory'), '[{"id":"new"}]');
 });
 
 test('a late failure of an older revision cannot invalidate a successful newer write', async () => {
@@ -146,12 +146,12 @@ test('a late failure of an older revision cannot invalidate a successful newer w
   const storage = new StorageBridge(); storage.db = {};
   const jobs = [];
   storage._putRecord = () => new Promise((resolve, reject) => jobs.push({ resolve, reject }));
-  storage.setItem('handwritingHistory', 'old');
-  storage.setItem('handwritingHistory', 'new');
+  storage.setItem('handwritingHistory', '[{"id":"old"}]');
+  storage.setItem('handwritingHistory', '[{"id":"new"}]');
   jobs[1].resolve(); jobs[0].reject(new Error('stale failure'));
   await storage.flush();
   assert.equal(storage.getStatus().saveState, 'saved');
-  assert.equal(storage.getItem('handwritingHistory'), 'new');
+  assert.equal(storage.getItem('handwritingHistory'), '[{"id":"new"}]');
 });
 
 test('kana reading now uses IndexedDB and flush waits for writes queued during a flush', async () => {
@@ -160,9 +160,9 @@ test('kana reading now uses IndexedDB and flush waits for writes queued during a
   let resolveFirst;
   storage._putRecord = (key, value) => key === 'kanaReadingHistory'
     ? new Promise(resolve => { resolveFirst = resolve; }) : Promise.resolve();
-  storage.setItem('kanaReadingHistory', 'reading');
+  storage.setItem('kanaReadingHistory', '[{"id":"reading"}]');
   const completed = storage.flush();
-  storage.setItem('handwritingHistory', 'writing');
+  storage.setItem('handwritingHistory', '[{"id":"writing"}]');
   resolveFirst();
   await completed;
   assert.equal(storage.pending.size, 0);

@@ -1,32 +1,35 @@
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_4';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_4';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_4';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_5';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_5';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_5';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_5';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_5';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_5';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_4';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_4';
-import { VersionManager } from './version-manager.js?v=V1_5_4';
-import { TrendChart } from './chart-renderer.js?v=V1_5_4';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_4';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_4';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_4';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_4';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_4';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_4';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_4';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_4';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_4';
+import { AppStorage } from './storage.js?v=V1_5_5';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_5';
+import { VersionManager } from './version-manager.js?v=V1_5_5';
+import { TrendChart } from './chart-renderer.js?v=V1_5_5';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_5';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_5';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_5';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_5';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_5';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_5';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_5';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_5';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_5';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_4
-// V1.5.4：每日推薦例句完成後自動收錄單字，重複詞保留原加入時間
+// 日本語練習 PWA - app.js V1_5_5
+// V1.5.5：分離 Gemini／背景備份／UI 協調，保留既有練習與資料格式
 // ===========================
 
-const APP_VERSION = 'V1_5_4';
-const APP_DISPLAY_VERSION = 'V1.5.4';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_4';
+const APP_VERSION = 'V1_5_5';
+const APP_DISPLAY_VERSION = 'V1.5.5';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_5';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
-  cloudBusy: !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
+  cloudBusy: BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
     !!Views.practice?._pendingSessionSave || !!Views.home?._dailyVocabularyRequest ||
     !!Views.home?._databaseSentenceRequest || !!Views.home?._dailySentenceRequests?.size ||
     !!DB._generatedWriteTask && AppStorage.getStatus().saveState === 'saving'
@@ -34,6 +37,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
+  currentBuild: 2026100801,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -817,16 +821,14 @@ const DB = {
     recordStudyActivity(STUDY_ACTIVITY_TYPES.WORD_QUIZ, `word:${date}:${Date.now()}`);
   },
   getApiKey() { return AppStorage.getItem('geminiApiKey') || ''; },
-  saveApiKey(key) { AppStorage.setItem('geminiApiKey', key); },
+  saveApiKey(key) {
+    AppStorage.setItem('geminiApiKey', key);
+    Gemini.invalidateCatalog();
+  },
   getModel() {
+    // A discovered API model is not required to exist in the built-in fallback list.
     const saved = AppStorage.getItem('geminiModel') || '';
-    const validModels = (typeof Gemini !== 'undefined' && Gemini.AVAILABLE_MODELS)
-      ? Gemini.AVAILABLE_MODELS.map(m => m.id)
-      : [];
-    if (saved && (!validModels.length || validModels.includes(saved))) return saved;
-    const fallback = 'gemini-3.8-flash';
-    if (saved && validModels.length && !validModels.includes(saved)) AppStorage.setItem('geminiModel', fallback);
-    return fallback;
+    return /^gemini-[a-z0-9.-]+$/i.test(saved) ? saved : 'gemini-3.8-flash';
   },
   saveModel(m) { AppStorage.setItem('geminiModel', m); },
   // ── Google Drive config ──
@@ -1070,6 +1072,9 @@ const DB = {
   async saveGeneratedSentence(entry, { isCurrent = () => true } = {}) {
     const previous = this._generatedWriteTask || Promise.resolve();
     const task = previous.catch(() => {}).then(async () => {
+      // An AI response started on Home can arrive while a Pencil stroke is active.
+      // Preserve the response but postpone unrelated collection merging until practice exits.
+      while (isPracticeActive(document, Router)) await new Promise(resolve => setTimeout(resolve, 500));
       let saved = entry;
       const commit = () => {
         saved = this.saveSentenceToLog(entry);
@@ -1162,6 +1167,8 @@ const DB = {
   },
   // Combined sentence log for home display
   getCombinedSentenceLog() {
+    const sources = [AppStorage.getItem('sentenceLog'), AppStorage.getItem('importedSentences')];
+    if (this._combinedSentenceCache?.sources.every((raw, i) => raw === sources[i])) return this._combinedSentenceCache.result;
     const ai = this.getSentenceLog().filter(entry =>
       entry?.validationStatus !== 'invalid' && entry?.source !== 'daily-recommendation-invalid' && validateStoredGeneratedSentence(entry).ok
     );
@@ -1179,6 +1186,7 @@ const DB = {
       const da = a.date || ''; const db2 = b.date || '';
       return db2.localeCompare(da) || String(b.generatedAt || b.id || '').localeCompare(String(a.generatedAt || a.id || ''));
     });
+    this._combinedSentenceCache = { sources, result };
     return result;
   },
   // Get sentence for today from any source
@@ -1428,838 +1436,7 @@ function syncDailyReminderFromStudyDays() {
 }
 
 // ===== GEMINI API =====
-const Gemini = {
-  _modelCatalog: null,
-  _modelCatalogPromise: null,
-  // All selectable models (display name -> API id)
-  AVAILABLE_MODELS: [
-    { label: 'Gemini 3.8 Flash',      id: 'gemini-3.8-flash',      tag: '推薦・最新穩定', tier: 'stable' },
-    { label: 'Gemini 3.7 Flash',      id: 'gemini-3.7-flash',      tag: '穩定', tier: 'stable' },
-    { label: 'Gemini 3.6 Flash',      id: 'gemini-3.6-flash',      tag: '穩定', tier: 'stable' },
-    { label: 'Gemini 3.5 Flash',      id: 'gemini-3.5-flash',      tag: '穩定', tier: 'stable' },
-    { label: 'Gemini 3.5 Flash-Lite', id: 'gemini-3.5-flash-lite', tag: '快速・穩定', tier: 'stable' },
-    { label: 'Gemini 3.1 Flash-Lite', id: 'gemini-3.1-flash-lite', tag: '快速・穩定', tier: 'stable' },
-    { label: 'Gemini 2.5 Flash',      id: 'gemini-2.5-flash',      tag: '相容備援', tier: 'stable' },
-    { label: 'Gemini 2.5 Flash-Lite', id: 'gemini-2.5-flash-lite', tag: '省配額・相容備援', tier: 'stable' },
-    { label: 'Gemini 2.5 Pro',        id: 'gemini-2.5-pro',        tag: '高階・相容備援', tier: 'stable' },
-    { label: 'Gemini 3.1 Pro Preview', id: 'gemini-3.1-pro-preview', tag: '預覽', tier: 'preview' },
-    { label: 'Gemini 3 Flash Preview', id: 'gemini-3-flash-preview', tag: '預覽', tier: 'preview' },
-  ],
-
-  async discoverModels() {
-    const apiKey = DB.getApiKey();
-    if (!apiKey) throw new Error('NO_API_KEY');
-    // Keep only a one-way fingerprint and public model metadata in the cache.
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(apiKey));
-    const fingerprint = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-    if (this._modelCatalog?.fingerprint === fingerprint && Date.now() < this._modelCatalog.expiresAt) {
-      return this._modelCatalog.models;
-    }
-    if (this._modelCatalogPromise?.fingerprint === fingerprint) return this._modelCatalogPromise.promise;
-    const promise = (async () => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12000);
-      try {
-        const models = [];
-        let pageToken = '';
-        for (let page = 0; page < 5; page++) {
-          const params = new URLSearchParams({ pageSize: '1000' });
-          if (pageToken) params.set('pageToken', pageToken);
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?${params}`, {
-            headers: { 'x-goog-api-key': apiKey }, signal: controller.signal, cache: 'no-store'
-          });
-          if (!response.ok) {
-            const error = this._tagError(new Error('MODEL_LIST_FAILED'), { status: response.status });
-            throw error;
-          }
-          const data = await response.json();
-          for (const model of data.models || []) {
-            if (!model.supportedGenerationMethods?.includes('generateContent')) continue;
-            const id = String(model.name || '').replace(/^models\//, '');
-            if (!/^gemini-[a-z0-9.-]+$/i.test(id)) continue;
-            models.push({ id, label: model.displayName || id, tier: /preview|experimental|exp(?:-|$)/i.test(id) ? 'preview' : 'stable' });
-          }
-          pageToken = String(data.nextPageToken || '');
-          if (!pageToken) break;
-          if (page === 4) throw new Error('MODEL_LIST_INCOMPLETE');
-        }
-        if (!models.length) throw new Error('NO_GENERATION_MODELS');
-        this._modelCatalog = { fingerprint, expiresAt: Date.now() + 6 * 60 * 60 * 1000, models };
-        return models;
-      } finally { clearTimeout(timer); }
-    })();
-    this._modelCatalogPromise = { fingerprint, promise };
-    try { return await promise; }
-    finally { if (this._modelCatalogPromise?.promise === promise) this._modelCatalogPromise = null; }
-  },
-
-  // Production fallback stays on stable endpoints. Preview models are tried only when explicitly selected.
-  _getModelList() {
-    const selected = DB.getModel();
-    const catalog = this._modelCatalog?.models || this.AVAILABLE_MODELS;
-    const selectedMeta = catalog.find(m => m.id === selected);
-    const stableIds = catalog.filter(m => m.tier === 'stable').map(m => m.id);
-    const previewIds = selectedMeta?.tier === 'preview'
-      ? catalog.filter(m => m.tier === 'preview').map(m => m.id)
-      : [];
-    return [...new Set([selectedMeta ? selected : '', ...stableIds, ...previewIds])].filter(Boolean);
-  },
-
-  _shortTaskModels() {
-    const list = this._getModelList();
-    const compatible = list.find(id => /^gemini-2\.5-flash$/.test(id));
-    return [...new Set([list[0], list.find(id => id !== list[0] && id !== compatible), compatible])].filter(Boolean);
-  },
-
-  _shortTaskBudget() { return { deadline: Date.now() + 60000, requests: 0, maxRequests: 3 }; },
-
-  // Read final visible output only. Thought parts are never a substitute for a
-  // missing final answer because they may contain fragments, labels or drafts.
-  _extractResponse(data) {
-    const candidate = data?.candidates?.[0] || null;
-    const parts = candidate?.content?.parts || [];
-    const text = parts
-      .filter(part => !part?.thought && typeof part?.text === 'string')
-      .map(part => part.text)
-      .join('')
-      .trim();
-    return {
-      text,
-      finishReason: String(candidate?.finishReason || ''),
-      finishMessage: String(candidate?.finishMessage || ''),
-      tokenCount: Number(candidate?.tokenCount || data?.usageMetadata?.candidatesTokenCount || 0),
-      modelVersion: String(data?.modelVersion || '')
-    };
-  },
-
-  _extractText(data) { return this._extractResponse(data).text; },
-
-  _tagError(error, details = {}) {
-    const tagged = error instanceof Error ? error : new Error(String(error || 'API_ERROR'));
-    Object.assign(tagged, details);
-    return tagged;
-  },
-
-  _isSchemaCompatibilityError(error) {
-    return Number(error?.status) === 400 && /responseSchema|response_schema|responseMimeType|response_mime_type|schema is not supported|unknown name ["']?(?:responseSchema|responseMimeType)/i.test(error?.message || '');
-  },
-
-  _canTryAnotherModel(error) {
-    if (!error) return false;
-    if (error.fallback) return true;
-    return /MODEL_|EMPTY_FINAL_RESPONSE|AI_OUTPUT_INVALID|PARSE_ERROR|SENTENCE_VALIDATION_FAILED|API_RESPONSE_INVALID|API_TIMEOUT/i.test(error.message || '');
-  },
-
-  describeError(error, task = 'Gemini') {
-    const status = Number(error?.status || 0);
-    const model = error?.model ? `（${error.model}）` : '';
-    const message = String(error?.message || 'API_ERROR');
-    if (message === 'NO_API_KEY') return '尚未設定 Gemini API Key。';
-    if (message === 'NETWORK_ERROR') return '瀏覽器無法連上 Gemini API；這不代表裝置斷網，可能是瀏覽器連線、內容阻擋或暫時性服務問題。';
-    if (message === 'API_TIMEOUT') return `Gemini 回應逾時${model}，系統已停止等待，請稍後重試。`;
-    if (status === 401 || status === 403 || /API_KEY_INVALID|permission denied|api key/i.test(message)) {
-      return `Gemini API Key 無效、受限制或沒有模型權限${model}。`;
-    }
-    if (status === 404 || /not found|not supported|deprecated/i.test(message)) {
-      return `所選 Gemini 模型目前不可用${model}，請改用 Gemini 3.8 Flash 或執行連線測試。`;
-    }
-    if (status === 429 || /quota|RESOURCE_EXHAUSTED|rate limit/i.test(message)) {
-      return `Gemini 配額或速率限制已達上限${model}，請稍後再試。`;
-    }
-    if (status >= 500 || /unavailable|overloaded/i.test(message)) {
-      return `Gemini 服務暫時無法完成請求${model}。`;
-    }
-    if (/AI_OUTPUT_INVALID|PARSE_ERROR|EMPTY_FINAL_RESPONSE|MODEL_MAX_TOKENS|SENTENCE_VALIDATION_FAILED/i.test(message)) {
-      return `${task}收到的 AI 內容不完整或格式不符${model}，系統已攔截，請重試。`;
-    }
-    if (status === 400) return `Gemini 拒絕此請求${model}（HTTP 400），請執行設定頁的連線測試。`;
-    return `${task}暫時無法完成${model}；請到設定頁執行 Gemini 連線測試查看原因。`;
-  },
-
-  _plainJsonBody(prompt, maxOutputTokens) {
-    return JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens }
-    });
-  },
-
-  async _callStructured(model, { prompt, responseSchema, maxOutputTokens }, apiKey, retryTransient = true, budget = null) {
-    const structuredBody = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        maxOutputTokens,
-        responseMimeType: 'application/json',
-        responseSchema
-      }
-    });
-    try {
-      return await this._callModelDetailed(model, structuredBody, apiKey, 0, retryTransient, budget);
-    } catch (error) {
-      // Some older or restricted endpoints reject responseSchema even though
-      // they can still return valid JSON. Retry once without the schema.
-      if (!this._isSchemaCompatibilityError(error)) throw error;
-      return this._callModelDetailed(
-        model,
-        this._plainJsonBody(prompt, maxOutputTokens),
-        apiKey,
-        0,
-        retryTransient,
-        budget
-      );
-    }
-  },
-
-  async _callModelDetailed(model, body, apiKey, attempt = 0, retryTransient = true, budget = null) {
-    if (budget && (budget.requests >= budget.maxRequests || Date.now() >= budget.deadline)) {
-      throw this._tagError(new Error('API_TIMEOUT'), { model, fallback: false });
-    }
-    if (budget) budget.requests += 1;
-    const controller = new AbortController();
-    const requestTimeout = budget ? Math.min(30000, Math.max(1, budget.deadline - Date.now())) : 45000;
-    const timeoutId = setTimeout(() => controller.abort(), requestTimeout);
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body, signal: controller.signal }
-      );
-      if (!res.ok) {
-        let errMsg = `HTTP ${res.status}`;
-        let apiStatus = '';
-        try {
-          const d = await res.json();
-          errMsg = d.error?.message || errMsg;
-          apiStatus = d.error?.status || '';
-        } catch {}
-        const lower = String(errMsg).toLowerCase();
-        const err = this._tagError(new Error(errMsg), { status: res.status, apiStatus, model });
-        const apiKeyProblem = lower.includes('api key') || lower.includes('apikey') || lower.includes('permission denied') || lower.includes('authentication');
-        const modelProblem = lower.includes('model') || lower.includes('not found') || lower.includes('not supported') || lower.includes('deprecated') || lower.includes('quota') || lower.includes('rate limit') || lower.includes('unavailable') || this._isSchemaCompatibilityError(err);
-        if (retryTransient && !apiKeyProblem && attempt < 2 && [408, 429, 500, 502, 503, 504].includes(res.status)) {
-          const delay = Math.min(700 * (2 ** attempt) + Math.floor(Math.random() * 250), 2500);
-          if (budget && (budget.requests >= budget.maxRequests || Date.now() + delay >= budget.deadline)) throw err;
-          await new Promise(resolve => setTimeout(resolve, delay));
-          return this._callModelDetailed(model, body, apiKey, attempt + 1, retryTransient, budget);
-        }
-        err.fallback = !apiKeyProblem && (
-          [404, 408, 429, 500, 502, 503, 504].includes(res.status) ||
-          (res.status === 400 && modelProblem && this._isSchemaCompatibilityError(err))
-        );
-        throw err;
-      }
-      const data = await res.json();
-      return { ...this._extractResponse(data), model };
-    } catch (error) {
-      if (error?.name === 'AbortError') throw this._tagError(new Error('API_TIMEOUT'), { model, fallback: true });
-      if (error instanceof SyntaxError) throw this._tagError(new Error('API_RESPONSE_INVALID'), { model, fallback: true });
-      if (error?.fallback !== undefined || /^HTTP\s\d+/i.test(error?.message || '') || /quota|permission|api key|model|schema/i.test(error?.message || '')) throw error;
-      if (error?.name === 'TypeError') throw this._tagError(new Error('NETWORK_ERROR'), { model });
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  },
-
-  async _callModel(model, body, apiKey, attempt = 0) {
-    return (await this._callModelDetailed(model, body, apiKey, attempt, true)).text;
-  },
-
-  async reviewEssay(essay, words) {
-    const apiKey = DB.getApiKey();
-    if (!apiKey) throw new Error('NO_API_KEY');
-    const wordList = words.map(w => `"${w.english}" (${w.partOfSpeech}: ${w.chinese})`).join(', ');
-    const prompt = `You are a Japanese writing teacher for a Traditional Chinese learner. Review the Japanese composition below.
-
-Required vocabulary words: ${wordList}
-
-Student Japanese composition:
-${essay}
-
-Respond ONLY with a single valid JSON object. No markdown fences, no explanation, no text before or after the JSON.
-Required format:
-{"wordCheck":[{"word":"string","used":true,"correct":true,"note":"string"}],"grammar":[{"exact":"string","corrected":"string","explanation":"string"}],"suggestions":["string"],"score":7,"comment":"string"}
-
-Rules:
-- wordCheck: one entry per required vocabulary word (used=false if not found in essay)
-- grammar: list up to 5 errors in particles, conjugation, kanji/kana spelling, word choice, or naturalness (empty array [] if none).
-  CRITICAL CONSTRAINT: Keep each required Japanese vocabulary item unchanged in "corrected". Fix only the surrounding grammar and expression.
-  "exact" must be the EXACT substring copied verbatim from the student essay so it can be found by string search. "corrected" is the fixed replacement. "explanation" is in Traditional Chinese (繁體中文).
-- suggestions: 2-3 tips to improve the essay in Traditional Chinese (繁體中文). Do NOT suggest replacing the required vocabulary words.
-- comment: one sentence overall evaluation in Traditional Chinese (繁體中文)
-- score: integer 1-10`;
-
-    const body = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 2500 }
-    });
-
-    // Helper: extract first valid JSON object from raw text
-    const extractJSON = (raw) => {
-      // Remove thinking tags (Gemini 2.5 Flash thinking model)
-      let text = raw.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
-      // Remove markdown fences (```json ... ``` or ``` ... ```)
-      text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-      // Find the first { ... } block (handles leading/trailing whitespace or text)
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
-      if (start === -1 || end === -1 || end <= start) return null;
-      return text.slice(start, end + 1);
-    };
-
-    let lastErr = null;
-    for (const model of this._getModelList()) {
-      try {
-        const raw = await this._callModel(model, body, apiKey);
-        if (!raw) { lastErr = new Error('EMPTY_RESPONSE'); continue; }
-        const jsonStr = extractJSON(raw);
-        if (!jsonStr) { lastErr = new Error(`PARSE_ERROR: no JSON found in response`); continue; }
-        const parsed = JSON.parse(jsonStr);
-        if (parsed && typeof parsed.score !== 'undefined') return parsed;
-        lastErr = new Error('PARSE_ERROR: missing score field');
-      } catch(err) {
-        if (err.message === 'NETWORK_ERROR') throw err;
-        if (err.fallback) { lastErr = err; continue; }
-        if (err instanceof SyntaxError) { lastErr = new Error(`PARSE_ERROR: ${err.message}`); continue; }
-        throw err;
-      }
-    }
-    throw lastErr || new Error('API_ERROR');
-  },
-  // Review essay with a free topic (no required vocabulary words)
-  async reviewEssayFree(essay, topic) {
-    const apiKey = DB.getApiKey();
-    if (!apiKey) throw new Error('NO_API_KEY');
-    const prompt = `You are a Japanese writing teacher for a Traditional Chinese learner. The student was given this topic/prompt: "${topic}"
-
-Student essay:
-${essay}
-
-Respond ONLY with a single valid JSON object. No markdown fences, no explanation.
-Required format:
-{"grammar":[{"exact":"string","corrected":"string","explanation":"string"}],"suggestions":["string"],"score":7,"comment":"string"}
-
-Rules:
-- grammar: up to 5 errors in particles, conjugation, kanji/kana spelling, word choice, or naturalness. "exact" must be verbatim from the composition. "explanation" in 繁體中文.
-- suggestions: 2-3 tips in 繁體中文.
-- comment: one sentence evaluation in 繁體中文.
-- score: integer 1-10`;
-
-    const body = JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:{temperature:0.2,maxOutputTokens:2500} });
-
-    const extractJSON = (raw) => {
-      let text = raw.replace(/<thinking>[\s\S]*?<\/thinking>/gi,'').trim()
-        .replace(/^\`\`\`(?:json)?\s*/i,'').replace(/\s*\`\`\`\s*$/,'').trim();
-      const start = text.indexOf('{'); const end = text.lastIndexOf('}');
-      if (start === -1 || end === -1 || end <= start) return null;
-      return text.slice(start, end + 1);
-    };
-
-    let lastErr = null;
-    for (const model of this._getModelList()) {
-      try {
-        const raw = await this._callModel(model, body, apiKey);
-        if (!raw) { lastErr = new Error('EMPTY_RESPONSE'); continue; }
-        const jsonStr = extractJSON(raw);
-        if (!jsonStr) { lastErr = new Error('PARSE_ERROR: no JSON'); continue; }
-        const parsed = JSON.parse(jsonStr);
-        // Normalize: add empty wordCheck for compatibility
-        if (parsed && typeof parsed.score !== 'undefined') {
-          parsed.wordCheck = parsed.wordCheck || [];
-          return parsed;
-        }
-        lastErr = new Error('PARSE_ERROR: missing score');
-      } catch(err) {
-        if (err.message === 'NETWORK_ERROR') throw err;
-        if (err.fallback) { lastErr = err; continue; }
-        if (err instanceof SyntaxError) { lastErr = new Error('PARSE_ERROR: ' + err.message); continue; }
-        throw err;
-      }
-    }
-    throw lastErr || new Error('API_ERROR');
-  },
-
-  async generateSentence(word) {
-    const apiKey = DB.getApiKey();
-    if (!apiKey) throw new Error('NO_API_KEY');
-    const target = {
-      word: String(word.english || '').trim(),
-      reading: String(word.reading || word.phonetic || '').trim(),
-      romaji: String(word.romaji || '').trim(),
-      partOfSpeech: String(word.partOfSpeech || '語彙').trim(),
-      meaning: String(word.chinese || '').trim(),
-      level: String(word.level || DB.getJlptLevel?.() || 'N5').toUpperCase()
-    };
-    if (!target.word) throw new Error('INVALID_TARGET_WORD');
-
-    const responseSchema = {
-      type: 'OBJECT',
-      properties: {
-        ja: { type: 'STRING', description: 'Natural Japanese example sentence using the required target word.' },
-        kana: { type: 'STRING', description: 'Full reading of the entire Japanese sentence using kana only.' },
-        zh: { type: 'STRING', description: 'Accurate Traditional Chinese translation.' }
-      },
-      required: ['ja', 'kana', 'zh'],
-      propertyOrdering: ['ja', 'kana', 'zh']
-    };
-    let lastErr = null;
-    const models = this._shortTaskModels();
-    const budget = this._shortTaskBudget();
-    for (let attempt = 0; attempt < models.length; attempt++) {
-      const model = models[attempt];
-      const correction = lastErr?.validationReason
-        ? `\nThe previous output was rejected (${lastErr.validationReason}). Correct that defect in this response.`
-        : '';
-      const prompt = `You are a Japanese language learning assistant for a Traditional Chinese learner.
-
-Create exactly one short, natural sentence at JLPT ${target.level} level.
-Required vocabulary: ${target.word}
-Required reading: ${target.reading || 'not provided'}
-Part of speech: ${target.partOfSpeech}
-Traditional Chinese meaning: ${target.meaning || 'not provided'}
-
-Rules:
-- The Japanese sentence must contain the required vocabulary, or a normal conjugated form of it.
-- kana must be the complete pronunciation of the whole Japanese sentence, with no kanji or Latin letters.
-- zh must be an accurate Traditional Chinese translation, not English.
-- Keep the sentence concise and appropriate for the requested JLPT level.${correction}`;
-      try {
-        // Gemini 3.x may spend part of the output budget on reasoning. Use a
-        // larger budget and a JSON schema so the final answer is not truncated.
-        const response = await this._callStructured(model, {
-          prompt,
-          responseSchema,
-          maxOutputTokens: 1600
-        }, apiKey, true, budget);
-        if (!response.text) {
-          lastErr = this._tagError(new Error('EMPTY_FINAL_RESPONSE'), { model, fallback: true });
-          continue;
-        }
-        if (response.finishReason && response.finishReason !== 'STOP') {
-          lastErr = this._tagError(new Error(`MODEL_${response.finishReason}`), { model, fallback: true });
-          continue;
-        }
-        const parsed = parseGeneratedSentenceResponse(response.text);
-        const validation = validateGeneratedSentence(parsed, target);
-        if (validation.ok) {
-          return {
-            ...validation.value,
-            generation: {
-              contract: 2,
-              model,
-              finishReason: response.finishReason || 'UNSPECIFIED',
-              tokenCount: response.tokenCount || 0,
-              generatedAt: new Date().toISOString()
-            }
-          };
-        }
-        lastErr = this._tagError(new Error('SENTENCE_VALIDATION_FAILED'), { model, fallback: true });
-        lastErr.validationReason = validation.reason;
-      } catch (err) {
-        if (err.message === 'NETWORK_ERROR') throw err;
-        if (this._canTryAnotherModel(err)) { lastErr = err; continue; }
-        throw err;
-      }
-    }
-    throw lastErr || new Error('SENTENCE_GENERATION_FAILED');
-  },
-
-  async generateDailyVocabulary({ level, rows, count = 1 }) {
-    const apiKey = DB.getApiKey();
-    if (!apiKey) throw new Error('NO_API_KEY');
-    const normalized = normalizeDailyLearningPreferences({ source: DAILY_LEARNING_SOURCES.LEVEL, level, rows });
-    const allowedRows = selectedLearningRows(normalized.rows);
-    const rowDescription = allowedRows
-      .map(row => `${row.label}（${row.kana}）`).join('、');
-    const examplesByRow = {
-      a:  { word: '愛', reading: 'あい', romaji: 'ai', partOfSpeech: '名詞', meaning: '愛、愛情' },
-      ka: { word: 'ここ', reading: 'ここ', romaji: 'koko', partOfSpeech: '代名詞', meaning: '這裡' },
-      sa: { word: '寿司', reading: 'すし', romaji: 'sushi', partOfSpeech: '名詞', meaning: '壽司' },
-      ta: { word: '父', reading: 'ちち', romaji: 'chichi', partOfSpeech: '名詞', meaning: '父親' },
-      na: { word: '何', reading: 'なに', romaji: 'nani', partOfSpeech: '代名詞', meaning: '什麼' },
-      ha: { word: '母', reading: 'はは', romaji: 'haha', partOfSpeech: '名詞', meaning: '母親' },
-      ma: { word: '耳', reading: 'みみ', romaji: 'mimi', partOfSpeech: '名詞', meaning: '耳朵' },
-      ya: { word: '湯', reading: 'ゆ', romaji: 'yu', partOfSpeech: '名詞', meaning: '熱水' },
-      ra: { word: '瑠璃', reading: 'るり', romaji: 'ruri', partOfSpeech: '名詞', meaning: '琉璃' },
-      wa: { word: '輪', reading: 'わ', romaji: 'wa', partOfSpeech: '名詞', meaning: '環、輪' }
-    };
-    const promptExample = { ...examplesByRow[allowedRows[0]?.id || 'a'], level: normalized.level };
-    const prompt = `You are selecting daily Japanese vocabulary for a Traditional Chinese learner.
-
-Target level: JLPT ${normalized.level}
-Allowed kana rows for the ENTIRE reading: ${rowDescription}
-Number of words: ${count}
-
-Choose ${count} useful, non-duplicate Japanese words commonly taught around JLPT ${normalized.level}. EVERY pronounced kana in the full reading MUST belong to one of the allowed rows, not only the first kana. A reading containing even one kana from an unselected row is invalid. Small っ and the long-vowel mark ー are neutral modifiers; other small kana belong to their corresponding row. For example, たべる is invalid when ら行 is not selected because る belongs to ら行. When several rows are selected, distribute the words across them as evenly as practical. Avoid names, brands, obsolete words, particles by themselves, and words substantially outside the target level.
-
-Return ONLY a JSON array with exactly ${count} objects and no markdown:
-${JSON.stringify([promptExample])}
-
-Requirements:
-- word: normal Japanese spelling (kanji/kana as commonly written)
-- reading: full hiragana reading
-- every kana in reading must be covered by the allowed rows above
-- romaji: Hepburn-style lowercase romaji
-- partOfSpeech: Traditional Chinese label
-- meaning: concise Traditional Chinese meaning
-- level: exactly ${normalized.level}`;
-    const responseSchema = {
-      type: 'ARRAY',
-      minItems: count,
-      maxItems: count,
-      items: {
-        type: 'OBJECT',
-        properties: {
-          word: { type: 'STRING' },
-          reading: { type: 'STRING' },
-          romaji: { type: 'STRING' },
-          partOfSpeech: { type: 'STRING' },
-          meaning: { type: 'STRING' },
-          level: { type: 'STRING' }
-        },
-        required: ['word', 'reading', 'romaji', 'partOfSpeech', 'meaning', 'level'],
-        propertyOrdering: ['word', 'reading', 'romaji', 'partOfSpeech', 'meaning', 'level']
-      }
-    };
-    let best = [];
-    let lastError = null;
-    const budget = this._shortTaskBudget();
-    for (const model of this._shortTaskModels()) {
-      try {
-        const response = await this._callStructured(model, {
-          prompt,
-          responseSchema,
-          maxOutputTokens: 1400
-        }, apiKey, true, budget);
-        if (!response.text) {
-          lastError = this._tagError(new Error('EMPTY_FINAL_RESPONSE'), { model, fallback: true });
-          continue;
-        }
-        if (response.finishReason && response.finishReason !== 'STOP') {
-          lastError = this._tagError(new Error(`MODEL_${response.finishReason}`), { model, fallback: true });
-          continue;
-        }
-        const parsed = parseDailyVocabularyResponse(response.text, { level: normalized.level, rows: normalized.rows, limit: count });
-        if (parsed.length === count) return parsed;
-        for (const word of parsed) {
-          if (!best.some(item => item.word === word.word && item.reading === word.reading)) best.push(word);
-          if (best.length === count) return best;
-        }
-        lastError = this._tagError(new Error('AI_OUTPUT_INVALID'), { model, fallback: true });
-      } catch (error) {
-        if (error.message === 'NETWORK_ERROR') throw error;
-        if (this._canTryAnotherModel(error)) { lastError = error; continue; }
-        throw error;
-      }
-    }
-    throw lastError || new Error('AI_OUTPUT_INVALID');
-  },
-
-  async testConnection() {
-    // Use the exact sentence schema and semantic validator used by the home
-    // card. A trivial {ok:true} response gave a false success when real
-    // sentence generation failed. This probe never writes to learning history.
-    const result = await this.generateSentence({
-      english: '猫', reading: 'ねこ', romaji: 'neko',
-      partOfSpeech: '名詞', chinese: '貓', level: 'N5'
-    });
-    return { model: result.generation.model, validated: 'sentence', saved: false };
-  },
-
-
-  async translateReadingArticle(article, words) {
-    const apiKey = DB.getApiKey();
-    if (!apiKey) throw new Error('NO_API_KEY');
-    const cleanArticle = String(article || '').trim();
-    if (!cleanArticle) throw new Error('NO_ARTICLE');
-    const wordList = (Array.isArray(words) ? words : []).slice(0, 5).map((w, i) => {
-      const en = String(w.english || w.word || '').trim();
-      const zh = String(w.chinese || '').trim();
-      return `${i + 1}. ${en}: ${zh || '請依文章脈絡翻譯'}`;
-    }).filter(Boolean).join('\n');
-    const prompt = `Translate the full Japanese reading passage into natural Traditional Chinese for Taiwan learners.
-
-Japanese passage:
-${cleanArticle}
-
-Target vocabulary and preferred Chinese meanings:
-${wordList}
-
-Requirements:
-- Translate EVERY sentence from beginning to end. Do not summarize, shorten, skip, or stop early.
-- Keep the original sentence order and meaning.
-- Use the preferred Chinese meanings for the target vocabulary when they fit the passage.
-- Output ONLY the complete Traditional Chinese translation.
-- Do not add explanations, markdown, title, bullet points, or extra notes.`;
-
-    const body = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.15, maxOutputTokens: 2400 }
-    });
-
-    let lastErr = null;
-    for (const model of this._getModelList()) {
-      try {
-        const raw = await this._callModel(model, body, apiKey);
-        const zh = String(raw || '')
-          .replace(/^\s*```(?:text|markdown)?\s*/i, '')
-          .replace(/\s*```\s*$/i, '')
-          .replace(/^\s*(?:ZH|Chinese|Translation|中文翻譯|翻譯)\s*[:：]\s*/i, '')
-          .trim();
-        if (zh) return zh;
-        lastErr = new Error('PARSE_ERROR');
-      } catch (err) {
-        if (err.message === 'NETWORK_ERROR') throw err;
-        if (err.fallback) { lastErr = err; continue; }
-        throw err;
-      }
-    }
-    throw lastErr || new Error('API_ERROR');
-  },
-
-
-  async generateReadingQuiz(words) {
-    const apiKey = DB.getApiKey();
-    if (!apiKey) throw new Error('NO_API_KEY');
-    const cleanWords = (Array.isArray(words) ? words : []).slice(0, 5).map((w, i) => ({
-      index: i + 1,
-      english: String(w.english || '').trim(),
-      partOfSpeech: String(w.partOfSpeech || '').trim(),
-      chinese: String(w.chinese || '').trim()
-    })).filter(w => w.english);
-    if (cleanWords.length < 5) throw new Error('NOT_ENOUGH_WORDS');
-
-    const wordList = cleanWords.map(w => `${w.index}. "${w.english}" (${w.partOfSpeech || '語彙'}: ${w.chinese || '請依脈絡判斷'})`).join('\n');
-    const prompt = `You are a Japanese reading-test generator for Traditional Chinese learners at ${DB.getJlptLevel?.() || 'JLPT N5'} level.
-
-Selected vocabulary words:
-${wordList}
-
-Create a short, natural Japanese reading passage and a closest-meaning multiple-choice quiz.
-
-Respond ONLY with a single valid JSON object. No markdown fences, no explanation, no text before or after JSON.
-Required JSON format:
-{
-  "article": "Natural Japanese passage, about 180-300 Japanese characters. Use every selected vocabulary item exactly as written at least once.",
-  "questions": [
-    {"word":"selected vocabulary item", "correctSynonym":"one correct Japanese meaning or paraphrase", "options":["Japanese option A", "Japanese option B", "Japanese option C"]}
-  ]
-}
-
-Rules:
-- article must be natural Japanese and no more than 450 Japanese characters.
-- questions must contain exactly 5 items, one item for each selected vocabulary word.
-- options must contain exactly 3 short Japanese options.
-- exactly one option must be the correct synonym, and it must equal correctSynonym.
-- the other two options must be plausible Japanese distractors but NOT equivalent meanings.
-- Do not translate the article.
-- Use everyday vocabulary and short sentences suitable for the selected JLPT level.`;
-
-    const body = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.55, maxOutputTokens: 1800 }
-    });
-
-    const extractJSON = (raw) => {
-      let text = String(raw || '')
-        .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-        .replace(/^\s*```(?:json)?\s*/i, '')
-        .replace(/\s*```\s*$/i, '')
-        .trim();
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
-      if (start === -1 || end === -1 || end <= start) return null;
-      return text.slice(start, end + 1);
-    };
-    const normalizeQuestion = (q, wordObj) => {
-      const correct = String(q?.correctSynonym || '').trim();
-      const options = Array.isArray(q?.options) ? q.options.map(o => String(o || '').trim()).filter(Boolean) : [];
-      const unique = [...new Map(options.map(option => [option.toLocaleLowerCase(), option])).values()];
-      if (!correct || unique.length !== 3 || unique.filter(option => option.toLocaleLowerCase() === correct.toLocaleLowerCase()).length !== 1) return null;
-      return {
-        word: wordObj.english,
-        wordId: wordObj.id || '',
-        chinese: wordObj.chinese || '',
-        partOfSpeech: wordObj.partOfSpeech || '',
-        correctSynonym: correct,
-        options: unique.sort(() => Math.random() - 0.5)
-      };
-    };
-
-    let lastErr = null;
-    for (const model of this._getModelList()) {
-      try {
-        const raw = await this._callModel(model, body, apiKey);
-        const jsonStr = extractJSON(raw);
-        if (!jsonStr) { lastErr = new Error('PARSE_ERROR: no JSON'); continue; }
-        const parsed = JSON.parse(jsonStr);
-        const article = String(parsed.article || '').trim();
-        const articleCharacterCount = Array.from(article.replace(/\s/g, '')).length;
-        const missingWords = cleanWords.filter(w => !article.includes(w.english));
-        const rawQuestions = Array.isArray(parsed.questions) ? parsed.questions : [];
-        if (!article || articleCharacterCount > 450 || missingWords.length || rawQuestions.length < 5) {
-          lastErr = new Error('PARSE_ERROR: article or quiz does not meet requirements');
-          continue;
-        }
-        const questions = cleanWords.map((cw, i) => {
-          const originalWord = words.find(w => normalizeJapaneseAnswer(w.english) === normalizeJapaneseAnswer(cw.english)) || cw;
-          const match = rawQuestions.find(q => normalizeJapaneseAnswer(q?.word) === normalizeJapaneseAnswer(cw.english)) || rawQuestions[i] || {};
-          return normalizeQuestion(match, originalWord);
-        });
-        if (questions.every(q => q && q.options.length === 3)) return { article, questions };
-        lastErr = new Error('PARSE_ERROR: invalid questions');
-      } catch(err) {
-        if (err.message === 'NETWORK_ERROR') throw err;
-        if (err.fallback) { lastErr = err; continue; }
-        if (err instanceof SyntaxError) { lastErr = new Error('PARSE_ERROR: ' + err.message); continue; }
-        throw err;
-      }
-    }
-    throw lastErr || new Error('API_ERROR');
-  },
-
-  _isLocationError(err) {
-    return /user location is not supported|location.*not supported|region.*not supported|failed_precondition/i.test(String(err?.message || err || ''));
-  },
-
-  _isAuthError(err) {
-    return /api key|apikey|invalid|permission denied|authentication|unauthenticated/i.test(String(err?.message || err || ''));
-  },
-
-  _normalizePos(pos) {
-    const map = {
-      noun: 'n.', verb: 'v.', adjective: 'adj.', adverb: 'adv.', preposition: 'prep.', conjunction: 'conj.',
-      pronoun: 'pron.', auxiliary: 'aux.', numeral: 'num.', interjection: 'interj.'
-    };
-    const key = String(pos || '').toLowerCase().trim();
-    return map[key] || key.replace(/\.$/, '') + (key ? '.' : '');
-  },
-
-  async _translateWithPublicService(text) {
-    const q = String(text || '').trim();
-    if (!q) return '';
-    const endpoints = [
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=en|zh-TW`,
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=en|zh-CN`
-    ];
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, { method: 'GET' });
-        if (!res.ok) continue;
-        const data = await res.json();
-        const translated = data?.responseData?.translatedText || data?.matches?.find(m => m?.translation)?.translation || '';
-        const cleaned = String(translated).replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
-        if (cleaned && cleaned.toLowerCase() !== q.toLowerCase()) return cleaned;
-      } catch {}
-    }
-    return '';
-  },
-
-  async _lookupWordPublicFallback(word) {
-    const cleanWord = String(word || '').trim().toLowerCase();
-    if (!cleanWord) return [];
-    let dict = null;
-    try {
-      const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(cleanWord)}`);
-      if (res.ok) dict = await res.json();
-    } catch {}
-
-    const entries = [];
-    const first = Array.isArray(dict) ? dict[0] : null;
-    const phonetic = (first?.phonetic || first?.phonetics?.find(p => p?.text)?.text || '').replace(/^\/+|\/+$/g, '').trim();
-    const meanings = Array.isArray(first?.meanings) ? first.meanings : [];
-    for (const meaning of meanings.slice(0, 6)) {
-      const def = meaning?.definitions?.find(d => d?.definition)?.definition || '';
-      const example = meaning?.definitions?.find(d => d?.example)?.example || '';
-      const zh = await this._translateWithPublicService(def || cleanWord);
-      entries.push({
-        english: cleanWord,
-        phonetic,
-        pos: this._normalizePos(meaning?.partOfSpeech),
-        chinese: (zh || await this._translateWithPublicService(cleanWord) || '公開字典查詢結果').replace(/；\s*$/,'').slice(0, 60),
-        example: String(example || '').slice(0, 120),
-        source: 'public-fallback'
-      });
-    }
-
-    if (!entries.length) {
-      const zh = await this._translateWithPublicService(cleanWord);
-      if (zh) entries.push({ english: cleanWord, phonetic: '', pos: '', chinese: zh.slice(0, 60), example: '', source: 'public-fallback' });
-    }
-    return entries.filter(e => e.english && e.chinese);
-  },
-
-  // Look up Japanese vocabulary via AI. Historical field names remain compatible
-  // with the existing views: `english` stores Japanese and `phonetic` stores kana.
-  async lookupWord(word) {
-    const apiKey = DB.getApiKey();
-    if (!apiKey) throw new Error('NO_API_KEY');
-    const prompt = `You are a Japanese dictionary for Traditional Chinese learners. Look up "${word}" and return its useful Japanese senses as a JSON array.
-
-Each element must have these fields:
-- "japanese": the standard Japanese spelling
-- "reading": the full reading in hiragana
-- "romaji": Hepburn romanization without tone marks
-- "pos": concise Traditional Chinese part of speech, such as 名詞、五段動詞、一段動詞、い形容詞、な形容詞、副詞、慣用語
-- "chinese": concise Traditional Chinese definition (1-3 meanings separated by semicolons, max 30 chars)
-- "example": one short natural Japanese example sentence
-- "exampleReading": the example sentence's full kana reading
-- "jlpt": one of N5, N4, N3, N2, N1, or 未分級
-
-Return ONLY the JSON array. No markdown, no explanation. Example:
-[{"japanese":"食べる","reading":"たべる","romaji":"taberu","pos":"一段動詞","chinese":"吃；食用","example":"毎朝パンを食べます。","exampleReading":"まいあさぱんをたべます。","jlpt":"N5"}]
-
-If the input is not valid Japanese vocabulary, return: []`;
-
-    const body = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 1200,
-        responseMimeType: 'application/json'
-      }
-    });
-
-    let lastErr = null;
-    for (const model of this._getModelList()) {
-      try {
-        const raw = await this._callModel(model, body, apiKey);
-        if (!raw) { lastErr = new Error('EMPTY_RESPONSE'); continue; }
-        // Strip markdown fences/thinking tags and extract the first JSON array.
-        let text = String(raw)
-          .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-          .replace(/^\s*```(?:json)?\s*/i, '')
-          .replace(/\s*```\s*$/i, '')
-          .trim();
-        const start = text.indexOf('['), end = text.lastIndexOf(']');
-        if (start === -1 || end === -1 || end <= start) { lastErr = new Error('PARSE_ERROR'); continue; }
-        const arr = JSON.parse(text.slice(start, end + 1));
-        if (Array.isArray(arr)) {
-          return arr.map(item => ({
-            english:  String(item.japanese || item.english || word || '').trim(),
-            phonetic: String(item.reading || item.phonetic || '').trim(),
-            reading:  String(item.reading || item.phonetic || '').trim(),
-            romaji:   String(item.romaji || '').trim(),
-            pos:      String(item.pos || '').trim(),
-            chinese:  String(item.chinese || '').trim(),
-            example:  String(item.example || '').trim(),
-            exampleReading: String(item.exampleReading || '').trim(),
-            jlpt: String(item.jlpt || '未分級').trim()
-          })).filter(item => item.english && item.chinese);
-        }
-        lastErr = new Error('NOT_ARRAY');
-      } catch(err) {
-        if (err.message === 'NETWORK_ERROR') throw err;
-        if (err.fallback) { lastErr = err; continue; }
-        lastErr = err;
-      }
-    }
-    if (this._isLocationError(lastErr)) {
-      const e = new Error('REGION_UNSUPPORTED_NO_FALLBACK');
-      e.originalMessage = String(lastErr?.message || '');
-      throw e;
-    }
-    throw lastErr || new Error('API_ERROR');
-  }
-};
+const Gemini = createGeminiClient(DB);
 
 // ===== GOOGLE DRIVE SYNC =====
 const GDrive = {
@@ -2342,16 +1519,22 @@ const GDrive = {
   },
 
   _progress(options, message, percent = 0) {
-    try { options?.onProgress?.({ message, percent }); } catch {}
+    try { options?.onProgress?.({ message, percent: percent >= 100 ? 100 : null }); } catch {}
   },
 
+  _transferController: null,
+  cancelTransfer() { this._transferController?.abort(); },
   async _fetch(url, options = {}, timeoutMs = this.REQUEST_TIMEOUT_MS) {
     const controller = new AbortController();
+    if (options.signal?.aborted) throw new Error('OPERATION_CANCELLED');
+    const cancel = () => controller.abort();
+    options.signal?.addEventListener('abort', cancel, { once:true });
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const cleanup = () => { clearTimeout(timeout); options.signal?.removeEventListener('abort', cancel); };
     try {
       const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
       if (!response.body || response.status === 204) {
-        clearTimeout(timeout);
+        cleanup();
         return response;
       }
       // Keep the deadline alive until the body is consumed. Fetch can resolve
@@ -2362,9 +1545,10 @@ const GDrive = {
             return async (...args) => {
               try { return await target[property](...args); }
               catch (error) {
+                if (options.signal?.aborted) throw new Error('OPERATION_CANCELLED');
                 if (error?.name === 'AbortError') throw new Error('DRIVE_TIMEOUT');
                 throw error;
-              } finally { clearTimeout(timeout); }
+              } finally { cleanup(); }
             };
           }
           const value = Reflect.get(target, property, target);
@@ -2372,8 +1556,9 @@ const GDrive = {
         }
       });
     } catch (error) {
-      clearTimeout(timeout);
-      if (error?.name === 'AbortError') throw new Error('DRIVE_TIMEOUT');
+      cleanup();
+      if (options.signal?.aborted) throw new Error('OPERATION_CANCELLED');
+                if (error?.name === 'AbortError') throw new Error('DRIVE_TIMEOUT');
       throw new Error('DRIVE_NETWORK_ERROR: ' + (error?.message || 'Fetch failed'));
     }
   },
@@ -2505,10 +1690,8 @@ const GDrive = {
   },
 
   async silentRefresh() {
-    // Startup must never display an account chooser or consent dialog. When the
-    // Google session cannot be restored without UI, the app remains usable and
-    // Drive authorization is deferred to the next user-initiated Drive action.
-    await this._requestToken({ promptMode: 'none', accountHint: this.getUserEmail() });
+    if (this.tryRestoreFromStorage()) return;
+    throw new Error('TOKEN_EXPIRED');
   },
 
   async signIn() {
@@ -2541,24 +1724,9 @@ const GDrive = {
   },
 
   async tryRestoreToken() {
-    if (this.tryRestoreFromStorage()) return true;
-    if (!DB.getGDriveClientId()) return false;
-    if (!this.hasRememberedSession()) return false;
-    if (this._silentRestorePromise) return this._silentRestorePromise;
-    this._silentRestorePromise = (async () => {
-      const epoch = this._authEpoch;
-      try {
-        await this.silentRefresh();
-        return true;
-      } catch (error) {
-        if (epoch === this._authEpoch) this._clearTokenOnly();
-        console.info('[GDrive] Silent account restore deferred:', error?.message || error);
-        return false;
-      } finally {
-        this._silentRestorePromise = null;
-      }
-    })();
-    return this._silentRestorePromise;
+    const restored = this.tryRestoreFromStorage();
+    if (!restored) this._clearTokenOnly();
+    return restored;
   },
 
   signOut() {
@@ -2601,6 +1769,13 @@ const GDrive = {
         practice: DB.getPracticePreferenceBundle()
       }]
     };
+  },
+
+  async _prepareBackup(options = {}) {
+    return BackgroundJobs.run('prepare-backup', {
+      collections: this._buildCollections(),
+      metadata: { appVersion: APP_DISPLAY_VERSION, deviceId: this._getDeviceId(), revision: Date.now() }
+    }, { signal: options.signal, onStage: message => this._progress(options, message) });
   },
 
   _buildPayload() {
@@ -2833,16 +2008,21 @@ const GDrive = {
   },
 
   async upload(options = {}) {
-    if (this._uploadInProgress) throw new Error('備份正在上傳，請稍候。');
+    if (this._uploadInProgress || this._transferController) throw new Error('已有備份傳輸進行中，請稍候。');
     this._uploadInProgress = true;
+    const controller = new AbortController();
+    this._transferController = controller;
+    options = { ...options, signal: options.signal || controller.signal };
     try {
     this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
     const authEpoch = this._authEpoch;
+    if (options.signal.aborted) throw new Error('OPERATION_CANCELLED');
     this._progress(options, '整理本機備份資料…', 30);
     await new Promise(resolve => requestAnimationFrame(() => resolve()));
     await AppStorage.flush();
-    const data     = this._buildPayload();
+    const prepared = await this._prepareBackup(options);
+    const data = prepared.data;
     const folderId = DB.getGDriveFolderId();
     const ts       = new Date().toISOString().replace(/[:.]/g, '-');
     const fileName = 'japanese_backup_' + ts + '.json';
@@ -2864,19 +2044,20 @@ const GDrive = {
     const metadata = { name: fileName, mimeType: 'application/json', description: JSON.stringify(summary), ...(folderId ? { parents: [folderId] } : {}) };
     const body = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
       + JSON.stringify(metadata) + '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n'
-      + JSON.stringify(data) + '\r\n--' + boundary + '--';
+      + prepared.serialized + '\r\n--' + boundary + '--';
     if (authEpoch !== this._authEpoch || folderId !== DB.getGDriveFolderId()) throw new Error('AUTH_CONTEXT_CHANGED');
     this._progress(options, '上傳至 Google Drive…', 55);
     const r = await this._fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + this._token, 'Content-Type': 'multipart/related; boundary=' + boundary },
-      body
+      body, signal: options.signal
     }, this.UPLOAD_TIMEOUT_MS);
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       if (r.status === 401) { this._clearTokenOnly(); throw new Error('TOKEN_EXPIRED'); }
       throw new Error('UPLOAD_FAILED: ' + (err.error?.message || r.status));
     }
+    await r.text(); // consume response and release the transfer deadline
     if (authEpoch !== this._authEpoch) throw new Error('AUTH_CONTEXT_CHANGED');
     const now = new Date().toLocaleString('zh-TW');
     DB.setGDriveLastSync(now);
@@ -2886,16 +2067,17 @@ const GDrive = {
     // union in the background so it never blocks the user's upload button.
     this.scheduleStudyStreakSync(250);
     return now;
-    } finally { this._uploadInProgress = false; resumeAppUpdateWhenSafe(); }
+    } finally { this._uploadInProgress = false; if (this._transferController === controller) this._transferController = null; resumeAppUpdateWhenSafe(); }
   },
 
   async listBackups(options = {}) {
     this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
+    const authEpoch = this._authEpoch;
     this._progress(options, '讀取雲端備份清單…', 45);
     const folderId = DB.getGDriveFolderId();
     let q = "name contains 'japanese_backup_' and mimeType='application/json' and trashed=false";
-    if (folderId) q += " and '" + folderId + "' in parents";
+    if (folderId) q += " and '" + escapeDriveQuery(folderId) + "' in parents";
     const params = new URLSearchParams({ q, fields: 'files(id,name,createdTime,description)', orderBy: 'createdTime desc', pageSize: '10' });
     const r = await this._fetch('https://www.googleapis.com/drive/v3/files?' + params, {
       headers: { Authorization: 'Bearer ' + this._token }
@@ -2906,38 +2088,55 @@ const GDrive = {
     }
     const data = await r.json();
     this._progress(options, '備份清單讀取完成', 100);
+    if (authEpoch !== this._authEpoch || folderId !== DB.getGDriveFolderId()) throw new Error('AUTH_CONTEXT_CHANGED');
     return data.files || [];
   },
 
   async downloadFile(fileId, options = {}) {
+    if (this._transferController) throw new Error('已有傳輸進行中，請稍候。');
+    const controller = new AbortController(); this._transferController = controller;
+    options = { ...options, signal: options.signal || controller.signal };
+    try {
     this._progress(options, '確認 Google 授權…', 10);
     await this.ensureToken(options);
+    const authEpoch = this._authEpoch;
+    const folderId = DB.getGDriveFolderId();
     this._progress(options, '下載備份資料…', 50);
     const r = await this._fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
-      headers: { Authorization: 'Bearer ' + this._token }
+      headers: { Authorization: 'Bearer ' + this._token }, signal: options.signal
     });
     if (!r.ok) {
       if (r.status === 401) { this._clearTokenOnly(); throw new Error('TOKEN_EXPIRED'); }
       throw new Error('DOWNLOAD_FAILED: ' + r.status);
     }
+    if (Number(r.headers?.get?.('content-length') || 0) > BackupSchema.maxBytes) { controller.abort(); throw new Error('BACKUP_TOO_LARGE'); }
     const raw = await r.text();
-    while (isPracticeActive(document, Router)) await new Promise(resolve => setTimeout(resolve, 500));
-    const data = JSON.parse(raw);
-    const validation = BackupSchema.validate(data);
-    if (!validation.valid) throw new Error('BACKUP_INVALID_' + validation.reason);
+    while (isPracticeActive(document, Router)) {
+      if (options.signal.aborted) throw new Error('OPERATION_CANCELLED');
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    const data = await BackgroundJobs.run('parse-backup', { raw }, { signal: options.signal });
+    if (authEpoch !== this._authEpoch || folderId !== DB.getGDriveFolderId()) throw new Error('AUTH_CONTEXT_CHANGED');
+    // Do not add context fields to the checksum-covered backup itself.
+    this._downloadContexts ||= new WeakMap();
+    this._downloadContexts.set(data, { authEpoch, folderId });
     this._progress(options, '備份下載完成', 100);
     return data;
+    } finally { if (this._transferController === controller) this._transferController = null; }
   },
 
   async autoRestoreIfCloudHasMore(options = {}) {
     const files = await this.listBackups(options);
-    const localPayload = this._buildPayload();
+    const authEpoch = this._authEpoch;
+    const folderId = DB.getGDriveFolderId();
+    const localPayload = (await this._prepareBackup(options)).data;
     if (!files.length) {
       return { status: 'no_backup', localCounts: this._countPayloadItems(localPayload), cloudCounts: null, file: null };
     }
     const latestFile = files[0];
     const cloudData = await this.downloadFile(latestFile.id, options);
-    const comparison = this._comparePayloads(localPayload, cloudData);
+    const comparison = await BackgroundJobs.run('compare-backups', { local: localPayload, cloud: cloudData });
+    if (authEpoch !== this._authEpoch || folderId !== DB.getGDriveFolderId()) throw new Error('AUTH_CONTEXT_CHANGED');
 
     if (comparison.same) {
       return { status: 'same', ...comparison, file: latestFile };
@@ -2953,29 +2152,35 @@ const GDrive = {
     }
 
     if (isPracticeActive(document, Router) || this._streakSyncPromise) return { status: 'skipped', ...comparison, file: latestFile };
-    const latestComparison = this._comparePayloads(this._buildPayload(), cloudData);
+    const latestLocal = this._buildCollections();
+    const expectedCollections = JSON.stringify(latestLocal);
+    const latestComparison = await BackgroundJobs.run('compare-backups', { local: latestLocal, cloud: cloudData });
+    if (JSON.stringify(this._buildCollections()) !== expectedCollections) return { status: 'conflict', ...latestComparison, file: latestFile };
     if (!latestComparison.cloudIsStrictSuperset) return { status: 'conflict', ...latestComparison, file: latestFile };
-    const syncedAt = await this.applyDownload(cloudData, 'overwrite', { expectedCollections: JSON.stringify(this._buildCollections()) });
+    const syncedAt = await this.applyDownload(cloudData, 'overwrite', { expectedCollections });
     return { status: 'restored', syncedAt, ...comparison, file: latestFile };
   },
 
   async applyDownload(data, mode, options = {}) {
     if (this._restoreInProgress) throw new Error('已有還原作業進行中，請稍候。');
     if (this._streakSyncPromise) throw new Error('學習資料正在同步，請完成後再還原。');
-    const validation = BackupSchema.validate(data);
-    if (!validation.valid) throw new Error('BACKUP_INVALID_' + validation.reason);
     const authEpoch = this._authEpoch;
+    const folderId = DB.getGDriveFolderId();
+    const downloadContext = this._downloadContexts?.get(data);
+    if (downloadContext && (downloadContext.authEpoch !== authEpoch || downloadContext.folderId !== folderId)) throw new Error('AUTH_CONTEXT_CHANGED');
     this._restoreInProgress = true;
     try {
+    const validation = await BackgroundJobs.run('validate-backup', data);
+    if (!validation.valid) throw new Error('BACKUP_INVALID_' + validation.reason);
     const normalized = validation.collections;
     const present = new Set(validation.presentCollections);
     await AppStorage.flush();
     if (!options.skipSnapshot) {
-      const snapshot = await AppStorage.createRecoverySnapshot(this._buildPayload(), 'before-manual-cloud-restore');
+      const snapshot = await AppStorage.createRecoverySnapshot((await this._prepareBackup()).data, 'before-manual-cloud-restore');
       if (!snapshot && mode === 'overwrite') throw new Error('無法建立復原點，已停止覆蓋。請先匯出救援備份。');
     }
     if (isPracticeActive(document, Router)) throw new Error('請完成練習後再還原備份。');
-    if (authEpoch !== this._authEpoch) throw new Error('AUTH_CONTEXT_CHANGED');
+    if (authEpoch !== this._authEpoch || folderId !== DB.getGDriveFolderId()) throw new Error('AUTH_CONTEXT_CHANGED');
     if (options.expectedCollections && JSON.stringify(this._buildCollections()) !== options.expectedCollections) {
       throw new Error('等待還原期間本機資料已變更，已停止覆蓋，請重新比較。');
     }
@@ -2984,6 +2189,8 @@ const GDrive = {
       ? mutator => AppStorage.atomicUpdate(mutator)
       : async mutator => { mutator(); await AppStorage.flush(); };
     await applyAtomically(() => {
+    if (authEpoch !== this._authEpoch || folderId !== DB.getGDriveFolderId()) throw new Error('AUTH_CONTEXT_CHANGED');
+    if (options.expectedCollections && JSON.stringify(this._buildCollections()) !== options.expectedCollections) throw new Error('等待還原期間本機資料已變更，已停止覆蓋，請重新比較。');
     if (mode === 'overwrite') {
       if (present.has('words'))        AppStorage.setItem('vocabWords',        JSON.stringify(data.words.map(normalizeJapaneseWord)));
       if (present.has('history'))      AppStorage.setItem('practiceHistory',   JSON.stringify(data.history));
@@ -3103,6 +2310,7 @@ function escapeHTML(value) {
 }
 function nl2br(value) { return escapeHTML(value).replace(/\n/g, '<br>'); }
 function escapeAttr(value) { return escapeHTML(value).replace(/`/g, '&#96;'); }
+const ModalFocus = createModalFocusManager();
 const Modal = {
   show(html) {
     const o = document.getElementById('modal-overlay');
@@ -3110,10 +2318,10 @@ const Modal = {
     content.innerHTML = html;
     o.classList.remove('hidden');
     o.setAttribute('aria-hidden', 'false');
-    requestAnimationFrame(() => content.querySelector('button, input, select, textarea, [tabindex]')?.focus());
-    o.onclick = (e) => { if (e.target === o) this.hide(); };
+    ModalFocus.open(o, content, () => { if (!GDrive._restoreInProgress) { GDrive.cancelTransfer(); this.hide(); } });
+    o.onclick = (e) => { if (e.target === o && !GDrive._restoreInProgress) { GDrive.cancelTransfer(); this.hide(); } };
   },
-  hide() { const o = document.getElementById('modal-overlay'); o.classList.add('hidden'); o.setAttribute('aria-hidden','true'); }
+  hide() { const o = document.getElementById('modal-overlay'); o.classList.add('hidden'); o.setAttribute('aria-hidden','true'); ModalFocus.close(); }
 };
 function todayStr() {
   const d = new Date();
@@ -3244,7 +2452,11 @@ const Router = {
     if (this.currentView === 'wordReadingPractice' || document.getElementById('word-reading-answer')) Views.wordReadingPractice?.cleanup?.();
     if (this.currentView === 'kanaPractice' || this.handwritingActive || document.documentElement.classList.contains('kana-view-active')) Views.kanaPractice?.cleanup?.();
     const activeNavView = ['practice', 'kanaPractice', 'kanaReadingPractice', 'wordReadingPractice', 'essay', 'readingQuiz', 'aiAsk'].includes(view) ? 'practice' : view;
-    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === activeNavView));
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      const active = btn.dataset.view === activeNavView;
+      btn.classList.toggle('active', active);
+      if (active) btn.setAttribute('aria-current', 'page'); else btn.removeAttribute('aria-current');
+    });
     this.currentView = view;
     const container = document.getElementById('view-container');
     container.innerHTML = '';
@@ -3252,6 +2464,7 @@ const Router = {
     viewDiv.id = `${view}-view`; viewDiv.className = 'view-enter';
     container.appendChild(viewDiv);
     Views[view].render(viewDiv, params);
+    enhanceKeyboardOptions(viewDiv);
     setTimeout(() => {
       window.updateScrollFabs?.();
       resumeAppUpdateWhenSafe();
@@ -3281,7 +2494,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_4" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_5" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -3338,18 +2551,6 @@ Views.home = {
           <div class="menu-card" data-nav="wordReadingPractice">
             <div class="menu-icon kana-reading-shortcut" aria-hidden="true">語</div>
             <div><div class="menu-card-title">單詞讀音</div><div class="menu-card-sub">看單詞・輸入羅馬音</div></div>
-          </div>
-          <div class="menu-card" data-nav="database">
-            <div class="menu-icon" style="background:#e8f0ff"><svg viewBox="0 0 24 24" fill="none" stroke="#3366cc" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
-            <div><div class="menu-card-title">資料庫</div><div class="menu-card-sub">管理單字資料</div></div>
-          </div>
-          <div class="menu-card" data-nav="stats">
-            <div class="menu-icon" style="background:#fff3e0"><svg viewBox="0 0 24 24" fill="none" stroke="#e67e00" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
-            <div><div class="menu-card-title">練習統計</div><div class="menu-card-sub">近期練習情形</div></div>
-          </div>
-          <div class="menu-card" data-nav="settings">
-            <div class="menu-icon" style="background:#f0e8ff"><svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：${APP_VERSION}</div></div>
           </div>
         </div>
         <div class="sentence-log-section">
@@ -3704,9 +2905,12 @@ Views.home = {
       return;
     }
     // Keep the first paint bounded even after years of sentence history.
-    this._sentenceLogLimit ||= 40;
-    const visible = log.slice(0, this._sentenceLogLimit);
-    logContent.innerHTML = `<div class="sentence-log-scroll">${visible.map(entry => `
+    this._sentenceLogPage ||= 0;
+    const pageCount = Math.ceil(log.length / 10);
+    this._sentenceLogPage = Math.min(this._sentenceLogPage, pageCount - 1);
+    const visible = log.slice(this._sentenceLogPage * 10, (this._sentenceLogPage + 1) * 10);
+    let previousDate = null;
+    logContent.innerHTML = `<div class="sentence-log-scroll">${visible.map(entry => { const dateHeading = entry.date !== previousDate ? `<h3 class="history-date-heading">${escapeHTML(entry.date)}</h3>` : ''; previousDate = entry.date; return `${dateHeading}
       <div class="log-entry-card">
         <div class="log-entry-header">
           <span class="log-date">${escapeHTML(entry.date)}</span>
@@ -3716,9 +2920,10 @@ Views.home = {
         <div class="log-entry-en">${highlightJapaneseTarget(entry.en, entry.wordEn)}</div>
         ${entry.reading ? `<div class="japanese-reading" lang="ja">${highlightJapaneseTarget(entry.reading, entry.wordReading)}</div>` : ''}
         <div class="log-entry-zh">${highlightZh(entry.zh, entry.wordZh)}</div>
-      </div>`).join('')}${visible.length < log.length ? `<button type="button" class="btn-secondary" id="sentence-log-more">顯示更多例句（還有 ${log.length - visible.length} 筆）</button>` : ''}</div>`;
+      </div>`; }).join('')}</div><nav class="list-pagination" aria-label="例句分頁"><button type="button" id="sentence-log-prev" ${this._sentenceLogPage === 0 ? 'disabled' : ''}>上一頁</button><span>第 ${this._sentenceLogPage + 1}/${pageCount} 頁 · 共 ${log.length} 筆</span><button type="button" id="sentence-log-more" ${this._sentenceLogPage + 1 >= pageCount ? 'disabled' : ''}>下一頁</button></nav>`;
+    logContent.querySelector('#sentence-log-prev')?.addEventListener('click', () => { this._sentenceLogPage -= 1; this.renderSentenceLog(); });
     logContent.querySelector('#sentence-log-more')?.addEventListener('click', () => {
-      this._sentenceLogLimit += 40;
+      this._sentenceLogPage += 1;
       this.renderSentenceLog();
     });
   }
@@ -4785,7 +3990,7 @@ Views.kanaPractice = {
       },
       onDiagnostic: metrics => {
         const status = document.getElementById('kana-diagnostic-status');
-        if (status) status.textContent = `事件處理 P95 ${metrics.handlerP95Ms.toFixed(1)}ms / P99 ${metrics.handlerP99Ms.toFixed(1)}ms・繪製 P95 ${metrics.drawP95Ms.toFixed(1)}ms・事件間隔 P95 ${metrics.inputGapP95Ms.toFixed(1)}ms・中斷 ${metrics.interruptions}`;
+        if (status) status.textContent = `事件 P95 ${metrics.handlerP95Ms.toFixed(1)}ms / P99 ${metrics.handlerP99Ms.toFixed(1)}ms・繪製 P95 ${metrics.drawP95Ms.toFixed(1)}ms・間隔 P95 ${metrics.inputGapP95Ms.toFixed(1)}ms・中斷 ${metrics.interruptions}・長任務 ${metrics.longTasks} 次（最長 ${metrics.maxLongTaskMs.toFixed(1)}ms；瀏覽器未支援時不計）`;
       },
       onChange: count => {
         const label = document.getElementById('kana-stroke-live');
@@ -4964,8 +4169,10 @@ Views.kanaReadingPractice = {
     items: [], initialTotal: 0, index: 0, results: [], answered: false, transitioning: false
   },
   _advanceTimer: null,
+  _viewportCleanup: null,
 
   cleanup() {
+    this._viewportCleanup?.(); this._viewportCleanup = null;
     if (this._advanceTimer !== null) {
       clearTimeout(this._advanceTimer);
       this._advanceTimer = null;
@@ -5011,6 +4218,7 @@ Views.kanaReadingPractice = {
     this.state.initialTotal = 0;
     this.state.index = 0;
     this.state.results = [];
+    this.state.lastFeedback = '';
     this.state.answered = false;
     const summary = KanaReadingProgress.getSummary();
     container.innerHTML = `
@@ -5025,7 +4233,7 @@ Views.kanaReadingPractice = {
           <div class="kana-summary-grid kana-summary-strip" aria-label="五十音讀音練習摘要">
             <div><strong>${summary.practiced}</strong><span>已練</span></div>
             <div><strong>${summary.correct}</strong><span>答對</span></div>
-            <div><strong>${summary.accuracy}%</strong><span>正確率</span></div>
+            <div><strong>${summary.accuracy}%</strong><span>含補練正確率</span></div>
             <div><strong>${summary.attempts}</strong><span>總題數</span></div>
           </div>
           <div class="kana-setup-grid kana-reading-setup-grid">
@@ -5114,6 +4322,7 @@ Views.kanaReadingPractice = {
       if (!this.state.items.length) { showToast('此條件沒有可練習的假名'); return; }
       this.state.index = 0;
       this.state.results = [];
+    this.state.lastFeedback = '';
       this.state.answered = false;
       this.state.transitioning = false;
       DB.saveKanaReadingPreferences({ script: this.state.script, rows: this.state.rows, repeat: this.state.repeat });
@@ -5143,6 +4352,8 @@ Views.kanaReadingPractice = {
       </div>`;
     const input = document.getElementById('kana-reading-answer');
     const form = document.getElementById('kana-reading-answer-form');
+    this._viewportCleanup?.();
+    this._viewportCleanup = bindReadingViewport(input);
     input?.addEventListener('beforeinput', event => {
       if (this.state.transitioning) event.preventDefault();
     });
@@ -5183,7 +4394,7 @@ Views.kanaReadingPractice = {
     const input = document.getElementById('kana-reading-answer');
     const submit = document.getElementById('kana-reading-submit');
     const feedback = document.getElementById('kana-reading-feedback');
-    if (progressText) progressText.textContent = `五十音讀音 ${this.state.index + 1} / ${total}`;
+    if (progressText) progressText.textContent = readingProgress('五十音讀音', this.state);
     if (progressFill) progressFill.style.width = `${progress}%`;
     if (character) {
       character.textContent = kana.character;
@@ -5199,7 +4410,7 @@ Views.kanaReadingPractice = {
       submit.disabled = false;
       submit.textContent = isLast ? '送出答案（答對後完成）' : '送出並下一題';
     }
-    if (feedback) feedback.innerHTML = '';
+    if (feedback) feedback.innerHTML = this.state.lastFeedback || '';
   },
 
   _submitCurrentAnswer(container) {
@@ -5224,30 +4435,28 @@ Views.kanaReadingPractice = {
       KanaReadingProgress.recordAttempt(kana, checked.normalized, checked.correct);
       void (checked.correct ? Sound.playCorrect() : Sound.playWrong());
       const feedback = document.getElementById('kana-reading-feedback');
-      if (feedback) feedback.innerHTML = checked.correct
-        ? `<div class="is-correct"><strong>✓ 答對了</strong><span>${escapeHTML(kana.character)} = ${escapeHTML(checked.expected)}</span></div>`
-        : `<div class="is-wrong"><strong>✗ 再加油</strong><span>你的答案：${escapeHTML(checked.normalized)}　正確答案：${escapeHTML(checked.expected)}；已追加至尾端補練（共 ${updatedTotal} 題）</span></div>`;
+      this.state.lastFeedback = readingFeedback(result, kana.character, checked.expected, updatedTotal - this.state.initialTotal);
+      if (feedback) feedback.innerHTML = this.state.lastFeedback;
       if (submit) {
         submit.disabled = true;
         submit.textContent = this.state.index + 1 >= updatedTotal ? '正在完成…' : '正在前往下一題…';
       }
       // Keep the same input element focused. Replacing or disabling it makes iOS
       // dismiss the keyboard, which forced the learner to tap and scroll each time.
-      this._advanceTimer = setTimeout(() => {
-        this._advanceTimer = null;
-        if (this.state.index + 1 >= this.state.items.length) {
-          this.renderResult(container);
-          return;
-        }
-        this.state.index += 1;
-        this._paintCurrentQuestion();
-        this._focusAnswerInput(input);
-      }, 650);
+    if (this.state.index + 1 >= this.state.items.length) {
+      this._advanceTimer = setTimeout(() => { this._advanceTimer = null; this.renderResult(container); }, 250);
+    } else {
+      this.state.index += 1;
+      this._paintCurrentQuestion();
+      this._focusAnswerInput(input);
+    }
   },
 
   renderResult(container) {
+    this._viewportCleanup?.(); this._viewportCleanup = null;
     Router.quizActive = false;
     const results = this.state.results;
+    const firstAttempt = firstAttemptSummary(results, this.state.initialTotal);
     const correct = results.filter(item => item.correct).length;
     const score = results.length ? Math.round(correct / results.length * 100) : 0;
     const wrong = results.filter(item => !item.correct);
@@ -5259,7 +4468,7 @@ Views.kanaReadingPractice = {
         <div class="kana-result-mark">${score >= 80 ? '上手！' : score >= 60 ? '進步中' : '再練習'}</div>
         <h1>五十音讀音完成</h1>
         <p>原定 ${this.state.initialTotal} 題 ＋ 錯題補練 ${results.length - this.state.initialTotal} 題 ＝ 完成 ${results.length} 題</p>
-        <div class="kana-result-summary"><div><strong>${score}</strong><span>正確率</span></div><div><strong>${correct}/${results.length}</strong><span>答對題數</span></div></div>
+        <div class="kana-result-summary"><div><strong>${score}</strong><span>正確率</span></div><div><strong>${correct}/${results.length}</strong><span>答對題數</span></div></div><p class="first-attempt-summary">首次作答：${firstAttempt.correct}/${firstAttempt.total} 題答對（${firstAttempt.accuracy}%）</p>
         ${wrong.length ? `<section class="kana-reading-wrong-list"><h2>需要加強</h2>${wrong.map(item => `<div><b>${item.kana.character}</b><span>你的答案：${escapeHTML(item.answer)}</span><strong>${escapeHTML(item.kana.romaji)}</strong></div>`).join('')}</section>` : '<div class="kana-reading-perfect">🎉 全部答對！</div>'}
         <button class="btn-primary" id="kana-reading-again">再練一次</button>
         <button class="btn-secondary" id="kana-reading-home">回到主頁</button>
@@ -5274,10 +4483,12 @@ Views.kanaReadingPractice = {
 // A word's entire kana reading must belong to the selected rows. The question
 // shows only kana; the word and meaning are revealed in the result list.
 Views.wordReadingPractice = {
-  state: { script: 'hiragana', rows: ['all'], count: 10, items: [], initialTotal: 0, index: 0, results: [], transitioning: false },
+  state: { script: 'hiragana', rows: ['all'], count: 10, items: [], initialTotal: 0, index: 0, results: [], lastFeedback: '', transitioning: false },
   _advanceTimer: null,
+  _viewportCleanup: null,
 
   cleanup() {
+    this._viewportCleanup?.(); this._viewportCleanup = null;
     if (this._advanceTimer !== null) clearTimeout(this._advanceTimer);
     this._advanceTimer = null;
     TTS.stop();
@@ -5290,7 +4501,7 @@ Views.wordReadingPractice = {
     return makeWordReadingPool([...DB.getWords(), ...saved], this.state.rows);
   },
   renderSetup(container) {
-    Object.assign(this.state, DB.getWordReadingPreferences(), { items: [], initialTotal: 0, index: 0, results: [], transitioning: false });
+    Object.assign(this.state, DB.getWordReadingPreferences(), { items: [], initialTotal: 0, index: 0, results: [], lastFeedback: '', transitioning: false });
     const summary = WordReadingProgress.getSummary();
     container.innerHTML = `<div class="kana-reading-page kana-setup-page practice-compact-page">
       <div class="section-header kana-page-header practice-page-header"><h1 class="section-title">練習</h1></div>
@@ -5299,7 +4510,7 @@ Views.wordReadingPractice = {
         <div class="kana-setup-heading"><div class="kana-setup-mark" aria-hidden="true">語</div><div><h2>單詞讀音練習</h2><p>看單詞的假名讀音，輸入完整羅馬拼音。只使用所選行內的音出題。</p></div></div>
         <div class="kana-summary-grid kana-summary-strip" aria-label="單詞讀音練習摘要">
           <div><strong>${summary.practiced}</strong><span>已練單詞</span></div><div><strong>${summary.correct}</strong><span>答對</span></div>
-          <div><strong>${summary.accuracy}%</strong><span>正確率</span></div><div><strong>${summary.attempts}</strong><span>總題數</span></div>
+          <div><strong>${summary.accuracy}%</strong><span>含補練正確率</span></div><div><strong>${summary.attempts}</strong><span>總題數</span></div>
         </div>
         <div class="kana-setup-grid kana-reading-setup-grid">
           <div class="option-group kana-compact-group kana-script-group"><div class="option-label">假名類型</div><div class="option-chips kana-option-chips kana-script-options">
@@ -5352,7 +4563,8 @@ Views.wordReadingPractice = {
       this.state.items = buildWordReadingQuestions(this._pool(), this.state);
       if (!this.state.items.length) { showToast('目前沒有符合條件的單詞'); return; }
       this.state.initialTotal = this.state.items.length;
-      this.state.index = 0; this.state.results = []; this.state.transitioning = false;
+      this.state.index = 0; this.state.results = [];
+    this.state.lastFeedback = ''; this.state.transitioning = false;
       Router.quizActive = true;
       this.renderQuestion(container);
     });
@@ -5369,6 +4581,8 @@ Views.wordReadingPractice = {
       </main></div>`;
     const input = document.getElementById('word-reading-answer');
     const form = document.getElementById('word-reading-form');
+    this._viewportCleanup?.();
+    this._viewportCleanup = bindReadingViewport(input);
     input?.addEventListener('beforeinput', event => { if (this.state.transitioning) event.preventDefault(); });
     input?.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); form?.requestSubmit(); } });
     form?.addEventListener('submit', event => { event.preventDefault(); this.submitAnswer(container); this._focus(input); });
@@ -5389,13 +4603,13 @@ Views.wordReadingPractice = {
     const meaning = document.getElementById('word-reading-meaning');
     const input = document.getElementById('word-reading-answer');
     const submit = document.getElementById('word-reading-submit');
-    if (progress) progress.textContent = `單詞讀音 ${this.state.index + 1} / ${this.state.items.length}`;
+    if (progress) progress.textContent = readingProgress('單詞讀音', this.state);
     if (fill) fill.style.width = `${Math.round(this.state.index / this.state.items.length * 100)}%`;
     if (character) character.textContent = item.display;
     if (meaning) meaning.textContent = item.meaning || '尚無中文翻譯';
     if (input) { input.value = ''; input.setAttribute('aria-label', `輸入 ${item.display} 的完整羅馬拼音`); }
     if (submit) { submit.disabled = false; submit.textContent = '送出並下一題'; }
-    const feedback = document.getElementById('word-reading-feedback'); if (feedback) feedback.innerHTML = '';
+    const feedback = document.getElementById('word-reading-feedback'); if (feedback) feedback.innerHTML = this.state.lastFeedback || '';
   },
   submitAnswer(container) {
     if (this.state.transitioning) return;
@@ -5410,23 +4624,26 @@ Views.wordReadingPractice = {
     WordReadingProgress.recordAttempt(item, checked.normalized, checked.correct);
     void (checked.correct ? Sound.playCorrect() : Sound.playWrong());
     const feedback = document.getElementById('word-reading-feedback');
-    if (feedback) feedback.innerHTML = checked.correct
-      ? `<div class="is-correct"><strong>✓ 答對了</strong><span>${escapeHTML(item.display)} = ${escapeHTML(checked.expected)}</span></div>`
-      : `<div class="is-wrong"><strong>✗ 再加油</strong><span>你的答案：${escapeHTML(checked.normalized)}　正確答案：${escapeHTML(checked.expected)}；已追加至尾端補練</span></div>`;
+    this.state.lastFeedback = readingFeedback({ answer: checked.normalized, correct: checked.correct }, item.display, checked.expected, this.state.items.length - this.state.initialTotal);
+    if (feedback) feedback.innerHTML = this.state.lastFeedback;
     const progress = document.getElementById('word-reading-progress-text');
     const fill = document.getElementById('word-reading-progress-fill');
-    if (progress) progress.textContent = `單詞讀音 ${this.state.index + 1} / ${this.state.items.length}`;
+    if (progress) progress.textContent = readingProgress('單詞讀音', this.state);
     if (fill) fill.style.width = `${Math.round((this.state.index + 1) / this.state.items.length * 100)}%`;
     const submit = document.getElementById('word-reading-submit'); if (submit) { submit.disabled = true; submit.textContent = '正在前往下一題…'; }
-    this._advanceTimer = setTimeout(() => {
-      this._advanceTimer = null;
-      if (this.state.index + 1 >= this.state.items.length) this.renderResult(container);
-      else { this.state.index++; this.paintQuestion(); this._focus(input); }
-    }, 650);
+    if (this.state.index + 1 >= this.state.items.length) {
+      this._advanceTimer = setTimeout(() => { this._advanceTimer = null; this.renderResult(container); }, 250);
+    } else {
+      this.state.index += 1;
+      this.paintQuestion();
+      this._focus(input);
+    }
   },
   renderResult(container) {
+    this._viewportCleanup?.(); this._viewportCleanup = null;
     Router.quizActive = false;
     const results = this.state.results;
+    const firstAttempt = firstAttemptSummary(results, this.state.initialTotal);
     const correct = results.filter(result => result.correct).length;
     const score = results.length ? Math.round(correct / results.length * 100) : 0;
     recordStudyActivity(STUDY_ACTIVITY_TYPES.WORD_READING, `word-reading:${todayStr()}:${Date.now()}`);
@@ -5434,9 +4651,9 @@ Views.wordReadingPractice = {
     container.innerHTML = `<div class="kana-reading-result-view word-reading-result-view">
       <div class="kana-result-mark">${score >= 80 ? '上手！' : score >= 60 ? '進步中' : '再練習'}</div><h1>單詞讀音完成</h1>
       <p>原定 ${this.state.initialTotal} 題 ＋ 錯題補練 ${results.length - this.state.initialTotal} 題 ＝ 完成 ${results.length} 題</p>
-      <div class="kana-result-summary"><div><strong>${score}</strong><span>正確率</span></div><div><strong>${correct}/${results.length}</strong><span>答對題數</span></div></div>
+      <div class="kana-result-summary"><div><strong>${score}</strong><span>正確率</span></div><div><strong>${correct}/${results.length}</strong><span>答對題數</span></div></div><p class="first-attempt-summary">首次作答：${firstAttempt.correct}/${firstAttempt.total} 題答對（${firstAttempt.accuracy}%）</p>
       <section class="word-reading-result-list" aria-label="單詞讀音測試總表"><h2>作答總表</h2>${results.map((result, index) => `<div class="word-reading-result-item ${result.correct ? 'is-correct' : 'is-wrong'}">
-        <div><span>${index + 1}. </span><b lang="ja">${escapeHTML(result.item.display)}</b><small>${escapeHTML(result.item.word)}${result.item.meaning ? `・${escapeHTML(result.item.meaning)}` : ''}</small></div>
+        <div><span>${result.correct ? '✓ 答對' : '✗ 答錯'} · ${index + 1}. </span><b lang="ja">${escapeHTML(result.item.display)}</b><small>${escapeHTML(result.item.word)}${result.item.meaning ? `・${escapeHTML(result.item.meaning)}` : ''}</small></div>
         <div><span>你的拼音：<strong>${escapeHTML(result.answer)}</strong></span><span>正確拼音：<strong>${escapeHTML(result.expected)}</strong></span></div>
       </div>`).join('')}</section>
       <button class="btn-primary" id="word-reading-again" type="button">再練一次</button><button class="btn-secondary" id="word-reading-home" type="button">回到主頁</button></div>`;
@@ -5799,6 +5016,8 @@ Views.database = {
   aiCorrectMode: false, aiCorrectIds: new Set(),
   sortMode: AppStorage.getItem('dbSortMode') || 'createdAt',
   render(container) { this.deleteMode = false; this.selectedIds = new Set(); this.aiCorrectMode = false; this.aiCorrectIds = new Set(); this.renderList(container); },
+  _page: 0,
+  _search: '',
   _sortWords(words) {
     const arr = [...words];
     if (this.sortMode === 'alpha') {
@@ -5808,8 +5027,8 @@ Views.database = {
     } else {
       // createdAt: newest first (default)
       arr.sort((a, b) => {
-        const ta = a.createdAt || ''; const tb = b.createdAt || '';
-        if (ta === tb) return b.id.localeCompare(a.id);
+        const ta = String(a.createdAt || ''); const tb = String(b.createdAt || '');
+        if (ta === tb) return String(b.id).localeCompare(String(a.id));
         return tb.localeCompare(ta);
       });
     }
@@ -5817,8 +5036,17 @@ Views.database = {
   },
   // Lightweight refresh: update only the word list + badge without destroying lookup card state
   _refreshWordList(container) {
-    const rawWords = DB.getWords();
-    const words    = this._sortWords(rawWords);
+    const raw = AppStorage.getItem('vocabWords');
+    if (this._sortedCache?.raw !== raw || this._sortedCache?.mode !== this.sortMode) {
+      this._sortedCache = { raw, mode: this.sortMode, words: this._sortWords(DB.getWords()) };
+    }
+    const rawWords = this._sortedCache.words;
+    const needle = this._search.trim().toLocaleLowerCase();
+    const words = needle ? this._sortedCache.words.filter(word => [word.english, word.chinese, word.phonetic, word.romaji].some(value => String(value || '').toLocaleLowerCase().includes(needle))) : this._sortedCache.words;
+    const pages = Math.max(1, Math.ceil(words.length / 40));
+    this._page = Math.max(0, Math.min(this._page, pages - 1));
+    const pageWords = words.slice(this._page * 40, (this._page + 1) * 40);
+    const boostedIds = new Set(DB.getBoostedWords());
     const dm  = this.deleteMode;  const sel = this.selectedIds;
     const acm = this.aiCorrectMode; const acs = this.aiCorrectIds;
     // Update badge
@@ -5829,54 +5057,54 @@ Views.database = {
     if (!listEl) return;
     if (words.length === 0) {
       listEl.innerHTML = `<div class="db-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:auto"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><div class="db-empty-title">資料庫是空的</div><div class="db-empty-sub">點選「新增」或使用上方 AI 日語辭典加入語彙</div></div>`;
+      if (needle) listEl.innerHTML = '<div class="db-empty"><div class="db-empty-title">查無符合的單字</div><div class="db-empty-sub">請更換關鍵字或清空搜尋條件</div></div>';
+      const pager = container.querySelector('#db-pagination');
+      if (pager) { pager.innerHTML = ''; pager.onclick = null; }
       return;
     }
-    listEl.innerHTML = words.map(w => {
-      const boosted = DB.isBoosted(w.id);
-      return `<div class="db-word-card ${dm?'delete-mode':acm?'ai-correct-mode':''}" data-id="${w.id}">
-        <div class="db-checkbox ${dm&&sel.has(w.id)?'checked':acm&&acs.has(w.id)?'checked ai-check':''}" data-id="${w.id}"></div>
+    listEl.innerHTML = pageWords.map(w => {
+      const boosted = boostedIds.has(w.id);
+      return `<div class="db-word-card ${dm?'delete-mode':acm?'ai-correct-mode':''}" data-id="${escapeHTML(w.id)}">
+        <div class="db-checkbox ${dm&&sel.has(w.id)?'checked':acm&&acs.has(w.id)?'checked ai-check':''}" data-id="${escapeHTML(w.id)}"></div>
         <div class="db-word-main">
-          <div class="db-word-en">${w.english}${w.partOfSpeech?`<span class="db-word-pos">${w.partOfSpeech}</span>`:''}${boosted?'<span class="boost-badge">⚡</span>':''}</div>
+          <div class="db-word-en">${escapeHTML(w.english)}${w.partOfSpeech?`<span class="db-word-pos">${escapeHTML(w.partOfSpeech)}</span>`:''}${boosted?'<span class="boost-badge">⚡</span>':''}</div>
           ${w.phonetic?`<div class="db-word-phonetic">${escapeHTML(w.phonetic)}${w.romaji ? `・${escapeHTML(w.romaji)}` : ''}</div>`:''}
-          <div class="db-word-zh">${w.chinese}</div>
-          <div class="db-word-meta"><span>${w.createdAt||'—'}</span><span>答錯 ${w.wrongCount||0}次</span>${(w.frequencyWeight||1)>1?`<span>加權${w.frequencyWeight}x</span>`:''}</div>
+          <div class="db-word-zh">${escapeHTML(w.chinese)}</div>
+          <div class="db-word-meta"><span>${escapeHTML(w.createdAt||'—')}</span><span>答錯 ${escapeHTML(w.wrongCount||0)}次</span>${(w.frequencyWeight||1)>1?`<span>加權${escapeHTML(w.frequencyWeight)}x</span>`:''}</div>
         </div>
         <div class="db-word-actions">
-          <button class="db-tts-btn" data-tts="${w.english}" title="播放發音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
-          ${(!dm&&!acm)?`<button class="db-word-edit-btn" data-edit="${w.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`:''}
+          <button class="db-tts-btn" data-tts="${escapeHTML(w.english)}" title="播放發音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
+          ${(!dm&&!acm)?`<button class="db-word-edit-btn" data-edit="${escapeHTML(w.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`:''}
         </div>
       </div>`;
     }).join('');
-    // Re-bind TTS and edit buttons on the refreshed list
-    listEl.querySelectorAll('.db-tts-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        TTS.speakWhenReady(btn.dataset.tts, 0.82);
-        btn.classList.add('tts-playing');
-        setTimeout(() => btn.classList.remove('tts-playing'), 1200);
-      });
-    });
-    listEl.querySelectorAll('.db-word-edit-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const w = DB.getWords().find(x => x.id === btn.dataset.edit);
-        if (w) this.showEditModal(w, container);
-      });
-    });
-    listEl.querySelectorAll('.db-word-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const id = card.dataset.id;
-        if (this.deleteMode) {
-          this.selectedIds[this.selectedIds.has(id)?'delete':'add'](id);
-          card.querySelector('.db-checkbox')?.classList.toggle('checked', this.selectedIds.has(id));
-          const confBtn = container.querySelector('#delete-toggle-btn');
-          if (confBtn) confBtn.textContent = this.selectedIds.size > 0 ? `確認(${this.selectedIds.size})` : '確認';
-        } else if (this.aiCorrectMode) {
-          this.aiCorrectIds[this.aiCorrectIds.has(id)?'delete':'add'](id);
-          const cb = card.querySelector('.db-checkbox');
-          if (cb) { cb.classList.toggle('checked', this.aiCorrectIds.has(id)); cb.classList.toggle('ai-check', this.aiCorrectIds.has(id)); }
-        }
-      });
-    });
+    const pager = container.querySelector('#db-pagination');
+    if (pager) {
+      pager.innerHTML = '<button type="button" data-page="prev" '+(this._page === 0 ? 'disabled' : '')+'>上一頁</button><span>第 '+(this._page + 1)+'/'+pages+' 頁 · '+words.length+' 個單字</span><button type="button" data-page="next" '+(this._page + 1 >= pages ? 'disabled' : '')+'>下一頁</button>';
+      pager.onclick = event => {
+        const button = event.target.closest('[data-page]'); if (!button || button.disabled) return;
+        this._page += button.dataset.page === 'next' ? 1 : -1;
+        this._refreshWordList(container);
+        listEl.scrollIntoView({ block: 'start', behavior: 'auto' });
+      };
+    }
+    listEl.onclick = event => {
+      const sound = event.target.closest('.db-tts-btn');
+      if (sound) { TTS.speakWhenReady(sound.dataset.tts, .82); return; }
+      const edit = event.target.closest('.db-word-edit-btn');
+      if (edit) { const word = DB.getWords().find(item => String(item.id) === edit.dataset.edit); if (word) this.showEditModal(word, container); return; }
+      const card = event.target.closest('.db-word-card'); if (!card) return;
+      const id = rawWords.find(word => String(word.id) === card.dataset.id)?.id;
+      if (id === undefined) return;
+      const selected = this.deleteMode ? this.selectedIds : this.aiCorrectMode ? this.aiCorrectIds : null;
+      if (!selected) return;
+      selected[selected.has(id) ? 'delete' : 'add'](id);
+      const checkbox = card.querySelector('.db-checkbox');
+      checkbox?.classList.toggle('checked', selected.has(id));
+      checkbox?.classList.toggle('ai-check', this.aiCorrectMode && selected.has(id));
+      const button = container.querySelector(this.deleteMode ? '#delete-toggle-btn' : '#ai-correct-run-btn');
+      if (button) button.textContent = this.deleteMode ? '確認 ('+selected.size+')' : '執行 AI 更正 ('+selected.size+')';
+    };
   },
 
   async renderList(container) {
@@ -5978,36 +5206,15 @@ Views.database = {
         </button>
       </div>
       ${dm ? `<button id="db-back-to-top" class="db-back-to-top" title="回到頂部"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg></button>` : ''}
-      <div class="db-list-scroll"><div class="db-list" id="db-list">
-        ${words.length === 0
-          ? `<div class="db-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:auto"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><div class="db-empty-title">資料庫是空的</div><div class="db-empty-sub">點選「新增」或使用上方 AI 日語辭典加入語彙</div></div>`
-          : words.map(w => {
-              const boosted = DB.isBoosted(w.id);
-              return `<div class="db-word-card ${dm?'delete-mode':acm?'ai-correct-mode':''}" data-id="${w.id}">
-                <div class="db-checkbox ${dm&&sel.has(w.id)?'checked':acm&&acs.has(w.id)?'checked ai-check':''}" data-id="${w.id}"></div>
-                <div class="db-word-main">
-                  <div class="db-word-en">${w.english}${w.partOfSpeech ? `<span class="db-word-pos">${w.partOfSpeech}</span>` : ''}${boosted?'<span class="boost-badge">⚡</span>':''}</div>
-                  ${w.phonetic?`<div class="db-word-phonetic">${escapeHTML(w.phonetic)}${w.romaji ? `・${escapeHTML(w.romaji)}` : ''}</div>`:''}
-                  <div class="db-word-zh">${w.chinese}</div>
-                  <div class="db-word-meta"><span>${w.createdAt||'—'}</span><span>答錯 ${w.wrongCount||0}次</span>${(w.frequencyWeight||1)>1?`<span>加權${w.frequencyWeight}x</span>`:''}</div>
-                </div>
-                <div class="db-word-actions">
-                  <button class="db-tts-btn" data-tts="${w.english}" title="播放發音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
-                  ${(!dm&&!acm)?`<button class="db-word-edit-btn" data-edit="${w.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`:''}
-                </div>
-              </div>`;
-            }).join('')}
-      </div></div>
-      <div style="height:20px"></div>
+      <label class="db-local-search">搜尋本機單字<input id="db-local-search" type="search" autocomplete="off" aria-label="搜尋本機單字" placeholder="日文、中文或拼音" value="${escapeHTML(this._search)}"></label>
+      <div class="db-list-scroll"><div class="db-list" id="db-list"></div></div>
+      <nav id="db-pagination" class="list-pagination" aria-label="單字庫分頁"></nav>
     `;
-    // TTS buttons in word list
-    container.querySelectorAll('.db-tts-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        TTS.speakWhenReady(btn.dataset.tts, 0.82);
-        btn.classList.add('tts-playing');
-        setTimeout(() => btn.classList.remove('tts-playing'), 1200);
-      });
+    this._refreshWordList(container);
+    let filterTimer;
+    container.querySelector('#db-local-search')?.addEventListener('input', event => {
+      this._search = event.target.value; this._page = 0;
+      clearTimeout(filterTimer); filterTimer = setTimeout(() => { if (container.isConnected) this._refreshWordList(container); }, 120);
     });
     // ── Tab switching ──
     document.querySelectorAll('.lookup-seg-btn').forEach(tab => {
@@ -6245,6 +5452,7 @@ Views.database = {
     // Sort chips
     container.querySelectorAll('.db-sort-chip').forEach(btn => btn.addEventListener('click', () => {
       this.sortMode = btn.dataset.sort;
+      this._page = 0;
       AppStorage.setItem('dbSortMode', this.sortMode);
       this.renderList(container);
     }));
@@ -6283,26 +5491,6 @@ Views.database = {
       if (this.aiCorrectIds.size === 0) { showToast('請先勾選要更正的單字'); return; }
       this.runAiCorrect(container);
     });
-    container.querySelectorAll('.db-checkbox').forEach(cb => cb.addEventListener('click', () => {
-      const id = cb.dataset.id;
-      if (this.deleteMode) {
-        this.selectedIds.has(id) ? this.selectedIds.delete(id) : this.selectedIds.add(id);
-        cb.classList.toggle('checked', this.selectedIds.has(id));
-        cb.classList.remove('ai-check');
-        const btn = document.getElementById('delete-toggle-btn');
-        if (btn) btn.innerHTML = svgTrash + (this.selectedIds.size > 0 ? `確認(${this.selectedIds.size})` : '確認');
-      } else if (this.aiCorrectMode) {
-        this.aiCorrectIds.has(id) ? this.aiCorrectIds.delete(id) : this.aiCorrectIds.add(id);
-        cb.classList.toggle('checked', this.aiCorrectIds.has(id));
-        cb.classList.toggle('ai-check', this.aiCorrectIds.has(id));
-        const btn = document.getElementById('ai-correct-run-btn');
-        if (btn) btn.textContent = this.aiCorrectIds.size > 0 ? `執行 AI 更正 (${this.aiCorrectIds.size})` : '執行 AI 更正';
-      }
-    }));
-    container.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => {
-      const word = DB.getWords().find(w => w.id === btn.dataset.edit);
-      if (word) this.showEditModal(word, container);
-    }));
   },
   async runAiCorrect(container) {
     const ids = [...this.aiCorrectIds];
@@ -7022,7 +6210,8 @@ Views.stats = {
   render(container) { this.period = 7; this.mode = 'quiz'; this.renderStats(container); },
   renderStats(container) {
     const allHistory = DB.getHistory();
-    const totalSessions = allHistory.length;
+    const totalSessions = allHistory.reduce((sum, day) => sum + (Array.isArray(day.sessions) ? day.sessions.length : 0), 0);
+    const legacyDays = allHistory.filter(day => (!day.sessions?.length && day.total) || day.legacyAggregates?.some(item => Number(item.total) > 0)).length;
     const totalAnswered = allHistory.reduce((s,h)=>s+(h.total||0),0);
     const totalCorrect  = allHistory.reduce((s,h)=>s+(h.correct||0),0);
     const overallPct    = totalAnswered > 0 ? Math.round(totalCorrect/totalAnswered*100) : 0;
@@ -7040,7 +6229,7 @@ Views.stats = {
           <option value="aiask" ${this.mode==="aiask"?"selected":""}>💬 AI 詢問</option>
         </select>
       </div>
-      <div class="stats-period-chips">${[7,14,21,30].map(d=>`<button class="chip ${d===this.period?'selected':''}" data-period="${d}">${d===30?'本月':d+'天'}</button>`).join('')}</div>
+      <div class="stats-period-chips">${[7,14,21,30].map(d=>`<button class="chip ${d===this.period?'selected':''}" data-period="${d}">${d===30?'近 30 天':d+'天'}</button>`).join('')}</div>
       <div class="chart-card"><div class="card-header">答題趨勢</div><div class="chart-wrapper"><canvas id="stats-chart"></canvas></div></div>
       <div class="stats-table-card">
         <div class="stats-table-hint">點擊錯誤數字可查看答錯單字</div>
@@ -7058,7 +6247,7 @@ Views.stats = {
           <div class="stats-export-sep"></div>
           <div class="stats-export-item"><div class="stats-export-num" style="color:var(--primary)">${overallPct}%</div><div class="stats-export-label">整體正確率</div></div>
         </div>
-        <div class="stats-export-note">CSV 匯出請至「設定 → 匯出統計資料」。</div>
+        <div class="stats-export-note">CSV 匯出請至「設定 → 匯出統計資料」。${legacyDays ? '另有 ' + legacyDays + ' 天舊版彙總資料，仍包含於答題數，但無法回推場次。' : ''}</div>
       </div>
 
       <div style="height:20px"></div>
@@ -7819,7 +7008,7 @@ Views.settings = {
           ${(signedIn || remembered) ? `
             <div class="fb-status-row">
               <div class="fb-status-dot ${signedIn ? 'connected' : 'disconnected'}"></div>
-              <span class="fb-status-text">${signedIn ? '已登入' : '帳號已記住，雲端功能會自動續權'}：${escapeHTML(email || 'Google 帳戶')}</span>
+              <span class="fb-status-text">${signedIn ? '已登入' : '帳號已記住・雲端待授權'}：${escapeHTML(email || 'Google 帳戶')}</span>
             </div>
             ${lastSync ? '<div class="fb-last-sync" style="margin-bottom:10px">上次同步：' + lastSync + '</div>' : ''}
             <div class="settings-btn-row" style="margin-bottom:10px">
@@ -7829,11 +7018,11 @@ Views.settings = {
             <div class="drive-operation-status" id="gd-operation-status" role="status" aria-live="polite" hidden>
               <span class="drive-operation-spinner" aria-hidden="true"></span>
               <span id="gd-operation-text">準備中…</span>
-              <span id="gd-operation-percent"></span>
+              <span id="gd-operation-percent"></span><button type="button" id="gd-transfer-cancel" class="btn-secondary" hidden>取消傳輸</button>
             </div>
             <label class="fb-auto-sync-row">
               <input type="checkbox" id="gd-auto-sync"${autoSync ? ' checked' : ''}>
-              <span>每次開啟 APP 自動同步（雲端資料較多才自動還原）</span>
+              <span>有有效授權時自動同步（雲端須完整包含本機資料）</span>
             </label>
             <div class="study-streak-sync-row">
               <div class="study-streak-sync-copy">
@@ -7843,7 +7032,7 @@ Views.settings = {
               <button class="btn-secondary" id="gd-streak-sync-btn" type="button">立即同步</button>
             </div>
             <button class="btn-secondary" id="local-recovery-btn" style="width:100%;margin-top:9px">本機復原點</button>
-            ${remembered ? '<div class="settings-tip" style="margin-top:8px">開啟程式會直接進入主畫面，並在背景無提示恢復 Google 登入。只有 Google 工作階段失效或權限被撤銷時，下一次使用雲端功能才需要重新授權。</div>' : ''}
+            ${remembered ? '<div class="settings-tip" style="margin-top:8px">開啟程式直接進入主畫面，不會自動叫出 Google 登入視窗。有效授權會沿用；到期時本機功能仍可使用，操作雲端功能時才重新授權。</div>' : ''}
             <button class="btn-fb-signout-bottom" id="gd-signout-btn" style="margin-top:10px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               登出 Google（${escapeHTML(email || '目前帳戶')}）
@@ -7854,7 +7043,7 @@ Views.settings = {
               <span class="fb-status-text">${clientId ? '尚未登入 Google' : '請先在下方填入 OAuth Client ID'}</span>
             </div>
             ${clientId ? '<button class="btn-fb-signin" id="gd-signin-btn" style="width:100%;padding:9px 12px;font-size:13px">' + svgG + ' 首次連結 Google 帳號</button>' : ''}
-            <div class="settings-tip" style="margin-top:8px;margin-bottom:0">首次連結並完成授權後，程式會記住帳號；之後開啟會直接進入主畫面並在背景恢復登入。</div>
+            <div class="settings-tip" style="margin-top:8px;margin-bottom:0">首次連結並完成授權後，程式會記住帳號；之後開啟會直接進入主畫面；有效授權仍可使用，授權到期時只在操作雲端功能後重新授權。</div>
           `}
         </div>
 
@@ -8220,7 +7409,7 @@ Views.settings = {
           <div class="daily-learning-row-section ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.LEVEL?'':'is-disabled'}" id="daily-learning-row-section">
             <div class="daily-learning-row-head">
               <strong>想學習的五十音行</strong>
-              <small>可同時選擇多行；推薦單字的假名讀音會從所選行開始</small>
+              <small>可同時選擇多行；推薦單字的完整讀音只使用已選行的音</small>
             </div>
             <div class="kana-row-grid daily-learning-row-grid" role="group" aria-label="選擇推薦單字的五十音行">
               <button class="kana-row-chip ${dailyLearningPreferences.rows.includes('all')?'selected':''}" type="button" data-learning-row="all" aria-pressed="${dailyLearningPreferences.rows.includes('all')}">全部行</button>
@@ -8311,7 +7500,7 @@ Views.settings = {
           <div class="version-info-grid">
             <div><span>當前版本</span><strong>${APP_DISPLAY_VERSION}</strong></div>
             <div><span>最新版本</span><strong id="latest-version-value">${escapeHTML(versionState.latestVersion)}</strong></div>
-            <div><span>資料儲存</span><strong>${storageState.mode === 'indexeddb' ? 'IndexedDB V8' : '相容模式'}</strong></div>
+            <div><span>資料儲存</span><strong>${storageState.mode === 'indexeddb' ? 'IndexedDB · schema ' + storageState.schemaVersion : '相容模式'}</strong></div>
           </div>
           <div id="version-last-check" class="version-last-check">${versionState.lastCheckedAt ? '最後檢查：' + new Date(versionState.lastCheckedAt).toLocaleString('zh-TW') : '尚未檢查更新'}</div>
           <button class="btn-secondary" id="check-update-btn" style="width:100%;margin-bottom:8px">
@@ -8857,11 +8046,15 @@ Views.settings = {
       status.hidden = !message;
       status.classList.toggle('is-done', state === 'done');
       status.classList.toggle('has-error', state === 'error');
+      const cancel = document.getElementById('gd-transfer-cancel');
+      if (cancel) cancel.hidden = !GDrive._transferController || state !== 'busy';
       if (text) text.textContent = message;
       if (value) value.textContent = percent > 0 ? `${Math.min(100, Math.round(percent))}%` : '';
     };
     const driveProgress = ({ message, percent }) => setDriveOperation(message, percent, percent >= 100 ? 'done' : 'busy');
+    document.getElementById('gd-transfer-cancel')?.addEventListener('click', () => { GDrive.cancelTransfer(); setDriveOperation('正在取消…', 0); });
 
+    mountSettingsGroups(container, AppStorage);
     StorageUI?.render();
     // ── Google Drive 設定儲存 ──
     document.getElementById('gd-save-cfg-btn')?.addEventListener('click', () => {
@@ -8937,6 +8130,7 @@ Views.settings = {
         if (err.message === 'NOT_SIGNED_IN')  showToast('請先登入 Google', 3000);
         else if (err.message === 'TOKEN_EXPIRED') { showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
         else if (err.message === 'DRIVE_TIMEOUT') showToast('Google Drive 上傳逾時，請確認網路後重試', 3500);
+        else if (err.message === 'OPERATION_CANCELLED') showToast('傳輸已取消；本機資料保留。若已開始上傳，請查看雲端備份清單確認是否已接收。', 5000);
         else showToast('上傳失敗：' + err.message, 3000);
       }
       if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = original; }
@@ -8975,7 +8169,7 @@ Views.settings = {
           <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">由新到舊，最多顯示 10 份。</p>
           <div id="gd-slot-list">${rows}</div>
           <button class="modal-btn-cancel" id="gd-dl-cancel" style="width:100%;margin-top:4px">取消</button>`);
-        document.getElementById('gd-dl-cancel').addEventListener('click', () => Modal.hide());
+        document.getElementById('gd-dl-cancel').addEventListener('click', () => { GDrive.cancelTransfer(); Modal.hide(); });
         document.querySelectorAll('.fb-slot-btn').forEach(b => {
           b.addEventListener('click', async () => {
             const fileId = b.dataset.fid;
@@ -9088,7 +8282,7 @@ Views.settings = {
         if (latest) latest.textContent = result.remoteDisplay;
         if (lastCheck) lastCheck.textContent = '最後檢查：' + new Date(result.checkedAt).toLocaleString('zh-TW');
         if (!result.hasUpdate) {
-          status.textContent = '✓ 已是最新版本（' + APP_DISPLAY_VERSION + '）';
+          status.textContent = result.direction === 'older-deployment' ? '部署版本較舊，保留目前版本；不自動降版。' : '✓ 已是最新版本（' + APP_DISPLAY_VERSION + '）';
         } else {
           status.innerHTML = '發現新版本：<strong>' + escapeHTML(result.remoteDisplay) + '</strong>　<button id="do-update-btn" class="inline-update-btn">立即更新</button>';
           document.getElementById('do-update-btn')?.addEventListener('click', async () => {
@@ -9097,7 +8291,7 @@ Views.settings = {
           });
         }
       } catch (error) {
-        status.textContent = '檢查失敗，請確認網路連線';
+        status.textContent = error?.message === 'VERSION_INVALID' ? '版本資訊格式不正確，請檢查部署的 version.json；目前版本保持不變。' : '暫時無法取得版本資訊；可能是請求逾時或部署尚未完成，目前版本保持不變。';
       } finally {
         btn.disabled = false;
       }
@@ -9108,11 +8302,17 @@ Views.settings = {
 // INIT
 // ===========================
 document.addEventListener('DOMContentLoaded', async () => {
+  const shell = document.getElementById('view-container');
+  if (shell) shell.innerHTML = '<div class="startup-status" role="status" aria-live="polite"><strong>日文練習</strong><p>正在載入本機學習資料…</p></div>';
+  document.querySelectorAll('.nav-btn').forEach(button => { button.disabled = true; });
+  // Paint the shell before hydration; do not allow edits until storage is ready.
+  await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
   await AppStorage.init();
+  document.querySelectorAll('.nav-btn').forEach(button => { button.disabled = false; });
   StorageUI = mountStorageStatus({
     storage: AppStorage,
     cloudState: () => StudyStreak.getSyncState(),
-    exportPayload: () => GDrive._buildPayload(),
+    exportPayload: () => GDrive._prepareBackup(),
     restorePayload: async payload => {
       await GDrive.applyDownload(payload, 'merge');
       await AppStorage.flush();

@@ -81,10 +81,14 @@ export class StorageBridge {
       if (localMigrations.length) await this._putManyRecords(localMigrations);
       localMigrations.forEach(({ key }) => this._localRemove(key));
 
-      collectionRows.forEach(row => {
-        if (!RECORD_COLLECTIONS.has(row.collection) || !row.value) return;
-        this.recordCache.get(row.collection).set(String(row.id), { ...row.value, id: String(row.id) });
-      });
+      for (let index = 0; index < collectionRows.length; index++) {
+        const row = collectionRows[index];
+        if (RECORD_COLLECTIONS.has(row.collection) && row.value) {
+          this.recordCache.get(row.collection).set(String(row.id), { ...row.value, id: String(row.id) });
+        }
+        // Yield between bounded hydration batches; never yield inside a live IDB transaction.
+        if (index > 0 && index % 400 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+      }
 
       for (const key of INDEXED_KEYS) {
         const legacy = kv.has(key) ? kv.get(key) : this._localGet(key);
@@ -168,10 +172,19 @@ export class StorageBridge {
 
   setItem(key, value) {
     if (this.readOnly) throw new Error('STORAGE_READ_ONLY');
-    if (RECORD_COLLECTIONS.has(key) && this._recordStoreAvailable()) {
-      try { this.replaceRecordCollection(key, JSON.parse(String(value))); }
-      catch { this.replaceRecordCollection(key, []); }
-      return;
+    if (RECORD_COLLECTIONS.has(key)) {
+      // Reject malformed input before mutating memory or IndexedDB. Never turn
+      // a parse/storage exception into a destructive empty replacement.
+      let records;
+      try { records = JSON.parse(String(value)); }
+      catch { throw new Error('INVALID_RECORD_COLLECTION_JSON'); }
+      if (!Array.isArray(records) || records.some(record => !record || typeof record !== 'object' || Array.isArray(record))) {
+        throw new Error('INVALID_RECORD_COLLECTION');
+      }
+      if (this._recordStoreAvailable()) {
+        this.replaceRecordCollection(key, records);
+        return;
+      }
     }
     const stringValue = String(value);
     if (this.atomicStage) { this.atomicStage.kv.set(key, stringValue); return; }

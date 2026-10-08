@@ -1,3 +1,5 @@
+import { BackupSchema } from './backup-schema.js?v=V1_5_5';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_5';
 export function mountStorageStatus({ storage, cloudState, exportPayload, restorePayload, onSafe }) {
   const banner = document.getElementById('storage-warning');
   const render = () => {
@@ -11,8 +13,9 @@ export function mountStorageStatus({ storage, cloudState, exportPayload, restore
       node.dataset.state = state.saveState;
     });
   };
-  const exportBackup = () => {
-    const blob = new Blob([JSON.stringify(exportPayload(), null, 2)], { type: 'application/json' });
+  const exportBackup = async () => {
+    const prepared = await exportPayload();
+    const blob = new Blob([prepared.serialized || JSON.stringify(prepared.data || prepared)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -33,7 +36,7 @@ export function mountStorageStatus({ storage, cloudState, exportPayload, restore
     button.disabled = true;
     try {
       if (button.dataset.storageAction === 'retry') await storage.retryFailedWrites();
-      else if (button.dataset.storageAction === 'export') exportBackup();
+      else if (button.dataset.storageAction === 'export') await exportBackup();
       else if (button.dataset.storageAction === 'import') document.getElementById('storage-recovery-file')?.click();
       if (status) status.textContent = button.dataset.storageAction === 'retry' ? '本機資料已成功儲存。' : '';
     } catch (error) {
@@ -46,9 +49,9 @@ export function mountStorageStatus({ storage, cloudState, exportPayload, restore
     if (!file) return;
     const status = document.getElementById('storage-operation-message');
     try {
-      if (file.size > 50 * 1024 * 1024) throw new Error('備份超過 50 MB，請使用原有備份還原流程。');
+      if (file.size > BackupSchema.maxBytes) throw new Error('備份超過 25 MiB，未變更本機資料。');
       if (status) status.textContent = '驗證並合併救援備份中…';
-      const payload = JSON.parse((await file.text()).replace(/^\uFEFF/, ''));
+      const payload = await BackgroundJobs.run('parse-backup', { raw: await file.text() });
       await restorePayload(payload);
       if (status) status.textContent = '已合併救援備份並儲存；未刪除本機紀錄。';
     } catch (error) {

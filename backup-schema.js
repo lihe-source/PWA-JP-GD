@@ -96,6 +96,7 @@ export function mergePracticeHistory(...sources) {
 export const BackupSchema = {
   product: PRODUCT_ID,
   schemaVersion: 3,
+  maxBytes: MAX_BACKUP_BYTES,
   collectionKeys: COLLECTION_KEYS,
 
   normalize(data = {}) {

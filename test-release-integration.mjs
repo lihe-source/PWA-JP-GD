@@ -16,16 +16,16 @@ import { normalizeJapaneseAnswer, normalizeJapaneseWord } from './japanese-learn
 
 const text = name => readFile(new URL(`./${name}`, import.meta.url), 'utf8');
 
-async function loadGeminiWithFetch(fetchImpl, selectedModel = 'gemini-2.5-pro') {
-  const app = await text('app.js');
-  const start = app.indexOf('const Gemini = {');
-  const end = app.indexOf('\n// ===== GOOGLE DRIVE SYNC =====', start);
-  assert.ok(start >= 0 && end > start, 'Gemini client block must be discoverable');
+async function loadGeminiWithFetch(fetchImpl, selectedModel = 'gemini-2.5-pro', mockCatalog = true) {
+  const app = (await text('gemini-client.js')).replace(/^import .+;$/gm, '').replace('export function createGeminiClient', 'function createGeminiClient');
+  const start = 0; const end = app.length;
   const context = {
     AbortController, Date, Error, JSON, Math, Promise, String,
     URLSearchParams, TextEncoder, Uint8Array, crypto: webcrypto,
     clearTimeout, setTimeout,
-    fetch: fetchImpl,
+    fetch: (url, options) => mockCatalog && !options?.body && /\/models(?:\?|$)/.test(url)
+      ? mockResponse(200, { models: ['gemini-3.8-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'].map(id => ({ name: 'models/'+id, supportedGenerationMethods: ['generateContent'] })) })
+      : fetchImpl(url, options),
     DB: {
       getApiKey: () => 'unit-test-key',
       getModel: () => selectedModel,
@@ -36,9 +36,9 @@ async function loadGeminiWithFetch(fetchImpl, selectedModel = 'gemini-2.5-pro') 
     parseDailyVocabularyResponse,
     parseGeneratedSentenceResponse,
     selectedLearningRows,
-    validateGeneratedSentence
+    validateGeneratedSentence, normalizeJapaneseAnswer
   };
-  vm.runInNewContext(`${app.slice(start, end)}\nthis.__Gemini = Gemini;`, context);
+  vm.runInNewContext(`${app.slice(start, end)}\nthis.__Gemini = createGeminiClient(DB);`, context);
   return context.__Gemini;
 }
 
@@ -142,7 +142,7 @@ test('Gemini model discovery follows pages and excludes models without generateC
     return mockResponse(200, { models: [
       { name: 'models/gemini-3-flash-preview', supportedGenerationMethods: ['generateContent'] }
     ] });
-  }, 'gemini-3.8-flash');
+  }, 'gemini-3.8-flash', false);
   const models = await gemini.discoverModels();
   assert.equal(models.length, 2);
   assert.equal(requests.length, 2);
@@ -229,6 +229,7 @@ test('daily recommendation sentences add words once and preserve the original ad
   }])]]);
   const context = {
     Date, Math, JSON, String, Promise,
+    isPracticeActive: () => false, document: {}, Router: {},
     STUDY_DAYS_CSV_HEADER: 'date,type',
     normalizeJapaneseAnswer,
     normalizeJapaneseWord,
@@ -361,17 +362,17 @@ test('blue ink home uses real history, recommendation and both kana shortcuts', 
   assert.doesNotMatch(html, /user-scalable=no/);
 });
 
-test('all public app surfaces use Japanese V1.5.4', async () => {
+test('all public app surfaces use Japanese V1.5.5', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_5_4'/);
-  assert.match(html, /app\.js\?v=V1_5_4/);
-  assert.match(sw, /Japanese-PWA-V1_5_4/);
+  assert.match(app, /APP_VERSION = 'V1_5_5'/);
+  assert.match(html, /app\.js\?v=V1_5_5/);
+  assert.match(sw, /Japanese-PWA-V1_5_5/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.5\.4/);
-  assert.equal(JSON.parse(pkg).version, '1.5.4');
+  assert.match(JSON.parse(manifest).name, /V1\.5\.5/);
+  assert.equal(JSON.parse(pkg).version, '1.5.5');
 });
 
 test('kana reading keeps one input focused and uses audible iOS playback feedback', async () => {
@@ -409,7 +410,7 @@ test('all six practice modes share the compact setup layout', async () => {
   assert.match(style, /\.reading-practice-page \.reading-rule-grid \{ grid-template-columns: repeat\(4/);
 });
 
-test('V1.5.4 keeps Apple subscription repair and provider errors', async () => {
+test('V1.5.5 keeps Apple subscription repair and provider errors', async () => {
   const [manager, worker] = await Promise.all([text('reminder-manager.js'), text('worker.js')]);
   assert.match(manager, /forceRenew/);
   assert.match(manager, /SUBSCRIPTION_INVALID/);
@@ -468,7 +469,9 @@ test('remembered Google account restores without account chooser before home', a
   const app = await text('app.js');
   assert.match(app, /promptMode !== undefined/);
   assert.match(app, /req\.prompt = promptMode/);
-  assert.match(app, /promptMode: 'none', accountHint: this\.getUserEmail\(\)/);
+  const restore = app.slice(app.indexOf('async tryRestoreToken()'), app.indexOf('async ensureToken', app.indexOf('async tryRestoreToken()')));
+  assert.doesNotMatch(restore, /_requestToken|requestAccessToken/);
+  assert.match(restore, /tryRestoreFromStorage/);
   assert.match(app, /promptMode: this\.getUserEmail\(\) \? '' : 'consent select_account'/);
   assert.match(app, /void AppUpdater\.register\(\)/);
   assert.doesNotMatch(app, /await AppUpdater\.register\(\)/);
@@ -564,7 +567,7 @@ test('all six completed practice paths qualify as study activity', async () => {
   }
 });
 
-test('V1.5.4 adds kana-to-romaji practice under handwriting with statistics', async () => {
+test('V1.5.5 adds kana-to-romaji practice under handwriting with statistics', async () => {
   const [app, style, module, backup] = await Promise.all([
     text('app.js'), text('style.css'), text('kana-reading.js'), text('backup-schema.js')
   ]);
@@ -580,23 +583,24 @@ test('V1.5.4 adds kana-to-romaji practice under handwriting with statistics', as
   assert.match(backup, /kanaReadingHistory/);
 });
 
-test('V1.5.4 recommends one daily word and stores its sentence practice', async () => {
+test('V1.5.5 recommends one daily word and stores its sentence practice', async () => {
   const [app, style, module, sw] = await Promise.all([
     text('app.js'), text('style.css'), text('daily-learning.js'), text('sw.js')
   ]);
-  assert.match(app, /daily-learning\.js\?v=V1_5_4/);
+  assert.match(app, /daily-learning\.js\?v=V1_5_5/);
   assert.match(app, /id="daily-learning-source-select"/);
   assert.match(app, /data-learning-row=/);
   assert.match(app, /generateDailyVocabulary/);
-  assert.match(app, /count = 1/);
+  const client = await text('gemini-client.js');
+  assert.match(client, /count = 1/);
   assert.match(app, /normalizeDailyVocabulary\(words/);
   assert.match(app, /normalizeDailyVocabulary\(saved\.words/);
   assert.match(module, /EVERY pronounced kana|每一個/);
   assert.match(app, /ensureDailyVocabularySentence/);
   assert.match(app, /source: 'daily-recommendation'/);
   assert.match(app, /DB\.saveGeneratedSentence\(entry,/);
-  assert.match(app, /responseMimeType: 'application\/json'/);
-  assert.match(app, /responseSchema/);
+  assert.match(client, /responseMimeType: 'application\/json'/);
+  assert.match(client, /responseSchema/);
   assert.match(app, /_dailySentenceRequests/);
   assert.match(app, /_dailySentenceContextIsCurrent/);
   assert.match(app, /validationStatus: 'valid'/);
@@ -608,7 +612,7 @@ test('V1.5.4 recommends one daily word and stores its sentence practice', async 
   assert.match(module, /TARGET_NOT_USED/);
   assert.doesNotMatch(app, /Fallback: accept either two lines/);
   assert.match(style, /\.daily-vocab-grid/);
-  assert.match(sw, /daily-learning\.js\?v=V1_5_4/);
+  assert.match(sw, /daily-learning\.js\?v=V1_5_5/);
 });
 
 test('same-day generated examples append and target spellings are highlighted precisely', async () => {
@@ -622,9 +626,10 @@ test('same-day generated examples append and target spellings are highlighted pr
   assert.match(style, /\.hl-ja-target\s*\{/);
 });
 
-test('V1.5.4 rejects thought-only output and quarantines invalid AI sentence caches', async () => {
+test('V1.5.5 rejects thought-only output and quarantines invalid AI sentence caches', async () => {
   const app = await text('app.js');
-  const extractor = app.slice(app.indexOf('_extractResponse(data)'), app.indexOf('async _callModelDetailed'));
+  const client = await text('gemini-client.js');
+  const extractor = client.slice(client.indexOf('_extractResponse(data)'), client.indexOf('async _callModelDetailed'));
   assert.match(extractor, /!part\?\.thought/);
   assert.doesNotMatch(extractor, /filter\(p => typeof p\.text/);
   assert.match(app, /quarantineInvalidSentence/);
@@ -656,7 +661,7 @@ test('backup and Drive sync include study days, handwriting and practice choices
   assert.match(app, /applyPracticePreferenceBundle/);
 });
 
-test('V1.5.4 reserves inline scores and never changes geometry after grading', async () => {
+test('V1.5.5 reserves inline scores and never changes geometry after grading', async () => {
   const [app, style] = await Promise.all([text('app.js'), text('style.css')]);
   assert.match(app, /class="kana-inline-metrics"/);
   assert.doesNotMatch(app, /id="kana-review-toggle"/);
@@ -672,7 +677,7 @@ test('V1.5.4 reserves inline scores and never changes geometry after grading', a
   assert.match(style, /\.kana-session \.kana-session-actions[^}]*position: static/s);
 });
 
-test('V1.5.4 keeps the last score inline and restores the completed-session summary', async () => {
+test('V1.5.5 keeps the last score inline and restores the completed-session summary', async () => {
   const [app, style] = await Promise.all([text('app.js'), text('style.css')]);
   const handwritingStart = app.indexOf('Views.kanaPractice =');
   const handwriting = app.slice(handwritingStart, app.indexOf('Views.kanaReadingPractice =', handwritingStart));

@@ -14,8 +14,9 @@ function compareVersions(a, b) {
 }
 
 export class VersionManager {
-  constructor({ currentVersion, displayVersion, cachePrefix = 'Japanese-PWA-', versionUrl = './version.json', storage, canActivate = () => true }) {
+  constructor({ currentVersion, displayVersion, currentBuild = 0, cachePrefix = 'Japanese-PWA-', versionUrl = './version.json', storage, canActivate = () => true }) {
     this.currentVersion = currentVersion;
+    this.currentBuild = currentBuild;
     this.displayVersion = displayVersion;
     this.cachePrefix = cachePrefix;
     this.versionUrl = versionUrl;
@@ -112,13 +113,15 @@ export class VersionManager {
 
   async check({ autoApply = false } = {}) {
     let response;
+    let data;
     let lastError;
     for (let attempt = 0; attempt < 2; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
       try {
         response = await fetch(`${this.versionUrl}?t=${Date.now()}`, { cache: 'no-store', signal: controller.signal });
-        if (response.ok || response.status < 500) break;
+        if (response.ok) { data = await response.json(); break; }
+        if (response.status < 500) break;
         lastError = new Error(`VERSION_HTTP_${response.status}`);
       } catch (error) {
         lastError = error?.name === 'AbortError' ? new Error('VERSION_TIMEOUT') : error;
@@ -127,15 +130,19 @@ export class VersionManager {
     }
     if (!response) throw lastError || new Error('VERSION_NETWORK_ERROR');
     if (!response.ok) throw new Error(`VERSION_HTTP_${response.status}`);
-    const data = await response.json();
+    if (!data || typeof data !== 'object') throw new Error('VERSION_INVALID');
     const remoteVersion = data.version || data.displayVersion || '';
     const remoteDisplay = data.displayVersion || remoteVersion;
-    if (!remoteVersion) throw new Error('VERSION_INVALID');
+    if (!/^V?\d+(?:[._]\d+){1,3}$/i.test(remoteVersion) || typeof remoteDisplay !== 'string') throw new Error('VERSION_INVALID');
     const checkedAt = new Date().toISOString();
     this.storage?.setItem('latestKnownVersion', remoteDisplay);
     this.storage?.setItem('versionLastCheckedAt', checkedAt);
-    const hasUpdate = compareVersions(remoteVersion, this.currentVersion) > 0;
-    const result = { hasUpdate, remoteVersion, remoteDisplay, checkedAt, data };
+    const delta = compareVersions(remoteVersion, this.currentVersion);
+    // A deliberately republished rollback must carry a larger deployment build.
+    const newerBuild = Number.isSafeInteger(data.build) && data.build > this.currentBuild;
+    const hasUpdate = delta > 0 || newerBuild;
+    const direction = hasUpdate ? (delta < 0 ? 'rollback' : 'upgrade') : delta < 0 ? 'older-deployment' : 'same';
+    const result = { hasUpdate, direction, remoteVersion, remoteDisplay, checkedAt, data };
     if (hasUpdate && autoApply) await this.applyUpdate();
     return result;
   }

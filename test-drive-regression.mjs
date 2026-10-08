@@ -22,6 +22,7 @@ function makeDrive() {
       async createRecoverySnapshot() { return { id: 'snapshot' }; },
       setItem(key, value) { writes.push([key, value]); }, async flush() {}
     },
+    BackgroundJobs: { async run(type, payload) { if (type === 'validate-backup') return ctx.BackupSchema.validate(payload); if (type === 'prepare-backup') return { data: drive._buildPayload(), serialized: '{}' }; throw new Error('unmocked job '+type); } },
     BackupSchema: { validate(data) { return data.invalid ? { valid: false, reason: 'TEST' } : { valid: true, collections: data }; } }
   };
   vm.runInNewContext(objectSource, ctx);
@@ -88,6 +89,45 @@ test('a sign-out or account change during backup snapshot prevents old-account r
   };
   await assert.rejects(drive.applyDownload({ words: [{ english: 'cloud' }] }, 'overwrite'), /AUTH_CONTEXT_CHANGED/);
   assert.equal(writes.length, 0);
+});
+
+test('download discards a valid old-account response before restoring anything', async () => {
+  const { drive, ctx, writes } = makeDrive();
+  drive.ensureToken = async () => {};
+  drive._fetch = async () => new Response('{"words":[]}');
+  ctx.BackgroundJobs.run = async (type, payload) => {
+    assert.equal(type, 'parse-backup'); drive._authEpoch++;
+    return JSON.parse(payload.raw);
+  };
+  await assert.rejects(drive.downloadFile('old-file'), /AUTH_CONTEXT_CHANGED/);
+  assert.equal(writes.length, 0); assert.equal(drive._transferController, null);
+});
+
+test('account switch after download blocks the later manual restore', async () => {
+  const { drive, writes } = makeDrive();
+  const data = { words: [] };
+  drive._downloadContexts = new WeakMap([[data, { authEpoch: drive._authEpoch, folderId: "folder'one" }]]);
+  drive._authEpoch++;
+  await assert.rejects(drive.applyDownload(data, 'overwrite'), /AUTH_CONTEXT_CHANGED/);
+  assert.equal(writes.length, 0);
+});
+
+test('a queued restore rechecks local changes at the atomic mutation boundary', async () => {
+  const { drive, ctx, writes } = makeDrive();
+  const expectedCollections = JSON.stringify(drive._buildCollections());
+  ctx.AppStorage.atomicUpdate = async mutator => {
+    drive._buildCollections = () => ({ words: [{ english: 'new-answer' }] });
+    mutator();
+  };
+  await assert.rejects(drive.applyDownload({ words: [] }, 'overwrite', { expectedCollections }), /本機資料已變更/);
+  assert.equal(writes.length, 0);
+});
+
+test('listing cannot show an old-account backup response after sign-out', async () => {
+  const { drive } = makeDrive();
+  drive.ensureToken = async () => {};
+  drive._fetch = async () => { drive._authEpoch++; return new Response('{"files":[{"id":"old"}]}'); };
+  await assert.rejects(drive.listBackups(), /AUTH_CONTEXT_CHANGED/);
 });
 
 test('an authorization callback arriving after sign-out cannot restore a token', async () => {

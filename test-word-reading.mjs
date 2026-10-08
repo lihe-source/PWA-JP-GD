@@ -1,3 +1,4 @@
+import { readingProgress, readingFeedback, firstAttemptSummary } from './ui-runtime.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer, WordReadingProgressManager, mergeWordReadingHistory } from './word-reading.js';
@@ -63,7 +64,7 @@ test('word reading preserves keyboard input, requeues wrong words, and shows eve
   }
   const calls = [], timers = [], records = [];
   const container = { innerHTML: '' };
-  const context = { Views: { kanaReadingPractice: { _focusAnswerInput: () => true } },
+  const context = { readingProgress, readingFeedback, firstAttemptSummary, Views: { kanaReadingPractice: { _focusAnswerInput: () => true } },
     document: { getElementById: id => elements.get(id) },
     Router: { quizActive: true }, GDrive: { scheduleStudyStreakSync: () => calls.push('sync') },
     Sound: { playCorrect: () => calls.push('correct'), playWrong: () => calls.push('wrong'), playResult: () => calls.push('result') },
@@ -84,21 +85,21 @@ test('word reading preserves keyboard input, requeues wrong words, and shows eve
   assert.equal(view.state.items.length, 6);
   assert.equal(records.length, 1);
   assert.equal(calls[0], 'wrong');
-  timers.shift()();
+  timers.shift()?.();
   assert.equal(elements.get('word-reading-answer'), input);
   assert.equal(elements.get('word-reading-meaning').textContent, view.state.items[1].meaning);
   for (let index = 1; index < 5; index++) {
-    input.value = view.state.items[index].romaji; view.submitAnswer(container); timers.shift()();
+    input.value = view.state.items[index].romaji; view.submitAnswer(container); timers.shift()?.();
   }
   assert.equal(view.state.items[5].word, first.word);
-  input.value = first.romaji; view.submitAnswer(container); timers.shift()();
+  input.value = first.romaji; view.submitAnswer(container); timers.shift()?.();
   assert.match(container.innerHTML, /作答總表/);
   assert.match(container.innerHTML, /is-correct/);
   assert.match(container.innerHTML, /is-wrong/);
   assert.match(container.innerHTML, /wrong/);
   assert.match(container.innerHTML, new RegExp(first.romaji));
   assert.equal(records.length, 6);
-  timers.shift()();
+  timers.shift()?.();
   assert.ok(calls.includes('result'));
 });
 

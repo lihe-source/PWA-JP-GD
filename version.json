@@ -1,6 +1,7 @@
 {
-  "version": "V1_5_4",
-  "displayVersion": "V1.5.4",
+  "version": "V1_5_5",
+  "displayVersion": "V1.5.5",
   "schemaVersion": 1,
-  "updatedAt": "2026-09-27"
+  "updatedAt": "2026-10-08",
+  "build": 2026100801
 }

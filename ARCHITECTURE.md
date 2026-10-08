@@ -1,3 +1,32 @@
+# 日文練習架構 · V1.5.5
+
+## 本版責任分離
+
+| 模組 | 責任與邊界 |
+|---|---|
+| app.js | 路由、練習協調、首頁、Drive 流程；仍為主要控制器，不宣稱已完成全面 MVC 重寫 |
+| gemini-client.js | 模型目錄 single-flight、金鑰指紋與 TTL、生成／有限備援／輸出驗證；無 UI 操作 |
+| ui-runtime.js | 共用讀音進度／訂正／首輪摘要、VisualViewport、彈窗焦點及設定分類 |
+| background-jobs.js / data-worker.js | 模組 Worker 工作生命週期，備份序列化／解析／checksum／驗證／集合比較；不傳送金鑰或 token |
+| storage.js | Schema 2、records 與 KV、原子提交；拒絕損壞歷史，hydration 分批讓出主執行緒 |
+| backup-schema.js | Schema 3 與舊格式相容、25 MiB／結構／hash 驗證與逐筆包含比較 |
+| storage-status-ui.js | 狀態與救援備份入口，資料保存卡仍放設定最下方 |
+| version-manager.js / sw.js | 嚴格版本資訊、build 回退識別、忙碌安全鎖、資源快取 |
+
+生成、驗證、保存及畫面更新維持不同階段；練習進行時延後 AI 例句的重型合併保存，不打斷 Canvas。手寫引擎、計分算法、同頁分數欄及完成總結流程維持既有設計，診斷新增 long-task 計數與最大時間。
+
+Worker 任務期限 45 秒，完成／失敗／取消皆終止 Worker；傳輸由 AbortController 終止，還原進入提交後不允許取消。相容 fallback、建立工作資料及 structured clone 仍可能占用主執行緒，因此不能把本版視為真機延遲的完整解決。
+
+自動還原只允許逐筆比較後的嚴格超集合，且提交前再次核對本機集合與帳戶脈絡。下載脈絡放在 WeakMap，不污染備份 checksum；人工合併仍保留舊資料，覆蓋前先建立本機復原點。
+
+## 本版驗證與未實作範圍
+
+`npm run check`、`npm test`（150 項）通過。UI 測試使用 DOM stub／VM，API 與 Drive 使用模擬回應，不等同 Safari 視覺檢查或真實雲端成功。發布包為 54 個同層檔案，保留前版資料格式與 Cloudflare 設定。
+
+尚未進行全部例句逐筆索引遷移、5 萬筆真機效能驗證、全面 CSS 去重、通知 Worker 限流或全功能控制器重寫。後續分版實作前先確認回復點與資料相容性。
+
+以下為歷史架構沿革；若舊數量／版次與本節不同，以本版及 README 為準。
+
 # 日文練習架構 · V1.5.4
 
 每日推薦例句透過 `saveGeneratedSentence()` 提交時，同一個保存交易會呼叫 `upsertDailyVocabularyWord()`。比對鍵為正規化後的日文單字；新詞建立完整單字庫欄位，重複詞選擇最早 `createdAt` 的既有紀錄並保留其 ID、加入日期、錯誤次數與加權值，只填補空白的讀音、羅馬拼音、詞性、中文及 JLPT。有效的舊例句重新載入時也會補做收錄。單字庫原本已納入備份與同步，因此備份 Schema 不變。

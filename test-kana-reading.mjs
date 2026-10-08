@@ -1,3 +1,4 @@
+import { readingProgress, readingFeedback, firstAttemptSummary } from './ui-runtime.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BASIC_KANA } from './kana-data.js';
@@ -54,7 +55,7 @@ function readingSession(characters) {
   const elements = new Map();
   for (const id of ['answer', 'submit', 'feedback', 'progress-text', 'progress-fill', 'character']) elements.set('kana-reading-' + id, { value: '', style: {}, setAttribute() {}, isConnected: true, focus() {}, setSelectionRange() {} });
   const timers = [], records = [];
-  const context = { Views: {}, checkKanaReadingAnswer, escapeHTML: String, showToast() {},
+  const context = { readingProgress, readingFeedback, firstAttemptSummary, Views: {}, checkKanaReadingAnswer, escapeHTML: String, showToast() {},
     document: { getElementById: id => elements.get(id) }, requestAnimationFrame() {},
     KanaReadingProgress: { recordAttempt: (...args) => records.push(args) },
     Sound: { playCorrect() {}, playWrong() {} }, setTimeout: fn => (timers.push(fn), timers.length) };
@@ -87,7 +88,8 @@ test('wrong third question appends after originals, dynamic progress and persist
 test('wrong final and retry extend session; duplicate submit and empty input do not', () => {
   const s = readingSession(['し']);
   s.submit(''); assert.equal(s.records.length, 0);
-  s.submit('su'); s.submit('su');
+  s.submit('su');
+  s.view._submitCurrentAnswer({}); // same event cannot reuse the cleared answer
   assert.equal(s.view.state.items.length, 2);
   assert.equal(s.records.length, 1);
   s.advance(); assert.equal(s.finished, false);

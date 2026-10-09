@@ -1837,10 +1837,10 @@ a.err-back-link {
 .btn-fb-upload:disabled, .btn-fb-download:disabled { opacity: 0.5; cursor: not-allowed; }
 .drive-operation-status {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) max-content;
   align-items: center;
   gap: 8px;
-  min-height: 42px;
+  min-height: 66px;
   margin: -2px 0 10px;
   padding: 9px 11px;
   border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
@@ -1851,6 +1851,11 @@ a.err-back-link {
   font-weight: 700;
 }
 .drive-operation-status[hidden] { display: none; }
+.drive-operation-copy { min-width: 0; display: flex; align-items: center; height: 40px; }
+#gd-operation-text { min-width: 0; line-height: 20px; overflow-wrap: anywhere; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.drive-operation-status .drive-transfer-cancel { grid-column: 3; grid-row: 1; width: auto; min-width: 84px; min-height: 44px; padding: 8px; white-space: nowrap; font-size: 14px; }
+.drive-operation-status .drive-transfer-cancel[hidden] { display: block; visibility: hidden; pointer-events: none; }
+.drive-operation-status.is-idle .drive-operation-spinner { animation: none; opacity: .45; }
 .drive-operation-spinner {
   width: 16px;
   height: 16px;
@@ -4328,4 +4333,6 @@ body { position: relative; height: 100%; min-height: 0; }
 .first-attempt-summary { font-size:14px; color:var(--text-muted); }
 .kana-diagnostic-status { max-height:54px; overflow:auto; }
 .home-menu-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+#toast { width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; text-align: center; border-radius: 12px; }
+.fb-status-text, .fb-last-sync { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior:auto!important; animation-duration:.01ms!important; transition-duration:.01ms!important; } }

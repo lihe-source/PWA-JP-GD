@@ -1,32 +1,32 @@
-import { createGeminiClient } from './gemini-client.js?v=V1_5_5';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_5';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_5';
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_5';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_5';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_5';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_6';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_6';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_6';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_6';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_6';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_6';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_5';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_5';
-import { VersionManager } from './version-manager.js?v=V1_5_5';
-import { TrendChart } from './chart-renderer.js?v=V1_5_5';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_5';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_5';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_5';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_5';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_5';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_5';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_5';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_5';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_5';
+import { AppStorage } from './storage.js?v=V1_5_6';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_6';
+import { VersionManager } from './version-manager.js?v=V1_5_6';
+import { TrendChart } from './chart-renderer.js?v=V1_5_6';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_6';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_6';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_6';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_6';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_6';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_6';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_6';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_6';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_6';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_5
-// V1.5.5：分離 Gemini／背景備份／UI 協調，保留既有練習與資料格式
+// 日本語練習 PWA - app.js V1_5_6
+// V1.5.6：備份狀態原地更新與固定排版，帳戶與雲端置於設定首位
 // ===========================
 
-const APP_VERSION = 'V1_5_5';
-const APP_DISPLAY_VERSION = 'V1.5.5';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_5';
+const APP_VERSION = 'V1_5_6';
+const APP_DISPLAY_VERSION = 'V1.5.6';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_6';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -37,7 +37,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026100801,
+  currentBuild: 2026100901,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -2494,7 +2494,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_5" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_6" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -7007,18 +7007,18 @@ Views.settings = {
         <div class="settings-card">
           ${(signedIn || remembered) ? `
             <div class="fb-status-row">
-              <div class="fb-status-dot ${signedIn ? 'connected' : 'disconnected'}"></div>
-              <span class="fb-status-text">${signedIn ? '已登入' : '帳號已記住・雲端待授權'}：${escapeHTML(email || 'Google 帳戶')}</span>
+              <div id="gd-account-dot" class="fb-status-dot ${signedIn ? 'connected' : 'disconnected'}"></div>
+              <span id="gd-account-status" class="fb-status-text">${signedIn ? '已登入' : '帳號已記住・雲端待授權'}：${escapeHTML(email || 'Google 帳戶')}</span>
             </div>
-            ${lastSync ? '<div class="fb-last-sync" style="margin-bottom:10px">上次同步：' + lastSync + '</div>' : ''}
+            <div id="gd-last-sync" class="fb-last-sync" style="margin-bottom:10px">${lastSync ? '上次同步：' + escapeHTML(lastSync) : '尚無備份上傳紀錄'}</div>
             <div class="settings-btn-row" style="margin-bottom:10px">
               <button class="btn-fb-upload" id="gd-upload-btn" style="flex:1">${svgUp} 上傳備份</button>
               <button class="btn-fb-download" id="gd-download-btn" style="flex:1">${svgDn} 還原備份</button>
             </div>
-            <div class="drive-operation-status" id="gd-operation-status" role="status" aria-live="polite" hidden>
+            <div class="drive-operation-status is-idle" id="gd-operation-status" role="status" aria-live="polite" aria-atomic="true">
               <span class="drive-operation-spinner" aria-hidden="true"></span>
-              <span id="gd-operation-text">準備中…</span>
-              <span id="gd-operation-percent"></span><button type="button" id="gd-transfer-cancel" class="btn-secondary" hidden>取消傳輸</button>
+              <span class="drive-operation-copy"><span id="gd-operation-text">尚未進行備份傳輸</span><span id="gd-operation-percent" hidden></span></span>
+              <button type="button" id="gd-transfer-cancel" class="btn-secondary drive-transfer-cancel" disabled hidden>取消傳輸</button>
             </div>
             <label class="fb-auto-sync-row">
               <input type="checkbox" id="gd-auto-sync"${autoSync ? ' checked' : ''}>
@@ -8043,16 +8043,18 @@ Views.settings = {
       const text = document.getElementById('gd-operation-text');
       const value = document.getElementById('gd-operation-percent');
       if (!status) return;
-      status.hidden = !message;
+      status.hidden = false;
+      status.classList.toggle('is-idle', !message || state === 'cancelled');
       status.classList.toggle('is-done', state === 'done');
       status.classList.toggle('has-error', state === 'error');
+      status.setAttribute('aria-busy', state === 'busy' || state === 'cancelling' ? 'true' : 'false');
       const cancel = document.getElementById('gd-transfer-cancel');
-      if (cancel) cancel.hidden = !GDrive._transferController || state !== 'busy';
-      if (text) text.textContent = message;
+      if (cancel) { cancel.hidden = !GDrive._transferController || state !== 'busy'; cancel.disabled = cancel.hidden; }
+      if (text) { text.textContent = message || '尚未進行備份傳輸'; text.title = message; }
       if (value) value.textContent = percent > 0 ? `${Math.min(100, Math.round(percent))}%` : '';
     };
     const driveProgress = ({ message, percent }) => setDriveOperation(message, percent, percent >= 100 ? 'done' : 'busy');
-    document.getElementById('gd-transfer-cancel')?.addEventListener('click', () => { GDrive.cancelTransfer(); setDriveOperation('正在取消…', 0); });
+    document.getElementById('gd-transfer-cancel')?.addEventListener('click', () => { GDrive.cancelTransfer(); setDriveOperation('正在取消…', 0, 'cancelling'); });
 
     mountSettingsGroups(container, AppStorage);
     StorageUI?.render();
@@ -8119,21 +8121,36 @@ Views.settings = {
     document.getElementById('gd-upload-btn')?.addEventListener('click', async () => {
       const btn = document.getElementById('gd-upload-btn');
       const original = btn?.innerHTML || '';
-      if (btn) { btn.disabled = true; btn.textContent = '準備備份…'; }
-      setDriveOperation('準備備份…', 5);
+      const controls = [btn, document.getElementById('gd-download-btn'), document.getElementById('gd-streak-sync-btn')].filter(Boolean);
+      const disabledBefore = controls.map(control => control.disabled);
+      controls.forEach(control => { control.disabled = true; });
+      if (btn) btn.textContent = '準備備份…';
+      setDriveOperation('準備備份…');
       try {
         const ts = await GDrive.upload({ interactive: true, onProgress: driveProgress });
-        showToast('✓ 備份已上傳至 Google Drive（' + ts + '）');
-        this.render(container);
+        // Keep the same DOM, disclosure state and user scroll position throughout upload.
+        const lastSync = document.getElementById('gd-last-sync');
+        if (lastSync) lastSync.textContent = '上次同步：' + ts;
+        setDriveOperation('備份已上傳完成', 100, 'done');
+        showToast('✓ 備份已上傳至 Google Drive');
       } catch(err) {
-        setDriveOperation(err.message === 'DRIVE_TIMEOUT' ? 'Google Drive 連線逾時' : '備份上傳失敗', 0, 'error');
+        const cancelled = err.message === 'OPERATION_CANCELLED';
+        setDriveOperation(cancelled ? '已取消傳輸，本機資料保留' : err.message === 'DRIVE_TIMEOUT' ? 'Google Drive 連線逾時' : '備份上傳失敗', 0, cancelled ? 'cancelled' : 'error');
         if (err.message === 'NOT_SIGNED_IN')  showToast('請先登入 Google', 3000);
-        else if (err.message === 'TOKEN_EXPIRED') { showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
+        else if (err.message === 'TOKEN_EXPIRED') showToast('需要 Google 重新確認授權，請再按一次操作', 3500);
         else if (err.message === 'DRIVE_TIMEOUT') showToast('Google Drive 上傳逾時，請確認網路後重試', 3500);
-        else if (err.message === 'OPERATION_CANCELLED') showToast('傳輸已取消；本機資料保留。若已開始上傳，請查看雲端備份清單確認是否已接收。', 5000);
+        else if (cancelled) showToast('傳輸已取消，本機資料保留。若已開始上傳，請查看雲端備份清單。', 5000);
         else showToast('上傳失敗：' + err.message, 3000);
+      } finally {
+        controls.forEach((control, index) => { if (control.isConnected) control.disabled = disabledBefore[index]; });
+        if (btn?.isConnected) btn.innerHTML = original;
+        const account = document.getElementById('gd-account-status');
+        const dot = document.getElementById('gd-account-dot');
+        const signedIn = GDrive.isSignedIn();
+        if (account) account.textContent = (signedIn ? '已登入' : '帳號已記住・雲端待授權') + '：' + (GDrive.getUserEmail() || 'Google 帳戶');
+        dot?.classList.toggle('connected', signedIn);
+        dot?.classList.toggle('disconnected', !signedIn);
       }
-      if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = original; }
     });
 
     // ── 還原備份（選擇 10 個檔案之一） ──

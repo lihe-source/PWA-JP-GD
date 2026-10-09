@@ -109,8 +109,8 @@ export function mountSettingsGroups(container, storage) {
   const wrap = container.querySelector('.settings-wrap');
   if (!wrap) return;
   const definitions = [
-    ['learning', '學習設定', '等級、行別與練習偏好', true],
-    ['cloud', '帳戶與雲端', 'Google Drive、備份與復原', false],
+    ['cloud', '帳戶與雲端', 'Google Drive、備份與復原', true],
+    ['learning', '學習設定', '等級、行別與練習偏好', false],
     ['ai', 'AI 與通知', '模型、API Key、每日提醒', false],
     ['advanced', '進階與資料管理', '版本更新、音效測試與匯入匯出', false]
   ];

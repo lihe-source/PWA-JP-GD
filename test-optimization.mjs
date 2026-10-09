@@ -8,7 +8,7 @@ import { BackupSchema } from './backup-schema.js';
 import { BackgroundJobRunner, executeBackgroundJob } from './background-jobs.js';
 import { createGeminiClient } from './gemini-client.js';
 import { VersionManager } from './version-manager.js';
-import { readingProgress, readingFeedback, firstAttemptSummary, createModalFocusManager } from './ui-runtime.js';
+import { readingProgress, readingFeedback, firstAttemptSummary, createModalFocusManager, mountSettingsGroups } from './ui-runtime.js';
 
 const app = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
 const escapeHTML = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -29,7 +29,7 @@ test('malformed record JSON never replaces existing answers with an empty collec
 });
 
 test('background backup preparation and parsing preserve every collection and checksum', () => {
-  const prepared = executeBackgroundJob('prepare-backup', { collections: { words: [{ id: 'w', english: '時計' }], wordReadingHistory: [{ id: 'r', word: '時計', answer: 'tokei', correct: true }] }, metadata: { appVersion: 'V1.5.5' } });
+  const prepared = executeBackgroundJob('prepare-backup', { collections: { words: [{ id: 'w', english: '時計' }], wordReadingHistory: [{ id: 'r', word: '時計', answer: 'tokei', correct: true }] }, metadata: { appVersion: 'V1.5.6' } });
   assert.equal(BackupSchema.validate(prepared.data).valid, true);
   assert.equal(executeBackgroundJob('parse-backup', { raw: '\uFEFF'+prepared.serialized }).words[0].english, '時計');
   assert.equal(prepared.data.wordReadingHistory[0].id, 'r');
@@ -137,13 +137,13 @@ test('old API key responses and discovery cannot be committed after changing the
 test('version manager distinguishes old deployments, deliberate rollback and invalid metadata', async () => {
   const original=globalThis.fetch;
   const storage={setItem() {}};
-  const manager=new VersionManager({currentVersion:'V1_5_5',currentBuild:2026100801,storage});
+  const manager=new VersionManager({currentVersion:'V1_5_6',currentBuild:2026100901,storage});
   try {
     globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_4'}));
     let result=await manager.check(); assert.equal(result.hasUpdate,false); assert.equal(result.direction,'older-deployment');
-    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_4',build:2026100802}));
+    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_4',build:2026100902}));
     result=await manager.check(); assert.equal(result.hasUpdate,true); assert.equal(result.direction,'rollback');
-    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_5<script>'}));
+    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_6<script>'}));
     await assert.rejects(manager.check(),/VERSION_INVALID/);
   } finally { globalThis.fetch=original; }
 });
@@ -164,4 +164,83 @@ test('modal traps focus, supports Escape, makes background inert and restores fo
     document.activeElement=last;handlers.get('keydown')({key:'Tab',preventDefault(){}});assert.equal(focused,first);
     handlers.get('keydown')({key:'Escape',preventDefault(){}});assert.equal(appNode.inert,false);assert.equal(focused,previous);
   } finally { globalThis.document=oldDoc;globalThis.requestAnimationFrame=oldFrame; }
+});
+
+for (const outcome of ['success', 'cancelled', 'expired']) {
+  test('backup upload keeps the settings DOM and scroll position: ' + outcome, async () => {
+    const handlers = new Map(), messages = [];
+    const makeNode = () => ({ hidden: false, disabled: false, isConnected: true, innerHTML: '原按鈕', textContent: '', attrs: {},
+      classList: { states: new Map(), toggle(key, value) { this.states.set(key, value); } },
+      setAttribute(key, value) { this.attrs[key] = value; }, addEventListener(event, handler) { handlers.set(event + ':' + this.id, handler); }
+    });
+    const nodes = Object.fromEntries(['gd-upload-btn', 'gd-download-btn', 'gd-streak-sync-btn', 'gd-operation-status', 'gd-operation-text', 'gd-operation-percent', 'gd-transfer-cancel', 'gd-last-sync', 'gd-account-status', 'gd-account-dot'].map(id => { const node = makeNode(); node.id = id; return [id, node]; }));
+    const settings = { scrollTop: 640, unsavedText: '保留未儲存的設定', cloudOpen: true };
+    let renders = 0;
+    const ctx = { document: { getElementById: id => nodes[id] || null }, showToast: value => messages.push(value), render() { renders++; settings.scrollTop = 0; },
+      GDrive: { _transferController: null, isSignedIn: () => outcome !== 'expired', getUserEmail: () => 'test@example.test',
+        cancelTransfer() { this.cancelled = true; },
+        async upload({ onProgress }) {
+          assert.equal(nodes['gd-download-btn'].disabled, true);
+          assert.equal(nodes['gd-streak-sync-btn'].disabled, true);
+          this._transferController = {};
+          onProgress({ message: '上傳至 Google Drive…', percent: null });
+          assert.equal(nodes['gd-transfer-cancel'].hidden, false);
+          assert.equal(nodes['gd-transfer-cancel'].disabled, false);
+          settings.scrollTop = 690; // The user may scroll during the upload; do not rewind them.
+          if (outcome === 'cancelled') handlers.get('click:gd-transfer-cancel')();
+          this._transferController = null;
+          if (outcome === 'cancelled') throw new Error('OPERATION_CANCELLED');
+          if (outcome === 'expired') throw new Error('TOKEN_EXPIRED');
+          return '2026/10/9 下午3:45:00';
+        }
+      }
+    };
+    const commonStart = app.indexOf('    const setDriveOperation =');
+    const commonEnd = app.indexOf('    mountSettingsGroups(container, AppStorage);', commonStart);
+    vm.runInNewContext(app.slice(commonStart, commonEnd), ctx);
+    const start = app.indexOf("    document.getElementById('gd-upload-btn')?.addEventListener");
+    const end = app.indexOf('    // ── 還原備份', start);
+    vm.runInNewContext(app.slice(start, end), ctx);
+    await handlers.get('click:gd-upload-btn')();
+    assert.equal(renders, 0); assert.equal(settings.scrollTop, 690);
+    assert.equal(settings.unsavedText, '保留未儲存的設定'); assert.equal(settings.cloudOpen, true);
+    assert.equal(nodes['gd-upload-btn'].disabled, false); assert.equal(nodes['gd-upload-btn'].innerHTML, '原按鈕');
+    assert.equal(nodes['gd-download-btn'].disabled, false); assert.equal(nodes['gd-streak-sync-btn'].disabled, false);
+    assert.equal(nodes['gd-transfer-cancel'].hidden, true); assert.equal(nodes['gd-operation-status'].attrs['aria-busy'], 'false');
+    if (outcome === 'success') { assert.match(nodes['gd-last-sync'].textContent, /3:45:00/); assert.equal(nodes['gd-operation-status'].classList.states.get('is-done'), true); }
+    if (outcome === 'cancelled') { assert.equal(ctx.GDrive.cancelled, true); assert.match(nodes['gd-operation-text'].textContent, /已取消/); assert.equal(nodes['gd-operation-status'].classList.states.get('has-error'), false); }
+    if (outcome === 'expired') assert.match(nodes['gd-account-status'].textContent, /待授權/);
+    assert.ok(messages.length);
+  });
+}
+
+test('settings place cloud first, retain saved disclosure preferences and keep data saving last', () => {
+  const oldDocument = globalThis.document;
+  class Element {
+    constructor(classes = '', text = '') { this.classes = classes.split(' '); this.textContent = text; this.children = []; this.dataset = {}; this.handlers = {}; }
+    matches(selector) { return this.classes.includes(selector.slice(1)); }
+    getAttribute() { return null; }
+    append(node) { if (node.parent) node.parent.children.splice(node.parent.children.indexOf(node), 1); node.parent = this; this.children.push(node); }
+    set innerHTML(value) { this.body = new Element('settings-category-body'); this.children = [this.body]; }
+    querySelector() { return this.body; }
+    addEventListener(event, handler) { this.handlers[event] = handler; }
+  }
+  try {
+    globalThis.document = { createElement: () => new Element() };
+    for (const savedCloud of [null, '0']) {
+      const wrap = new Element();
+      const label = new Element('settings-section-label', 'Google Drive 雲端同步');
+      const cloudCard = new Element('settings-card');
+      const learningLabel = new Element('settings-section-label', '學習設定');
+      const learningCard = new Element('settings-card');
+      const dataCard = new Element('storage-status-card');
+      for (const node of [label, cloudCard, learningLabel, learningCard, dataCard]) wrap.append(node);
+      const storage = { getItem: key => key === 'settingsCategory:cloud' ? savedCloud : null, setItem() {} };
+      mountSettingsGroups({ querySelector: () => wrap, addEventListener() {} }, storage);
+      assert.deepEqual(wrap.children.slice(0, 4).map(node => node.dataset.category), ['cloud', 'learning', 'ai', 'advanced']);
+      assert.equal(wrap.children[0].open, savedCloud === null);
+      assert.equal(wrap.children[0].body.children[1], cloudCard);
+      assert.equal(wrap.children.at(-1), dataCard);
+    }
+  } finally { globalThis.document = oldDocument; }
 });

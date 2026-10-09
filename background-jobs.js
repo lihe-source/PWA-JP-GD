@@ -1,4 +1,4 @@
-import { BackupSchema } from './backup-schema.js?v=V1_5_5';
+import { BackupSchema } from './backup-schema.js?v=V1_5_6';
 
 // Heavy pure work is isolated from the input/drawing thread. No credentials are sent to the worker.
 export function executeBackgroundJob(type, payload) {
@@ -25,7 +25,7 @@ export function executeBackgroundJob(type, payload) {
 export class BackgroundJobRunner {
   constructor({ workerFactory, timeoutMs = 45000 } = {}) {
     this._customFactory = !!workerFactory;
-    this.workerFactory = workerFactory || (() => new Worker(new URL('./data-worker.js?v=V1_5_5', import.meta.url), { type: 'module' }));
+    this.workerFactory = workerFactory || (() => new Worker(new URL('./data-worker.js?v=V1_5_6', import.meta.url), { type: 'module' }));
     this.timeoutMs = timeoutMs;
     this.active = new Set();
   }

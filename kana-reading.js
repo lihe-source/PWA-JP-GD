@@ -146,6 +146,13 @@ export class KanaReadingProgressManager {
   getProgress() { return buildKanaReadingProgress(this.getHistory()); }
 
   getSummary() {
+    const version = this.storage.getCollectionVersion?.(this.historyKey);
+    if (version !== undefined && version !== null && this._summaryVersion === version && this._summaryCache) return structuredClone(this._summaryCache);
+    const summary = this._computeSummary();
+    if (version !== undefined && version !== null) { this._summaryVersion = version; this._summaryCache = structuredClone(summary); }
+    return summary;
+  }
+  _computeSummary() {
     const history = this.getHistory();
     const progress = buildKanaReadingProgress(history);
     const correct = history.filter(item => item.correct).length;

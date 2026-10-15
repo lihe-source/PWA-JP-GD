@@ -29,6 +29,8 @@ function makeDrive() {
   const drive = ctx.drive;
   drive._buildPayload = () => ({ words: [{ english: 'old' }] });
   drive._buildCollections = () => ({ words: [{ english: 'old' }] });
+  // Restore tests isolate snapshot/commit guards; backup preparation is covered separately.
+  drive._prepareBackup = async () => ({ data: drive._buildPayload(), serialized: '{}' });
   drive.scheduleStudyStreakSync = () => {};
   drive._getDeviceId = () => 'test-phone';
   return { drive, ctx, writes };

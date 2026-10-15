@@ -33,20 +33,28 @@ export function bindReadingViewport(input) {
     if (disposed || frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      if (!input.isConnected || document.activeElement !== input) return;
+      if (!input.isConnected) return;
+      const session = input.closest('.kana-reading-session');
+      const keyboard = !!viewport && viewport.height < window.innerHeight * .8 && document.activeElement === input;
+      session?.classList.toggle('has-keyboard', keyboard);
+      session?.style.setProperty('--reading-visible-height', `${Math.round(viewport?.height || window.innerHeight)}px`);
+      if (document.activeElement !== input) return;
       const top = viewport?.offsetTop || 0;
       const bottom = top + (viewport?.height || window.innerHeight);
+      const card = input.closest('.kana-reading-question-card');
+      const cardRect = card?.getBoundingClientRect();
       const rect = input.getBoundingClientRect();
-      if (rect.top < top + 8 || rect.bottom > bottom - 8) {
-        input.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+      if (keyboard && cardRect && cardRect.height <= bottom - top - 16) {
+        if (cardRect.top < top + 8 || cardRect.bottom > bottom - 8) card.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
+      } else if (rect.top < top + 8 || rect.bottom > bottom - 8) {
+        input.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
       }
-      const session = input.closest('.kana-reading-session');
-      session?.classList.toggle('has-keyboard', !!viewport && viewport.height < window.innerHeight * .8);
     });
   };
   viewport?.addEventListener('resize', update, { passive: true });
   viewport?.addEventListener('scroll', update, { passive: true });
   input.addEventListener('focus', update);
+  input.addEventListener('blur', update);
   window.addEventListener('orientationchange', update, { passive: true });
   update();
   return () => {
@@ -55,6 +63,7 @@ export function bindReadingViewport(input) {
     viewport?.removeEventListener('resize', update);
     viewport?.removeEventListener('scroll', update);
     input.removeEventListener('focus', update);
+    input.removeEventListener('blur', update);
     window.removeEventListener('orientationchange', update);
   };
 }
@@ -152,6 +161,10 @@ export function mountSettingsGroups(container, storage) {
 export function enhanceKeyboardOptions(container) {
   container.querySelectorAll('div.radio-option').forEach(option => {
     option.setAttribute('role', 'button'); option.tabIndex = 0;
+    option.setAttribute('aria-pressed', option.classList.contains('selected') ? 'true' : 'false');
+    option.addEventListener('click', () => queueMicrotask(() => {
+      container.querySelectorAll('div.radio-option').forEach(node => node.setAttribute('aria-pressed', node.classList.contains('selected') ? 'true' : 'false'));
+    }));
     option.addEventListener('keydown', event => {
       if ((event.key === 'Enter' || event.key === ' ') && !event.isComposing) {
         event.preventDefault(); option.click();

@@ -1,5 +1,5 @@
-import { DAILY_LEARNING_SOURCES, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRows, validateGeneratedSentence } from './daily-learning.js?v=V1_5_6';
-import { normalizeJapaneseAnswer } from './japanese-learning.js?v=V1_5_6';
+import { DAILY_LEARNING_SOURCES, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRows, validateGeneratedSentence } from './daily-learning.js?v=V1_5_7';
+import { normalizeJapaneseAnswer } from './japanese-learning.js?v=V1_5_7';
 export function createGeminiClient(DB) {
 return {
   _modelCatalog: null,
@@ -111,7 +111,26 @@ return {
     return [...new Set([list[0], list.find(id => id !== list[0] && id !== compatible), compatible])].filter(Boolean);
   },
 
-  _shortTaskBudget() { return { deadline: Date.now() + 60000, requests: 0, maxRequests: 3 }; },
+  _taskBudget(options = {}, duration = 90000) {
+    return { deadline: Date.now() + duration, requests: 0, maxRequests: 3, signal: options.signal, onProgress: options.onProgress };
+  },
+  _shortTaskBudget(options = {}) { return this._taskBudget(options, 60000); },
+  _assertBudget(budget) {
+    if (budget?.signal?.aborted) throw new Error('OPERATION_CANCELLED');
+    if (budget && (Date.now() >= budget.deadline || budget.requests >= budget.maxRequests)) throw new Error('API_TIMEOUT');
+  },
+  async _catalogForTask(budget) {
+    this._assertBudget(budget);
+    let timer, cancel;
+    try {
+      await Promise.race([this.ensureModelCatalog(), new Promise((_, reject) => {
+        cancel = () => reject(new Error('OPERATION_CANCELLED'));
+        budget.signal?.addEventListener('abort', cancel, { once: true });
+        timer = setTimeout(() => reject(new Error('API_TIMEOUT')), Math.max(1, budget.deadline - Date.now()));
+      })]);
+      this._assertBudget(budget);
+    } finally { clearTimeout(timer); budget.signal?.removeEventListener('abort', cancel); }
+  },
 
   // Read final visible output only. Thought parts are never a substitute for a
   // missing final answer because they may contain fragments, labels or drafts.
@@ -154,6 +173,7 @@ return {
     const status = Number(error?.status || 0);
     const model = error?.model ? `（${error.model}）` : '';
     const message = String(error?.message || 'API_ERROR');
+    if (message === 'OPERATION_CANCELLED') return '已取消；輸入內容仍保留。';
     if (message === 'NO_API_KEY') return '尚未設定 Gemini API Key。';
     if (message === 'API_KEY_CHANGED') return '生成期間 API Key 已變更，請使用目前設定重新生成。';
     if (/MODEL_LIST|NO_GENERATION_MODELS/.test(message)) return '暫時無法取得可用的文字模型，請稍後重新查詢。';
@@ -213,14 +233,17 @@ return {
 
   async _callModelDetailed(model, body, apiKey, attempt = 0, retryTransient = true, budget = null) {
     if (DB.getApiKey() !== apiKey) throw new Error('API_KEY_CHANGED');
+    this._assertBudget(budget);
     this.lastUsedModel = model;
     if (budget && (budget.requests >= budget.maxRequests || Date.now() >= budget.deadline)) {
       throw this._tagError(new Error('API_TIMEOUT'), { model, fallback: false });
     }
-    if (budget) budget.requests += 1;
+    if (budget) { budget.requests += 1; budget.onProgress?.({ model, attempt: budget.requests, maxAttempts: budget.maxRequests }); }
     const controller = new AbortController();
     const requestTimeout = budget ? Math.min(30000, Math.max(1, budget.deadline - Date.now())) : 45000;
     const timeoutId = setTimeout(() => controller.abort(), requestTimeout);
+    const cancel = () => controller.abort();
+    budget?.signal?.addEventListener('abort', cancel, { once: true });
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -251,9 +274,11 @@ return {
         throw err;
       }
       const data = await res.json();
+      if (budget?.signal?.aborted) throw new Error('OPERATION_CANCELLED');
       if (DB.getApiKey() !== apiKey) throw new Error('API_KEY_CHANGED');
       return { ...this._extractResponse(data), model };
     } catch (error) {
+      if (budget?.signal?.aborted) throw new Error('OPERATION_CANCELLED');
       if (error?.name === 'AbortError') throw this._tagError(new Error('API_TIMEOUT'), { model, fallback: true });
       if (error instanceof SyntaxError) throw this._tagError(new Error('API_RESPONSE_INVALID'), { model, fallback: true });
       if (error?.fallback !== undefined || /^HTTP\s\d+/i.test(error?.message || '') || /quota|permission|api key|model|schema/i.test(error?.message || '')) throw error;
@@ -261,17 +286,19 @@ return {
       throw error;
     } finally {
       clearTimeout(timeoutId);
+      budget?.signal?.removeEventListener('abort', cancel);
     }
   },
 
-  async _callModel(model, body, apiKey, attempt = 0) {
-    return (await this._callModelDetailed(model, body, apiKey, attempt, true)).text;
+  async _callModel(model, body, apiKey, attempt = 0, budget = this._taskBudget()) {
+    return (await this._callModelDetailed(model, body, apiKey, attempt, true, budget)).text;
   },
 
-  async reviewEssay(essay, words) {
+  async reviewEssay(essay, words, options = {}) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
-    await this.ensureModelCatalog();
+    const budget = this._taskBudget(options);
+    await this._catalogForTask(budget);
     const wordList = words.map(w => `"${w.english}" (${w.partOfSpeech}: ${w.chinese})`).join(', ');
     const prompt = `You are a Japanese writing teacher for a Traditional Chinese learner. Review the Japanese composition below.
 
@@ -312,9 +339,10 @@ Rules:
     };
 
     let lastErr = null;
-    for (const model of this._getModelList()) {
+    for (const model of this._getModelList().slice(0, 3)) {
+      this._assertBudget(budget);
       try {
-        const raw = await this._callModel(model, body, apiKey);
+        const raw = await this._callModel(model, body, apiKey, 0, budget);
         if (!raw) { lastErr = new Error('EMPTY_RESPONSE'); continue; }
         const jsonStr = extractJSON(raw);
         if (!jsonStr) { lastErr = new Error(`PARSE_ERROR: no JSON found in response`); continue; }
@@ -331,10 +359,11 @@ Rules:
     throw lastErr || new Error('API_ERROR');
   },
   // Review essay with a free topic (no required vocabulary words)
-  async reviewEssayFree(essay, topic) {
+  async reviewEssayFree(essay, topic, options = {}) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
-    await this.ensureModelCatalog();
+    const budget = this._taskBudget(options);
+    await this._catalogForTask(budget);
     const prompt = `You are a Japanese writing teacher for a Traditional Chinese learner. The student was given this topic/prompt: "${topic}"
 
 Student essay:
@@ -361,9 +390,10 @@ Rules:
     };
 
     let lastErr = null;
-    for (const model of this._getModelList()) {
+    for (const model of this._getModelList().slice(0, 3)) {
+      this._assertBudget(budget);
       try {
-        const raw = await this._callModel(model, body, apiKey);
+        const raw = await this._callModel(model, body, apiKey, 0, budget);
         if (!raw) { lastErr = new Error('EMPTY_RESPONSE'); continue; }
         const jsonStr = extractJSON(raw);
         if (!jsonStr) { lastErr = new Error('PARSE_ERROR: no JSON'); continue; }
@@ -574,10 +604,11 @@ Requirements:
   },
 
 
-  async translateReadingArticle(article, words) {
+  async translateReadingArticle(article, words, options = {}) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
-    await this.ensureModelCatalog();
+    const budget = this._taskBudget(options);
+    await this._catalogForTask(budget);
     const cleanArticle = String(article || '').trim();
     if (!cleanArticle) throw new Error('NO_ARTICLE');
     const wordList = (Array.isArray(words) ? words : []).slice(0, 5).map((w, i) => {
@@ -606,9 +637,10 @@ Requirements:
     });
 
     let lastErr = null;
-    for (const model of this._getModelList()) {
+    for (const model of this._getModelList().slice(0, 3)) {
+      this._assertBudget(budget);
       try {
-        const raw = await this._callModel(model, body, apiKey);
+        const raw = await this._callModel(model, body, apiKey, 0, budget);
         const zh = String(raw || '')
           .replace(/^\s*```(?:text|markdown)?\s*/i, '')
           .replace(/\s*```\s*$/i, '')
@@ -626,10 +658,11 @@ Requirements:
   },
 
 
-  async generateReadingQuiz(words) {
+  async generateReadingQuiz(words, options = {}) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
-    await this.ensureModelCatalog();
+    const budget = this._taskBudget(options);
+    await this._catalogForTask(budget);
     const cleanWords = (Array.isArray(words) ? words : []).slice(0, 5).map((w, i) => ({
       index: i + 1,
       english: String(w.english || '').trim(),
@@ -696,9 +729,10 @@ Rules:
     };
 
     let lastErr = null;
-    for (const model of this._getModelList()) {
+    for (const model of this._getModelList().slice(0, 3)) {
+      this._assertBudget(budget);
       try {
-        const raw = await this._callModel(model, body, apiKey);
+        const raw = await this._callModel(model, body, apiKey, 0, budget);
         const jsonStr = extractJSON(raw);
         if (!jsonStr) { lastErr = new Error('PARSE_ERROR: no JSON'); continue; }
         const parsed = JSON.parse(jsonStr);
@@ -800,10 +834,11 @@ Rules:
 
   // Look up Japanese vocabulary via AI. Historical field names remain compatible
   // with the existing views: `english` stores Japanese and `phonetic` stores kana.
-  async lookupWord(word) {
+  async lookupWord(word, options = {}) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
-    await this.ensureModelCatalog();
+    const budget = this._taskBudget(options);
+    await this._catalogForTask(budget);
     const prompt = `You are a Japanese dictionary for Traditional Chinese learners. Look up "${word}" and return its useful Japanese senses as a JSON array.
 
 Each element must have these fields:
@@ -831,9 +866,10 @@ If the input is not valid Japanese vocabulary, return: []`;
     });
 
     let lastErr = null;
-    for (const model of this._getModelList()) {
+    for (const model of this._getModelList().slice(0, 3)) {
+      this._assertBudget(budget);
       try {
-        const raw = await this._callModel(model, body, apiKey);
+        const raw = await this._callModel(model, body, apiKey, 0, budget);
         if (!raw) { lastErr = new Error('EMPTY_RESPONSE'); continue; }
         // Strip markdown fences/thinking tags and extract the first JSON array.
         let text = String(raw)

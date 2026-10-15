@@ -1,11 +1,12 @@
-import { BackupSchema } from './backup-schema.js?v=V1_5_6';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_6';
+import { BackupSchema } from './backup-schema.js?v=V1_5_7';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_7';
 export function mountStorageStatus({ storage, cloudState, exportPayload, restorePayload, onSafe }) {
   const banner = document.getElementById('storage-warning');
   const render = () => {
     const state = storage.getStatus();
     if (banner) banner.hidden = state.saveState !== 'error';
-    const summary = state.saveState === 'error' ? '儲存失敗：資料仍在暫存，請勿關閉程式'
+    const corrupt = state.failedKeys?.some(key => key.startsWith('integrity:'));
+    const summary = corrupt ? '資料格式異常：已保留原始資料，請先匯出救援資料' : state.saveState === 'error' ? '儲存失敗：資料仍在暫存，請勿關閉程式'
       : state.saveState === 'saving' ? '正在儲存到本機…'
         : cloudState()?.pending ? '本機已儲存・雲端待同步' : '本機已儲存';
     document.querySelectorAll('[data-storage-summary]').forEach(node => {
@@ -14,7 +15,12 @@ export function mountStorageStatus({ storage, cloudState, exportPayload, restore
     });
   };
   const exportBackup = async () => {
-    const prepared = await exportPayload();
+    let prepared;
+    try { prepared = await exportPayload(); }
+    catch (error) {
+      if (error.code !== 'STORAGE_DATA_CORRUPT' && !storage.getStatus().failedKeys?.some(key => key.startsWith('integrity:'))) throw error;
+      prepared = { data: storage.exportRawRecovery() };
+    }
     const blob = new Blob([prepared.serialized || JSON.stringify(prepared.data || prepared)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

@@ -1,7 +1,7 @@
-import { kanaToRomaji, readingMatchesRows, katakanaToHiragana } from './daily-learning.js?v=V1_5_6';
-import { toKatakana } from './japanese-learning.js?v=V1_5_6';
-import { normalizeRomajiAnswer } from './kana-reading.js?v=V1_5_6';
-import { KANA_ROWS } from './kana-data.js?v=V1_5_6';
+import { kanaToRomaji, readingMatchesRows, katakanaToHiragana } from './daily-learning.js?v=V1_5_7';
+import { toKatakana } from './japanese-learning.js?v=V1_5_7';
+import { normalizeRomajiAnswer } from './kana-reading.js?v=V1_5_7';
+import { KANA_ROWS } from './kana-data.js?v=V1_5_7';
 
 const ROW_IDS = new Set(KANA_ROWS.map(row => row.id));
 export const WORD_READING_COUNTS = Object.freeze([5, 10, 15, 20, 25, 30]);
@@ -82,10 +82,12 @@ export function buildWordReadingQuestions(pool, preferences = {}, random = Math.
 export function checkWordReadingAnswer(question, answer) {
   const normalized = normalizeRomajiAnswer(answer);
   const expected = normalizeRomajiAnswer(question?.romaji);
-  const variants = new Set([expected]);
-  // Accept the common Kunrei spellings also accepted in the single-kana mode.
-  variants.add(expected.replaceAll('shi', 'si').replaceAll('chi', 'ti').replaceAll('tsu', 'tu').replaceAll('fu', 'hu').replaceAll('ji', 'zi'));
-  return { normalized, expected, correct: !!normalized && variants.has(normalized) };
+  // Per-syllable alternatives allow mixed Hepburn/Kunrei spellings.
+  const aliases = { shi: '(?:shi|si)', chi: '(?:chi|ti)', tsu: '(?:tsu|tu)', fu: '(?:fu|hu)', ji: '(?:ji|zi)' };
+  const tokens = expected.match(/shi|chi|tsu|fu|ji|./g) || [];
+  const pattern = tokens.map(token => aliases[token] || token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('');
+  return { normalized, expected, correct: !!normalized && new RegExp(`^${pattern}$`).test(normalized) };
+
 }
 
 export function mergeWordReadingHistory(...sources) {
@@ -127,6 +129,13 @@ export class WordReadingProgressManager {
   }
   mergeRemote(records) { const merged = mergeWordReadingHistory(this.getHistory(), records); this.saveHistory(merged); return merged; }
   getSummary() {
+    const version = this.storage.getCollectionVersion?.(this.historyKey);
+    if (version !== undefined && version !== null && this._summaryVersion === version && this._summaryCache) return structuredClone(this._summaryCache);
+    const summary = this._computeSummary();
+    if (version !== undefined && version !== null) { this._summaryVersion = version; this._summaryCache = structuredClone(summary); }
+    return summary;
+  }
+  _computeSummary() {
     const history = this.getHistory();
     const correct = history.filter(item => item.correct).length;
     return { attempts: history.length, correct, wrong: history.length - correct,

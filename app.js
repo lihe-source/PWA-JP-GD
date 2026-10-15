@@ -1,35 +1,37 @@
-import { createGeminiClient } from './gemini-client.js?v=V1_5_6';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_6';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_6';
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_6';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_6';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_6';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_7';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_7';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_7';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_7';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_7';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_7';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_7';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_6';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_6';
-import { VersionManager } from './version-manager.js?v=V1_5_6';
-import { TrendChart } from './chart-renderer.js?v=V1_5_6';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_6';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_6';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_6';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_6';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_6';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_6';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_6';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_6';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_6';
+import { AppStorage } from './storage.js?v=V1_5_7';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_7';
+import { VersionManager } from './version-manager.js?v=V1_5_7';
+import { TrendChart } from './chart-renderer.js?v=V1_5_7';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_7';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_7';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_7';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_7';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_7';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_7';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_7';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_7';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_7';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_6
-// V1.5.6：備份狀態原地更新與固定排版，帳戶與雲端置於設定首位
+// 日本語練習 PWA - app.js V1_5_7
+// V1.5.7：頁面狀態保留、可取消 AI 任務、草稿保護與資料完整性防護
 // ===========================
 
-const APP_VERSION = 'V1_5_6';
-const APP_DISPLAY_VERSION = 'V1.5.6';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_6';
+const ViewWork = new ViewWorkManager();
+const APP_VERSION = 'V1_5_7';
+const APP_DISPLAY_VERSION = 'V1.5.7';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_7';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
-  cloudBusy: BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
+  cloudBusy: ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
     !!Views.practice?._pendingSessionSave || !!Views.home?._dailyVocabularyRequest ||
     !!Views.home?._databaseSentenceRequest || !!Views.home?._dailySentenceRequests?.size ||
     !!DB._generatedWriteTask && AppStorage.getStatus().saveState === 'saving'
@@ -37,7 +39,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026100901,
+  currentBuild: 2026101501,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -565,7 +567,7 @@ const ECDICT = {
 
 // ===== DATA MANAGEMENT =====
 const DB = {
-  getWords() { try { return JSON.parse(AppStorage.getItem('vocabWords') || '[]'); } catch { return []; } },
+  getWords() { return readArray(AppStorage, 'vocabWords'); },
   saveWords(words) { AppStorage.setItem('vocabWords', JSON.stringify(words)); },
   addWord(word) {
     const words = this.getWords();
@@ -641,10 +643,10 @@ const DB = {
     return changed;
   },
   deleteWords(ids) { this.saveWords(this.getWords().filter(w => !ids.includes(w.id))); },
-  getHistory() { try { return JSON.parse(AppStorage.getItem('practiceHistory') || '[]'); } catch { return []; } },
+  getHistory() { return readArray(AppStorage, 'practiceHistory'); },
   saveHistory(h) { AppStorage.setItem('practiceHistory', JSON.stringify(h)); },
   // ── Reading Quiz History ──
-  getReadingQuizHistory() { try { return JSON.parse(AppStorage.getItem('readingQuizHistory') || '[]'); } catch { return []; } },
+  getReadingQuizHistory() { return readArray(AppStorage, 'readingQuizHistory'); },
   saveReadingQuizHistory(arr) { AppStorage.setItem('readingQuizHistory', JSON.stringify(arr)); },
   addReadingQuizSession(entry) {
     const history = this.getReadingQuizHistory();
@@ -717,7 +719,7 @@ const DB = {
     return { added };
   },
   // ── Essay Writing History ──
-  getEssayHistory() { try { return JSON.parse(AppStorage.getItem('essayHistory') || '[]'); } catch { return []; } },
+  getEssayHistory() { return readArray(AppStorage, 'essayHistory'); },
   saveEssayHistory(arr) { AppStorage.setItem('essayHistory', JSON.stringify(arr)); },
   addEssaySession(entry) {
     // entry: { date, words:[{english,chinese,partOfSpeech}], essay, feedback, score, annotatedHtml }
@@ -774,7 +776,7 @@ const DB = {
     return { added };
   },
   // ── AI Ask History ──
-  getAiAskHistory()         { try { return JSON.parse(AppStorage.getItem('aiAskHistory') || '[]'); } catch { return []; } },
+  getAiAskHistory()         { return readArray(AppStorage, 'aiAskHistory'); },
   saveAiAskHistory(arr)     { AppStorage.setItem('aiAskHistory', JSON.stringify(arr)); },
   addAiAskEntry(entry) {
     // entry: { id (YYMMDDHHMM), question, answer, ts }
@@ -840,7 +842,7 @@ const DB = {
   setGDriveAutoSync(v) { AppStorage.setItem('gdriveAutoSync', v ? '1' : '0'); },
   getGDriveLastSync()  { return AppStorage.getItem('gdriveLastSync') || ''; },
   setGDriveLastSync(v) { AppStorage.setItem('gdriveLastSync', v); },
-  getBoostedWords() { try { return JSON.parse(AppStorage.getItem('boostedWords') || '[]'); } catch { return []; } },
+  getBoostedWords() { return readArray(AppStorage, 'boostedWords'); },
   saveBoostedWords(ids) { AppStorage.setItem('boostedWords', JSON.stringify(ids)); },
   getTtsDelay()    { return parseInt(AppStorage.getItem('ttsDelay') || '300'); },
   saveTtsDelay(ms) { AppStorage.setItem('ttsDelay', String(ms)); },
@@ -1034,7 +1036,7 @@ const DB = {
   },
   saveTodaySentence(data) { AppStorage.setItem('todaySentence', JSON.stringify({ ...data, date: data?.date || todayStr() })); },
   // AI-generated sentence log
-  getSentenceLog() { try { return JSON.parse(AppStorage.getItem('sentenceLog') || '[]'); } catch { return []; } },
+  getSentenceLog() { return readArray(AppStorage, 'sentenceLog'); },
   saveSentenceToLog(entry) {
     const log = this.getSentenceLog();
     const now = new Date();
@@ -1095,7 +1097,7 @@ const DB = {
     return task;
   },
   // Imported sentence bank (CSV)
-  getImportedSentences() { try { return JSON.parse(AppStorage.getItem('importedSentences') || '[]'); } catch { return []; } },
+  getImportedSentences() { return readArray(AppStorage, 'importedSentences'); },
   saveImportedSentences(arr) { AppStorage.setItem('importedSentences', JSON.stringify(arr)); },
   importSentencesCSV(text) {
     const records = this._splitCSVRecords(text.replace(/^\uFEFF/, '').trim());
@@ -1410,8 +1412,8 @@ function refreshStudyStreakUI() {
   if (syncState) {
     const state = StudyStreak.getSyncState();
     syncState.textContent = state.pending
-      ? '本機有待同步的練習天數'
-      : state.lastSync ? `練習天數已同步：${new Date(state.lastSync).toLocaleString('zh-TW')}` : '練習天數尚未同步';
+      ? '本機有待同步的練習紀錄'
+      : state.lastSync ? `練習紀錄已同步：${new Date(state.lastSync).toLocaleString('zh-TW')}` : '練習紀錄尚未同步';
   }
 }
 
@@ -1772,10 +1774,31 @@ const GDrive = {
   },
 
   async _prepareBackup(options = {}) {
-    return BackgroundJobs.run('prepare-backup', {
-      collections: this._buildCollections(),
-      metadata: { appVersion: APP_DISPLAY_VERSION, deviceId: this._getDeviceId(), revision: Date.now() }
-    }, { signal: options.signal, onStage: message => this._progress(options, message) });
+    const getters = {
+      words: () => DB.getWords(), history: () => DB.getHistory(), sentences: () => DB.getSentenceLog(),
+      imported: () => DB.getImportedSentences(), boosted: () => DB.getBoostedWords(),
+      readingQuizHistory: () => DB.getReadingQuizHistory(), essayHistory: () => DB.getEssayHistory(), aiAskHistory: () => DB.getAiAskHistory(),
+      studyDays: () => StudyStreak.getDays(), handwritingHistory: () => KanaProgress.getHistory(),
+      kanaReadingHistory: () => KanaReadingProgress.getHistory(), wordReadingHistory: () => WordReadingProgress.getHistory(),
+      kanaProgress: () => KanaProgress.getProgress(), preferences: () => [{ jlptLevel: DB.getJlptLevel(), ttsDelay: DB.getTtsDelay(), geminiModel: DB.getModel(), practice: DB.getPracticePreferenceBundle() }]
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await AppStorage.flush();
+      const versions = () => JSON.stringify([...AppStorage.collectionVersions || []]);
+      const before = versions();
+      const collections = {};
+      for (const [key, getter] of Object.entries(getters)) {
+        this._progress(options, '正在整理備份資料…');
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (options.signal?.aborted) throw new Error('OPERATION_CANCELLED');
+        collections[key] = getter();
+      }
+      if (before !== versions() || AppStorage.atomicLock) continue;
+      return BackgroundJobs.run('prepare-backup', { collections,
+        metadata: { appVersion: APP_DISPLAY_VERSION, deviceId: this._getDeviceId(), revision: Date.now() }
+      }, { signal: options.signal, onStage: message => this._progress(options, message) });
+    }
+    throw new Error('資料正在更新，請稍後重新備份。');
   },
 
   _buildPayload() {
@@ -2290,16 +2313,24 @@ const GDrive = {
 };
 
 // ===== UTILITIES =====
+const Toast = createToastController({
+  show(message) {
+    let node = document.getElementById('toast');
+    if (!node) { node = document.createElement('div'); node.id = 'toast'; node.setAttribute('role', 'status'); node.setAttribute('aria-live', 'polite'); document.body.appendChild(node); }
+    node.textContent = message; node.classList.add('show');
+  },
+  hide() { document.getElementById('toast')?.classList.remove('show'); }
+});
 async function showToast(msg, duration = 2200) {
-  if (/已儲存|已還原|已保存/.test(msg)) {
-    try { await AppStorage.flush(); }
-    catch { msg = '資料尚未儲存成功，請重試或先匯出救援備份。'; duration = 4500; }
-  }
-  let t = document.getElementById('toast');
-  if (!t) { t = document.createElement('div'); t.id='toast'; t.setAttribute('role','status'); t.setAttribute('aria-live','polite'); document.body.appendChild(t); }
-  t.textContent = msg; t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), duration);
+  return Toast.publish(msg, duration, async message => {
+    if (/已儲存|已還原|已保存/.test(message)) {
+      try { await AppStorage.flush(); }
+      catch { return '資料尚未儲存成功，請重試或先匯出救援備份。'; }
+    }
+    return message;
+  });
 }
+
 function escapeHTML(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -2415,6 +2446,25 @@ const TTS = {
   }
 };
 
+function loadPracticeDraft(key) {
+  try { return JSON.parse(AppStorage.getItem('practiceDraft:' + key) || 'null'); } catch { return null; }
+}
+function savePracticeDraft(key, value) {
+  try { AppStorage.setItem('practiceDraft:' + key, JSON.stringify({ ...value, updatedAt: Date.now() })); }
+  catch { showToast('草稿尚未儲存，請先保留輸入內容。', 4500); }
+}
+function beginAIWork(container, status, label) {
+  const job = ViewWork.start(container, status);
+  status.innerHTML = `<div class="ai-work-status" role="status"><span>${escapeHTML(label)}</span><button type="button" class="btn-secondary">取消</button></div>`;
+  const text = status.querySelector('span');
+  status.querySelector('button').onclick = () => job.controller.abort();
+  // Cancellation leaves the view owned by this job so its catch/finally can
+  // present the cancellation and unlock controls. A detached/replaced view cannot.
+  job.current = () => job.owns();
+  job.options.onProgress = ({ attempt, maxAttempts }) => { if (job.current()) text.textContent = `${label}（請求 ${attempt}/${maxAttempts}）`; };
+  return job;
+}
+
 // ===== ROUTER — FIX: quiz guard applies to ALL nav clicks including practice =====
 const Router = {
   currentView: 'home',
@@ -2422,6 +2472,9 @@ const Router = {
   essayActive: false,
   handwritingActive: false,
   navigate(view, params = {}, force = false) {
+    this.requestLeave(() => this._doNavigate(view, params), force);
+  },
+  requestLeave(action, force = false) {
     // Block ALL navigation (even back to practice) when quiz is active
     if ((this.quizActive || this.essayActive || this.handwritingActive) && !force) {
       const isEssay = this.essayActive && !this.quizActive;
@@ -2431,7 +2484,7 @@ const Router = {
         <div class="modal-handle"></div>
         <div class="modal-title">⚠️ ${isEssay ? "文章撰寫中" : isHandwriting ? "五十音書寫中" : "測驗進行中"}</div>
         <p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">
-          ${isEssay ? "離開將會中斷目前的文章撰寫，<br>已輸入的內容將不會被儲存。" : isHandwriting ? "離開將會中斷目前的五十音書寫，<br>尚未評分的字不會被記錄。" : "離開將會中斷目前的測驗，<br>進度將不會被記錄。"}確定要離開嗎？
+          ${isEssay ? "離開將會中斷目前的文章撰寫，<br>草稿會保留在這台裝置，回到相同模式可繼續。" : isHandwriting ? "離開將會中斷目前的五十音書寫，<br>尚未評分的字不會被記錄。" : "離開將會中斷目前的測驗，<br>進度將不會被記錄。"}確定要離開嗎？
         </p>
         <div class="modal-actions">
           <button class="modal-btn-cancel" id="stay-btn">${isEssay ? "繼續撰寫" : isHandwriting ? "繼續書寫" : "繼續測驗"}</button>
@@ -2440,13 +2493,15 @@ const Router = {
       `);
       document.getElementById('stay-btn').addEventListener('click', () => Modal.hide());
       document.getElementById('leave-btn').addEventListener('click', () => {
-        Modal.hide(); this.quizActive = false; this.essayActive = false; this.handwritingActive = false; this._doNavigate(view, params);
+        Modal.hide(); this.quizActive = false; this.essayActive = false; this.handwritingActive = false; ViewWork.cancel(); action();
       });
       return;
     }
-    this._doNavigate(view, params);
+    ViewWork.cancel();
+    action();
   },
   _doNavigate(view, params) {
+    ViewWork.cancel();
     if (this.currentView === 'practice') Views.practice?.cleanupQuiz?.();
     if (this.currentView === 'kanaReadingPractice' || document.getElementById('kana-reading-answer')) Views.kanaReadingPractice?.cleanup?.();
     if (this.currentView === 'wordReadingPractice' || document.getElementById('word-reading-answer')) Views.wordReadingPractice?.cleanup?.();
@@ -2463,7 +2518,10 @@ const Router = {
     const viewDiv = document.createElement('div');
     viewDiv.id = `${view}-view`; viewDiv.className = 'view-enter';
     container.appendChild(viewDiv);
-    Views[view].render(viewDiv, params);
+    try { Views[view].render(viewDiv, params); }
+    catch (error) {
+      viewDiv.innerHTML = `<section class="settings-card"><h2>此頁資料暫時無法載入</h2><p>${escapeHTML(error.message)}</p><button class="btn-secondary" data-storage-action="export">匯出救援資料</button><p id="storage-operation-message" role="status"></p></section>`;
+    }
     enhanceKeyboardOptions(viewDiv);
     setTimeout(() => {
       window.updateScrollFabs?.();
@@ -2494,7 +2552,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_6" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_7" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -2972,6 +3030,8 @@ function bindPracticeModeSelector(container, currentMode = 'quiz') {
   selector.addEventListener('change', (e) => {
     const mode = e.target.value;
     if (mode === currentMode) return;
+    selector.value = currentMode;
+    Router.requestLeave(() => {
     DB.saveLastPracticeMode(mode);
     Router.essayActive = false;
     Router.quizActive = false;
@@ -2980,6 +3040,7 @@ function bindPracticeModeSelector(container, currentMode = 'quiz') {
     Views.kanaReadingPractice?.cleanup?.();
     Views.wordReadingPractice?.cleanup?.();
     renderPracticeModeInContainer(container, mode);
+    });
   });
 }
 
@@ -4714,21 +4775,23 @@ Views.readingQuiz = {
       const selected = selectWords(5, 'all', DB.getBoostedWords());
       if (selected.length < 5) { showToast('資料庫至少需要 5 個單字'); return; }
       btn.disabled = true;
-      if (status) status.innerHTML = `<div class="reading-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>AI 正在生成日文閱讀文章與語意測驗...</span></div>`;
+      const job = beginAIWork(container, status, 'AI 正在生成日文閱讀文章與測驗…');
       try {
-        const result = await Gemini.generateReadingQuiz(selected);
+        const result = await Gemini.generateReadingQuiz(selected, job.options);
+        if (!job.current()) return;
         this.state = { ...this._blankState(), phase: 'quiz', words: selected, article: result.article, questions: result.questions, answers: {}, submitted: false, score: 0, correct: 0 };
         Router.quizActive = true;
         this.renderQuiz(container);
       } catch(err) {
-        let msg = '文章閱讀測驗生成失敗，請稍後重試';
+        if (!job.current()) return;
+        let msg = Gemini.describeError(err, '文章閱讀測驗');
         if (err.message === 'NO_API_KEY') msg = '請先在設定頁填入 Gemini API Key';
         else if (err.message === 'NETWORK_ERROR') msg = '網路連線失敗，請確認連線後重試';
         else if (String(err.message || '').includes('quota') || String(err.message || '').includes('429')) msg = 'API 配額或請求頻率限制，請稍後再試';
         else if (String(err.message || '').includes('API') || String(err.message || '').includes('permission')) msg = 'API Key 或模型權限異常，請到設定頁確認';
         if (status) status.innerHTML = `<div class="essay-error">${escapeHTML(msg)}<div class="essay-error-detail">${escapeHTML(err.message || '')}</div></div>`;
         btn.disabled = false;
-      }
+      } finally { job.finish(); if (btn.isConnected) btn.disabled = false; }
     });
   },
 
@@ -4862,7 +4925,7 @@ Views.readingQuiz = {
       });
     });
     document.getElementById('reading-submit-btn')?.addEventListener('click', () => this.submit(container));
-    document.getElementById('reading-regenerate-btn')?.addEventListener('click', () => this.renderSetup(container));
+    document.getElementById('reading-regenerate-btn')?.addEventListener('click', () => Router.requestLeave(() => this.renderSetup(container)));
   },
 
   _updateSubmitState() {
@@ -4948,15 +5011,19 @@ Views.readingQuiz = {
     this._setArticleTranslationPanel({ open: true, loading: true });
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     if (btn) btn.disabled = true;
+    const owner = panel.closest('.view-enter');
+    const job = ViewWork.start(owner, panel);
     try {
-      const zh = await Gemini.translateReadingArticle(this.state.article, this.state.words);
+      const zh = await Gemini.translateReadingArticle(this.state.article, this.state.words, job.options);
+      if (!job.current()) return;
       this.state.articleZh = zh;
       this._setArticleTranslationPanel({
         open: true,
         html: this._buildArticleZhHtml(zh, this.state.words)
       });
     } catch (err) {
-      let msg = '文章翻譯失敗，請稍後重試';
+      if (!job.current()) return;
+      let msg = Gemini.describeError(err, '文章翻譯');
       if (err.message === 'NO_API_KEY') msg = '請先在設定頁填入 Gemini API Key';
       else if (err.message === 'NETWORK_ERROR') msg = '網路連線失敗，請確認連線後重試';
       this._setArticleTranslationPanel({
@@ -4964,6 +5031,7 @@ Views.readingQuiz = {
         errorHtml: `<div class="essay-error">${escapeHTML(msg)}<div class="essay-error-detail">${escapeHTML(err.message || '')}</div></div>`
       });
     } finally {
+      job.finish();
       if (btn) btn.disabled = false;
     }
   },
@@ -5679,6 +5747,9 @@ Views.essay = {
     const words  = DB.getWords();
     const hasKey = !!DB.getApiKey();
     this._pool = [...words].sort(() => Math.random() - 0.5).slice(0, 3);
+    const draft = loadPracticeDraft('essay:' + this._mode);
+    if (draft?.text) { this._pool = draft.pool || this._pool; this._topic = draft.topic || ''; this._topicZh = draft.topicZh || ''; }
+    Router.essayActive = !!draft?.text;
 
     const modeVocabActive = this._mode === 'vocab';
 
@@ -5728,25 +5799,32 @@ Views.essay = {
 
     bindPracticeModeSelector(container, 'essay');
 
-    // Mode toggle
+    // Mode changes use the same leave guard as navigation.
     document.getElementById('essay-mode-vocab')?.addEventListener('click', () => {
+      Router.requestLeave(() => {
       this._mode = 'vocab'; this._topic = ''; this._topicZh = '';
       Router.essayActive = false;
       this.render(container, true);
+      });
     });
     document.getElementById('essay-mode-ai')?.addEventListener('click', () => {
+      Router.requestLeave(() => {
       this._mode = 'ai';
       Router.essayActive = false;
       this.render(container, true);
+      });
     });
 
-    document.getElementById('essay-back-btn').addEventListener('click', () => { Router.essayActive = false; Views.practice.render(container); });
+    document.getElementById('essay-back-btn').addEventListener('click', () => Router.requestLeave(() => { Router.essayActive = false; Views.practice.render(container); }));
 
     // Vocab mode: reroll
     document.getElementById('essay-reroll')?.addEventListener('click', () => {
+      Router.requestLeave(() => {
+      AppStorage.removeItem('practiceDraft:essay:vocab');
       Router.essayActive = false;
       this._mode = 'vocab'; this._topic = '';
       this.render(container, false);
+      });
     });
 
     // AI mode: generate topic
@@ -5805,11 +5883,13 @@ Views.essay = {
 
     const textarea = document.getElementById('essay-textarea');
     const charCount = document.getElementById('essay-char-count');
+    if (draft?.text && textarea) { textarea.value = draft.text; charCount.textContent = `${draft.text.length} / 500 · 已載入草稿`; }
     textarea?.addEventListener('input', () => {
       const len = textarea.value.length;
       charCount.textContent = `${len} / 500`;
       charCount.style.color = len > 450 ? 'var(--danger)' : 'var(--text-muted)';
       Router.essayActive = len > 0;
+      savePracticeDraft('essay:' + this._mode, { text: textarea.value, pool: this._pool, topic: this._topic, topicZh: this._topicZh });
     });
 
     document.getElementById('essay-submit-btn')?.addEventListener('click', async () => {
@@ -5818,7 +5898,7 @@ Views.essay = {
       const resultArea = document.getElementById('essay-result-area');
       const submitBtn = document.getElementById('essay-submit-btn');
       submitBtn.disabled = true; submitBtn.textContent = '⏳ AI 批改中...';
-      resultArea.innerHTML = '<div class="essay-loading"><div class="loading-dots"><span></span><span></span><span></span></div><span>AI 正在批改您的文章，請稍候...</span></div>';
+      const job = beginAIWork(container, resultArea, 'AI 正在批改文章…');
 
       const isAiMode = this._mode === 'ai';
       const topic    = this._topic;
@@ -5826,15 +5906,17 @@ Views.essay = {
 
       try {
         const feedback = isAiMode
-          ? await Gemini.reviewEssayFree(essay, topic)
-          : await Gemini.reviewEssay(essay, pool);
-        Router.essayActive = false;
+          ? await Gemini.reviewEssayFree(essay, topic, job.options)
+          : await Gemini.reviewEssay(essay, pool, job.options);
+        if (!job.current()) return;
+        Router.essayActive = textarea.value.trim() !== essay;
         this._renderFeedback(resultArea, feedback, essay, pool, container);
         const annotatedHtml = Views.essay._buildAnnotatedEssay(essay, (feedback.grammar||[]).map((g,i)=>({...g,idx:i})));
         DB.addEssaySession({ date: todayStr(), words: pool, essay, feedback: JSON.stringify(feedback), score: feedback.score, annotatedHtml, essayMode: isAiMode?'ai':'vocab', topic: isAiMode?topic:'' });
       } catch(e) {
+        if (!job.current()) return;
         const raw = e.message || '';
-        let msg = '❌ 批改失敗', detail = '';
+        let msg = Gemini.describeError(e, '文章批改'), detail = '';
         if (raw === 'NO_API_KEY')          msg = '🔑 請先在設定頁填入 Gemini API Key';
         else if (raw === 'NETWORK_ERROR')  msg = '🌐 網路連線失敗，請確認網路後重試';
         else if (raw.startsWith('PARSE_ERROR')) { msg = '⚠️ AI 回應格式無法解析'; detail = raw.replace('PARSE_ERROR: ',''); }
@@ -5843,8 +5925,8 @@ Views.essay = {
         else if (raw.includes('API_KEY_INVALID') || raw.includes('invalid')) msg = '🔑 API Key 無效';
         else if (raw.includes('429')) msg = '⏳ 請求過於頻繁，請稍候再試';
         resultArea.innerHTML = `<div class="essay-error">${msg}${detail?`<div class="essay-error-detail">${detail}</div>`:''}<div class="essay-error-retry">請點下方按鈕重試</div></div>`;
-        submitBtn.disabled = false; submitBtn.textContent = '重新送出';
-      }
+        submitBtn.textContent = '重新送出';
+      } finally { job.finish(); if (submitBtn.isConnected) { submitBtn.disabled = false; if (submitBtn.textContent.includes('批改中')) submitBtn.textContent = '重新送出'; } }
     });
   },
 
@@ -5982,7 +6064,7 @@ Views.essay = {
         <button class="btn-secondary" id="essay-retry-btn" style="margin-top:20px">再寫一篇</button>
       </div>
     `;
-    document.getElementById('essay-retry-btn').addEventListener('click', () => { Router.essayActive = false; this.render(pageContainer, true); });
+    document.getElementById('essay-retry-btn').addEventListener('click', () => Router.requestLeave(() => { Router.essayActive = false; AppStorage.removeItem('practiceDraft:essay:' + this._mode); this.render(pageContainer, true); }));
 
     // Smooth scroll for anchor links inside the feedback card
     container.querySelectorAll('a.err-anchor, a.err-back-link').forEach(a => {
@@ -6037,7 +6119,7 @@ Views.aiAsk = {
         </div>
         <div class="aiask-model-hint">模型：${escapeHTML(modelLabel)}</div>
         <textarea class="aiask-textarea" id="aiask-textarea"
-          placeholder="e.g. How do I use 'however' correctly? &#10;Or: Please correct my sentence: I goed to the store yesterday."
+          maxlength="800" placeholder="例如：は和が有什麼差別？請用簡短日文例句說明。"
           ${!hasKey ? 'disabled' : ''}></textarea>
         <div class="aiask-char-row">
           <span class="aiask-char-count" id="aiask-char-count">0 / 800</span>
@@ -6062,20 +6144,25 @@ Views.aiAsk = {
 
     bindPracticeModeSelector(container, 'aiask');
 
-    document.getElementById('aiask-back-btn')?.addEventListener('click', () => {
+    document.getElementById('aiask-back-btn')?.addEventListener('click', () => Router.requestLeave(() => {
       Router.essayActive = false;
       Views.practice.render(container);
-    });
+    }));
 
     const textarea  = document.getElementById('aiask-textarea');
     const charCount = document.getElementById('aiask-char-count');
     const resultArea= document.getElementById('aiask-result-area');
     const submitBtn = document.getElementById('aiask-submit-btn');
+    const draft = loadPracticeDraft('aiask');
+    Router.essayActive = !!draft?.text;
+    if (draft?.text && textarea) { textarea.value = draft.text; charCount.textContent = `${draft.text.length} / 800 · 已載入草稿`; }
 
     textarea?.addEventListener('input', () => {
       const len = textarea.value.length;
       charCount.textContent = `${len} / 800`;
       charCount.style.color = len > 720 ? 'var(--danger)' : 'var(--text-muted)';
+      Router.essayActive = len > 0;
+      savePracticeDraft('aiask', { text: textarea.value });
     });
 
     submitBtn?.addEventListener('click', async () => {
@@ -6084,7 +6171,7 @@ Views.aiAsk = {
       if (q.length > 800) { showToast('問題最多 800 字'); return; }
 
       submitBtn.disabled = true;
-      resultArea.innerHTML = '<div class="ai-loading"><span class="ai-spinner"></span>AI 回覆中...</div>';
+      const job = beginAIWork(container, resultArea, 'AI 回覆中…');
 
       try {
         const systemPrompt = `You are a Japanese language tutor for a Traditional Chinese learner. Answer Japanese-learning questions clearly in Traditional Chinese (繁體中文). Include kana readings for uncommon kanji when useful. When correcting Japanese, show the corrected Japanese sentence, explain particles, conjugation, kanji/kana spelling and naturalness, and preserve the learner's intended meaning. Be concise but thorough.`;
@@ -6095,10 +6182,13 @@ Views.aiAsk = {
           contents: [{ parts: [{ text: fullPrompt }] }],
           generationConfig: { temperature: 0.5, maxOutputTokens: 8192 }
         });
+        const budget = Gemini._taskBudget(job.options);
+        await Gemini._catalogForTask(budget);
         let answer = ''; let lastErr = null;
-        for (const model of Gemini._getModelList()) {
+        for (const model of Gemini._getModelList().slice(0, 3)) {
+          Gemini._assertBudget(budget);
           try {
-            const raw = await Gemini._callModel(model, body, apiKey);
+            const raw = await Gemini._callModel(model, body, apiKey, 0, budget);
             if (!raw) { lastErr = new Error('EMPTY_RESPONSE'); continue; }
             // Strip thinking tags if any
             answer = raw.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
@@ -6110,7 +6200,8 @@ Views.aiAsk = {
           }
         }
         if (!answer) throw (lastErr || new Error('API_ERROR'));
-        const id = this._makeId();
+        if (!job.current()) return;
+        const id = `${this._makeId()}-${crypto.randomUUID()}`;
         DB.addAiAskEntry({ id, question: q, answer, ts: Date.now() });
 
         resultArea.innerHTML = `
@@ -6122,18 +6213,23 @@ Views.aiAsk = {
             <div class="aiask-answer-text">${nl2br(answer)}</div>
           </div>`;
 
-        if (textarea) textarea.value = '';
-        if (charCount) { charCount.textContent = '0 / 800'; charCount.style.color = ''; }
+        if (textarea?.value.trim() === q) {
+          textarea.value = ''; Router.essayActive = false;
+          AppStorage.removeItem('practiceDraft:aiask');
+          if (charCount) { charCount.textContent = '0 / 800'; charCount.style.color = ''; }
+        }
 
         // Refresh history list
         this._renderHistoryList(container, DB.getAiAskHistory(), 'new');
       } catch(err) {
-        let msg = 'AI 回覆失敗，請稍後再試';
+        if (!job.current()) return;
+        let msg = Gemini.describeError(err, 'AI 回覆');
         if (err.message === 'NO_API_KEY') msg = '請先在設定頁填入 API Key';
         else if (err.message?.includes('NETWORK_ERROR')) msg = '網路錯誤';
         resultArea.innerHTML = `<div class="ecdict-no-result">${escapeHTML(msg)}</div>`;
       } finally {
-        submitBtn.disabled = false;
+        job.finish();
+        if (submitBtn.isConnected) submitBtn.disabled = false;
       }
     });
 
@@ -6149,14 +6245,17 @@ Views.aiAsk = {
     this._renderHistoryList(container, history, sortOrder);
   },
 
-  _renderHistoryList(container, history, sortOrder) {
-    const listEl = document.getElementById('aiask-history-list');
+  _renderHistoryList(container, history, sortOrder, page = 0) {
+    const listEl = container.querySelector('#aiask-history-list');
     if (!listEl) return;
     if (!history.length) {
       listEl.innerHTML = '<div style="text-align:center;padding:24px 0;color:var(--text-muted);font-size:13px">尚無詢問記錄</div>';
       return;
     }
-    const items = sortOrder === 'old' ? [...history].reverse() : [...history];
+    const ordered = sortOrder === 'old' ? [...history].reverse() : history;
+    const pages = Math.ceil(ordered.length / 20);
+    const currentPage = Math.max(0, Math.min(page, pages - 1));
+    const items = ordered.slice(currentPage * 20, (currentPage + 1) * 20);
     listEl.innerHTML = items.map((e, i) => {
       const id = e.id || '';
       const dateStr = id.length >= 10
@@ -6171,10 +6270,17 @@ Views.aiAsk = {
 
     listEl.querySelectorAll('.aiask-card').forEach((card, i) => {
       card.addEventListener('click', () => {
-        const item = sortOrder === 'old' ? [...history].reverse()[i] : history[i];
-        this._showDetail(container, item);
+        const item = items[i];
+        Router.requestLeave(() => this._showDetail(container, item));
       });
     });
+    if (pages > 1) {
+      const pagination = document.createElement('div'); pagination.className = 'list-pagination';
+      pagination.innerHTML = `<button type="button" data-page="prev" ${currentPage === 0 ? 'disabled' : ''}>上一頁</button><span>${currentPage + 1} / ${pages} 頁 · 共 ${ordered.length} 筆</span><button type="button" data-page="next" ${currentPage + 1 === pages ? 'disabled' : ''}>下一頁</button>`;
+      pagination.querySelector('[data-page="prev"]').onclick = () => this._renderHistoryList(container, history, sortOrder, currentPage - 1);
+      pagination.querySelector('[data-page="next"]').onclick = () => this._renderHistoryList(container, history, sortOrder, currentPage + 1);
+      listEl.appendChild(pagination);
+    }
   },
 
   _showDetail(container, item) {
@@ -6934,6 +7040,7 @@ Views.stats = {
 // SETTINGS VIEW — v1.4 layout
 // ===========================
 Views.settings = {
+  refresh(container, options) { preserveSettingsView(container, () => this.render(container), options); },
   render(container) {
     const savedKey    = DB.getApiKey();
     const hasKey      = !!savedKey;
@@ -7010,7 +7117,7 @@ Views.settings = {
               <div id="gd-account-dot" class="fb-status-dot ${signedIn ? 'connected' : 'disconnected'}"></div>
               <span id="gd-account-status" class="fb-status-text">${signedIn ? '已登入' : '帳號已記住・雲端待授權'}：${escapeHTML(email || 'Google 帳戶')}</span>
             </div>
-            <div id="gd-last-sync" class="fb-last-sync" style="margin-bottom:10px">${lastSync ? '上次同步：' + escapeHTML(lastSync) : '尚無備份上傳紀錄'}</div>
+            <div id="gd-last-sync" class="fb-last-sync" style="margin-bottom:10px">${lastSync ? '完整備份／還原：' + escapeHTML(lastSync) : '尚無備份上傳紀錄'}</div>
             <div class="settings-btn-row" style="margin-bottom:10px">
               <button class="btn-fb-upload" id="gd-upload-btn" style="flex:1">${svgUp} 上傳備份</button>
               <button class="btn-fb-download" id="gd-download-btn" style="flex:1">${svgDn} 還原備份</button>
@@ -7026,8 +7133,8 @@ Views.settings = {
             </label>
             <div class="study-streak-sync-row">
               <div class="study-streak-sync-copy">
-                <strong>跨裝置練習天數</strong>
-                <small id="study-streak-sync-status">${streakSyncState.pending ? '本機有待同步的練習天數' : streakSyncState.lastSync ? '練習天數已同步：' + escapeHTML(new Date(streakSyncState.lastSync).toLocaleString('zh-TW')) : '練習天數尚未同步'}</small>
+                <strong>跨裝置練習紀錄</strong>
+                <p class="sync-scope-note">同步練習天數、手寫、五十音與單詞讀音紀錄；單字庫、例句與其他紀錄請使用上方「上傳備份」。</p><small id="study-streak-sync-status">${streakSyncState.pending ? '本機有待同步的練習紀錄' : streakSyncState.lastSync ? '練習紀錄已同步：' + escapeHTML(new Date(streakSyncState.lastSync).toLocaleString('zh-TW')) : '練習紀錄尚未同步'}</small>
               </div>
               <button class="btn-secondary" id="gd-streak-sync-btn" type="button">立即同步</button>
             </div>
@@ -7598,7 +7705,7 @@ Views.settings = {
         const saved = await DailyReminder.enable(time);
         setReminderStatus(`已啟用，每日 ${saved.time} 提醒`, 'enabled');
         showToast(`✓ 每日 ${saved.time} 提醒已啟用`, 3000);
-        this.render(container);
+        this.refresh(container);
       } catch (error) {
         const message = reminderErrorMessage(error);
         setReminderStatus(message, 'error');
@@ -7637,7 +7744,7 @@ Views.settings = {
       try {
         await DailyReminder.disable();
         showToast('每日提醒已關閉');
-        this.render(container);
+        this.refresh(container);
       } catch (error) {
         const message = reminderErrorMessage(error);
         setReminderStatus(message, 'error');
@@ -7698,9 +7805,9 @@ Views.settings = {
     document.getElementById('toggle-vis').addEventListener('click', () => { input.type = input.type==='password'?'text':'password'; });
     document.getElementById('save-key-btn').addEventListener('click', () => {
       const key = input.value.trim(); if (!key) { showToast('請輸入 API Key'); return; }
-      DB.saveApiKey(key); showToast('✓ API Key 已儲存'); this.render(container);
+      DB.saveApiKey(key); showToast('✓ API Key 已儲存'); this.refresh(container);
     });
-    document.getElementById('clear-key-btn')?.addEventListener('click', () => { DB.saveApiKey(''); showToast('已清除 API Key'); this.render(container); });
+    document.getElementById('clear-key-btn')?.addEventListener('click', () => { input.value = ''; DB.saveApiKey(''); showToast('已清除 API Key'); this.refresh(container); });
 
     // ── 模型選擇（下拉選單） ──
     document.getElementById('gemini-model-select')?.addEventListener('change', (e) => {
@@ -7783,7 +7890,7 @@ Views.settings = {
     document.getElementById('clear-vocab-btn')?.addEventListener('click', () => {
       confirmClear('清除單字資料庫',
         `確定要清除全部 ${totalWords} 個單字嗎？此操作無法復原，建議先匯出備份。`,
-        () => { DB.saveWords([]); AppStorage.removeItem('boostedWords'); showToast('已清除單字資料庫'); this.render(container); });
+        () => { DB.saveWords([]); AppStorage.removeItem('boostedWords'); showToast('已清除單字資料庫'); this.refresh(container); });
     });
 
     // ── 3. 例句 ──
@@ -7796,7 +7903,7 @@ Views.settings = {
     document.getElementById('clear-sentences-btn')?.addEventListener('click', () => {
       confirmClear('清除所有例句',
         `確定要清除全部 ${totalSentences} 筆例句嗎（AI 生成 + CSV 匯入）？此操作無法復原。`,
-        () => { DB.saveSentenceLog([]); DB.saveImportedSentences([]); showToast('已清除所有例句'); this.render(container); });
+        () => { DB.saveSentenceLog([]); DB.saveImportedSentences([]); showToast('已清除所有例句'); this.refresh(container); });
     });
 
     // ── 4. 練習統計 ──
@@ -7808,7 +7915,7 @@ Views.settings = {
     document.getElementById('clear-stats-btn')?.addEventListener('click', () => {
       confirmClear('清除練習統計',
         `確定要清除全部 ${totalStats} 筆練習記錄嗎？此操作無法復原。`,
-        () => { DB.saveHistory([]); showToast('已清除練習統計'); this.render(container); });
+        () => { DB.saveHistory([]); showToast('已清除練習統計'); this.refresh(container); });
     });
 
     // ── 五十音手寫 ──
@@ -7819,7 +7926,7 @@ Views.settings = {
     });
     document.getElementById('clear-handwriting-btn')?.addEventListener('click', () => {
       confirmClear('清除五十音手寫記錄', `確定要清除全部 ${handwritingHistory.length} 次手寫記錄嗎？此操作無法復原。`, () => {
-        KanaProgress.saveHistory([]); showToast('已清除五十音手寫記錄'); this.render(container);
+        KanaProgress.saveHistory([]); showToast('已清除五十音手寫記錄'); this.refresh(container);
       });
     });
 
@@ -7831,7 +7938,7 @@ Views.settings = {
     });
     document.getElementById('clear-kana-reading-btn')?.addEventListener('click', () => {
       confirmClear('清除五十音讀音記錄', `確定要清除全部 ${kanaReadingHistory.length} 題讀音記錄嗎？此操作無法復原。`, () => {
-        KanaReadingProgress.saveHistory([]); showToast('已清除五十音讀音記錄'); this.render(container);
+        KanaReadingProgress.saveHistory([]); showToast('已清除五十音讀音記錄'); this.refresh(container);
       });
     });
 
@@ -7842,7 +7949,7 @@ Views.settings = {
     });
     document.getElementById('clear-word-reading-btn')?.addEventListener('click', () => {
       confirmClear('清除單詞讀音記錄', `確定要清除全部 ${wordReadingHistory.length} 題單詞讀音記錄嗎？此操作無法復原。`, () => {
-        WordReadingProgress.saveHistory([]); showToast('已清除單詞讀音記錄'); this.render(container);
+        WordReadingProgress.saveHistory([]); showToast('已清除單詞讀音記錄'); this.refresh(container);
       });
     });
 
@@ -7861,7 +7968,7 @@ Views.settings = {
     document.getElementById('clear-reading-btn')?.addEventListener('click', () => {
       confirmClear('清除文章閱讀測驗記錄',
         `確定要清除全部 ${totalReading} 次文章閱讀測驗記錄嗎？此操作無法復原。`,
-        () => { DB.saveReadingQuizHistory([]); showToast('已清除文章閱讀測驗記錄'); this.render(container); });
+        () => { DB.saveReadingQuizHistory([]); showToast('已清除文章閱讀測驗記錄'); this.refresh(container); });
     });
 
     // ── 4b. 文章撰寫 ──
@@ -7873,7 +7980,7 @@ Views.settings = {
     document.getElementById('clear-essay-btn')?.addEventListener('click', () => {
       confirmClear('清除文章撰寫記錄',
         `確定要清除全部 ${totalEssay} 篇文章記錄嗎？此操作無法復原。`,
-        () => { DB.saveEssayHistory([]); showToast('已清除文章撰寫記錄'); this.render(container); });
+        () => { DB.saveEssayHistory([]); showToast('已清除文章撰寫記錄'); this.refresh(container); });
     });
 
     // ── 4c. AI 詢問 ──
@@ -7885,36 +7992,49 @@ Views.settings = {
     document.getElementById('clear-aiask-btn')?.addEventListener('click', () => {
       confirmClear('清除 AI 詢問記錄',
         `確定要清除全部 ${totalAiAsk} 筆詢問記錄嗎？此操作無法復原。`,
-        () => { DB.saveAiAskHistory([]); showToast('已清除 AI 詢問記錄'); this.render(container); });
+        () => { DB.saveAiAskHistory([]); showToast('已清除 AI 詢問記錄'); this.refresh(container); });
     });
 
     // ── 5. 一鍵匯出：打包成單一 ZIP 一次下載 ──
-    document.getElementById('one-click-export-btn').addEventListener('click', async () => {
-      const words = DB.getWords(); const sentCsv = DB.exportSentencesCSV(); const statHistory = DB.getHistory(); const readingHistory = DB.getReadingQuizHistory();
-      if (!words.length && !sentCsv.includes('\n') && !statHistory.length && !readingHistory.length && !DB.getEssayHistory().length && !DB.getAiAskHistory().length && !studyDays.length && !handwritingHistory.length && !kanaReadingHistory.length && !wordReadingHistory.length) { showToast('尚無資料可匯出'); return; }
-      showToast('⏳ 正在打包...', 1800);
+    document.getElementById('one-click-export-btn').addEventListener('click', async event => {
+      const button = event.currentTarget;
+      if (button.disabled) return;
+      button.disabled = true;
+      const status = document.createElement('div'); button.parentElement.after(status);
+      const job = beginAIWork(container, status, '正在整理匯出檔案…');
+      const jobs = [
+        [`japanese_vocab_${dateTag}.csv`, () => DB.exportCSV()],
+        [`sentences_${dateTag}.csv`, () => DB.exportSentencesCSV()],
+        [`stats_${dateTag}.csv`, () => DB.exportStatsCSV()],
+        [`reading_${dateTag}.csv`, () => DB.exportReadingQuizCSV()],
+        [`essay_${dateTag}.csv`, () => DB.exportEssayCSV()],
+        [`aiask_${dateTag}.csv`, () => DB.exportAiAskCSV()],
+        [`study_days_${compactDateTag}.csv`, () => DB.exportStudyDaysCSV()],
+        [`kana_handwriting_${dateTag}.csv`, () => KanaProgress.exportCSV()],
+        [`kana_reading_${dateTag}.csv`, () => KanaReadingProgress.exportCSV()],
+        [`word_reading_${dateTag}.csv`, () => WordReadingProgress.exportCSV()]
+      ];
       try {
-        const zip = new window.JSZip();
-        if (words.length)           zip.file(`japanese_vocab_${dateTag}.csv`, '\uFEFF' + DB.exportCSV());
-        if (sentCsv.includes('\n')) zip.file(`sentences_${dateTag}.csv`, '\uFEFF' + sentCsv);
-        if (statHistory.length)     zip.file(`stats_${dateTag}.csv`,     '\uFEFF' + DB.exportStatsCSV());
-        if (readingHistory.length)  zip.file(`reading_${dateTag}.csv`,   '\uFEFF' + DB.exportReadingQuizCSV());
-        const essayHistory = DB.getEssayHistory();
-        if (essayHistory.length)    zip.file(`essay_${dateTag}.csv`,     '\uFEFF' + DB.exportEssayCSV());
-        const aiAskHistory = DB.getAiAskHistory();
-        if (aiAskHistory.length)    zip.file(`aiask_${dateTag}.csv`,     '\uFEFF' + DB.exportAiAskCSV());
-        if (studyDays.length)       zip.file(`study_days_${compactDateTag}.csv`, '\uFEFF' + DB.exportStudyDaysCSV());
-        if (handwritingHistory.length) zip.file(`kana_handwriting_${dateTag}.csv`, '\uFEFF' + KanaProgress.exportCSV());
-        if (kanaReadingHistory.length) zip.file(`kana_reading_${dateTag}.csv`, '\uFEFF' + KanaReadingProgress.exportCSV());
-        if (wordReadingHistory.length) zip.file(`word_reading_${dateTag}.csv`, '\uFEFF' + WordReadingProgress.exportCSV());
-        const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-        const url = URL.createObjectURL(blob); const a = document.createElement('a');
-        a.href = url; a.download = `japanese-learning-backup_${dateTag}.zip`; a.click(); URL.revokeObjectURL(url);
-        const count = [words.length, sentCsv.includes('\n'), statHistory.length, readingHistory.length, essayHistory.length, aiAskHistory.length, studyDays.length, handwritingHistory.length, kanaReadingHistory.length, wordReadingHistory.length].filter(Boolean).length;
-        showToast(`✓ 已匯出 ${count} 個檔案（ZIP）`, 3000);
-      } catch(err) {
-        showToast('匯出失敗，請重試');
-      }
+        const zip = new window.JSZip(); let count = 0;
+        for (const [filename, generate] of jobs) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+          if (job.options.signal.aborted || !job.current()) throw new Error('OPERATION_CANCELLED');
+          const csv = generate();
+          if (csv.includes('\n')) { zip.file(filename, '\uFEFF' + csv); count++; }
+        }
+        if (!count) throw new Error('尚無資料可匯出');
+        const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }, metadata => {
+          if (job.options.signal.aborted || !job.current()) throw new Error('OPERATION_CANCELLED');
+          status.querySelector('span').textContent = `正在壓縮檔案… ${Math.round(metadata.percent)}%`;
+        });
+        if (!job.current()) return;
+        const url = URL.createObjectURL(blob); const link = document.createElement('a');
+        link.href = url; link.download = `japanese-learning-backup_${dateTag}.zip`; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        status.textContent = `已匯出 ${count} 個 CSV 檔案（ZIP）`;
+      } catch (error) {
+        if (job.current()) status.textContent = error.message === 'OPERATION_CANCELLED' ? '已取消匯出；本機資料保留。' : `匯出未完成：${error.message}`;
+      } finally { job.finish(); if (button.isConnected) button.disabled = false; }
     });
 
     // ── 一鍵匯入（自動識別類型）──
@@ -8009,7 +8129,8 @@ Views.settings = {
       }
 
       if (results.length > 0) {
-        StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true });
+        try { StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true }); }
+  catch (error) { showToast(error.message, 7000); }
         GDrive.scheduleStudyStreakSync(300);
         refreshStudyStreakUI();
       }
@@ -8032,29 +8153,30 @@ Views.settings = {
           <div style="margin-top:16px"><button class="modal-btn-cancel" id="close-batch-modal" style="width:100%">完成</button></div>
         `);
         document.getElementById('close-batch-modal').addEventListener('click', () => {
-          Modal.hide(); this.render(container);
+          Modal.hide(); this.refresh(container);
         });
       }
-      if (results.length > 0) this.render(container);
+      if (results.length > 0) this.refresh(container);
     });
 
     const setDriveOperation = (message = '', percent = 0, state = 'busy') => {
-      const status = document.getElementById('gd-operation-status');
-      const text = document.getElementById('gd-operation-text');
-      const value = document.getElementById('gd-operation-percent');
+      if (!container.isConnected) return;
+      const status = container.querySelector('#gd-operation-status');
+      const text = container.querySelector('#gd-operation-text');
+      const value = container.querySelector('#gd-operation-percent');
       if (!status) return;
       status.hidden = false;
       status.classList.toggle('is-idle', !message || state === 'cancelled');
       status.classList.toggle('is-done', state === 'done');
       status.classList.toggle('has-error', state === 'error');
       status.setAttribute('aria-busy', state === 'busy' || state === 'cancelling' ? 'true' : 'false');
-      const cancel = document.getElementById('gd-transfer-cancel');
+      const cancel = container.querySelector('#gd-transfer-cancel');
       if (cancel) { cancel.hidden = !GDrive._transferController || state !== 'busy'; cancel.disabled = cancel.hidden; }
       if (text) { text.textContent = message || '尚未進行備份傳輸'; text.title = message; }
       if (value) value.textContent = percent > 0 ? `${Math.min(100, Math.round(percent))}%` : '';
     };
     const driveProgress = ({ message, percent }) => setDriveOperation(message, percent, percent >= 100 ? 'done' : 'busy');
-    document.getElementById('gd-transfer-cancel')?.addEventListener('click', () => { GDrive.cancelTransfer(); setDriveOperation('正在取消…', 0, 'cancelling'); });
+    container.querySelector('#gd-transfer-cancel')?.addEventListener('click', () => { GDrive.cancelTransfer(); setDriveOperation('正在取消…', 0, 'cancelling'); });
 
     mountSettingsGroups(container, AppStorage);
     StorageUI?.render();
@@ -8062,11 +8184,12 @@ Views.settings = {
     document.getElementById('gd-save-cfg-btn')?.addEventListener('click', () => {
       const cid = document.getElementById('gd-client-id-input').value.trim();
       const fid = document.getElementById('gd-folder-id-input').value.trim();
+      const changedClient = cid !== DB.getGDriveClientId();
       DB.setGDriveClientId(cid);
       DB.setGDriveFolderId(fid);
       showToast('✓ Google Drive 設定已儲存');
       // If signed in with old token, sign out since client ID may have changed
-      if (GDrive.hasRememberedSession()) { GDrive.signOut(); this.render(container); }
+      if (changedClient && GDrive.hasRememberedSession()) { GDrive.signOut(); this.refresh(container); }
     });
 
     // ── Google 登入 ──
@@ -8078,7 +8201,7 @@ Views.settings = {
         await GDrive.signIn();
         showToast('✓ Google 登入成功，雲端資料將在背景同步', 3000);
         GDrive.scheduleStudyStreakSync(250);
-        this.render(container);
+        this.refresh(container);
       } catch(err) {
         let msg = '登入失敗，請稍後再試';
         if (err.message === 'NO_CLIENT_ID')    msg = '請先填入並儲存 OAuth Client ID';
@@ -8097,14 +8220,14 @@ Views.settings = {
       button.disabled = true;
       button.textContent = '同步中…';
       try {
-        setDriveOperation('正在同步練習天數…', 10);
+        setDriveOperation('正在同步練習紀錄…', 10);
         const result = await GDrive.syncStudyStreak({ interactive: true, onProgress: driveProgress });
-        showToast(`✓ 練習天數已同步，共 ${result.summary.totalDays} 天`, 3000);
-        this.render(container);
+        showToast(`✓ 練習紀錄已同步，共 ${result.summary.totalDays} 天`, 3000);
+        this.refresh(container);
       } catch (error) {
         StudyStreak.markPending();
-        setDriveOperation('練習天數同步失敗', 0, 'error');
-        showToast('練習天數同步失敗：' + error.message, 3500);
+        setDriveOperation('練習紀錄同步失敗', 0, 'error');
+        showToast('練習紀錄同步失敗：' + error.message, 3500);
         button.disabled = false;
         button.textContent = '立即同步';
       }
@@ -8114,7 +8237,7 @@ Views.settings = {
     document.getElementById('gd-signout-btn')?.addEventListener('click', () => {
       GDrive.signOut();
       showToast('已登出 Google');
-      this.render(container);
+      this.refresh(container);
     });
 
     // ── 上傳備份 ──
@@ -8130,7 +8253,7 @@ Views.settings = {
         const ts = await GDrive.upload({ interactive: true, onProgress: driveProgress });
         // Keep the same DOM, disclosure state and user scroll position throughout upload.
         const lastSync = document.getElementById('gd-last-sync');
-        if (lastSync) lastSync.textContent = '上次同步：' + ts;
+        if (lastSync) lastSync.textContent = '完整備份／還原：' + ts;
         setDriveOperation('備份已上傳完成', 100, 'done');
         showToast('✓ 備份已上傳至 Google Drive');
       } catch(err) {
@@ -8216,7 +8339,7 @@ Views.settings = {
                   await GDrive.applyDownload(data, mode);
                   Modal.hide();
                   showToast('✓ 備份已還原至本機');
-                  this.render(container);
+                  this.refresh(container, { preserveInputs: false });
                 } catch (error) {
                   if (title) title.textContent = '還原未完成';
                   showToast(error.message, 4500);
@@ -8228,7 +8351,7 @@ Views.settings = {
               document.getElementById('gd-dl-cancel2').addEventListener('click',   () => Modal.hide());
             } catch(err) {
               b.innerHTML = originalRow;
-              if (err.message === 'TOKEN_EXPIRED') { Modal.hide(); showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
+              if (err.message === 'TOKEN_EXPIRED') { Modal.hide(); showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.refresh(container); }
               else if (err.message === 'DRIVE_TIMEOUT') { showToast('Google Drive 下載逾時，請確認網路後重試', 3500); Modal.hide(); }
               else { showToast('下載失敗：' + err.message, 3000); Modal.hide(); }
             }
@@ -8237,7 +8360,7 @@ Views.settings = {
       } catch(err) {
         setDriveOperation(err.message === 'DRIVE_TIMEOUT' ? 'Google Drive 連線逾時' : '備份清單讀取失敗', 0, 'error');
         if (err.message === 'NOT_SIGNED_IN')   showToast('請先登入 Google');
-        else if (err.message === 'TOKEN_EXPIRED') { showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.render(container); }
+        else if (err.message === 'TOKEN_EXPIRED') { showToast('需要 Google 重新確認授權，請再按一次操作', 3500); this.refresh(container); }
         else if (err.message === 'DRIVE_TIMEOUT') showToast('Google Drive 讀取逾時，請確認網路後重試', 3500);
         else showToast('讀取失敗：' + err.message, 3000);
       }
@@ -8276,7 +8399,7 @@ Views.settings = {
             await GDrive.applyDownload(item.payload, 'overwrite');
             Modal.hide();
             showToast('✓ 已還原本機復原點');
-            this.render(container);
+            this.refresh(container, { preserveInputs: false });
           } catch (error) {
             showToast(error.message, 4500);
             button.disabled = false;
@@ -8336,7 +8459,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     },
     onSafe: resumeAppUpdateWhenSafe
   });
-  StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true });
+  try { StudyStreak.migrateFromHistories(getStudyHistorySources(), { markPending: true }); }
+  catch (error) { showToast(error.message, 7000); }
   syncDailyReminderFromStudyDays();
   // Service Worker registration may touch the network on iOS. It must not delay
   // the first render or make app entry look like it is waiting for Google login.
@@ -8379,7 +8503,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           const syncResult = await GDrive.autoRestoreIfCloudHasMore();
           if (syncResult.status === 'restored') {
             showToast('✓ 已自動同步雲端最新備份', 2800);
-            if (Router.currentView === 'home' || Router.currentView === 'settings') Router._doNavigate(Router.currentView);
+            if (Router.currentView === 'settings') Views.settings.refresh(document.getElementById('settings-view'));
+            else if (Router.currentView === 'home') Router._doNavigate('home');
           } else if (syncResult.status === 'conflict') {
             console.warn('[GDrive] Auto-sync conflict detected.', syncResult);
             showToast('雲端與本機資料各有差異，為保護資料未自動覆寫', 3800);

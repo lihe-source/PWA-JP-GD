@@ -29,7 +29,7 @@ test('malformed record JSON never replaces existing answers with an empty collec
 });
 
 test('background backup preparation and parsing preserve every collection and checksum', () => {
-  const prepared = executeBackgroundJob('prepare-backup', { collections: { words: [{ id: 'w', english: '時計' }], wordReadingHistory: [{ id: 'r', word: '時計', answer: 'tokei', correct: true }] }, metadata: { appVersion: 'V1.5.6' } });
+  const prepared = executeBackgroundJob('prepare-backup', { collections: { words: [{ id: 'w', english: '時計' }], wordReadingHistory: [{ id: 'r', word: '時計', answer: 'tokei', correct: true }] }, metadata: { appVersion: 'V1.5.7' } });
   assert.equal(BackupSchema.validate(prepared.data).valid, true);
   assert.equal(executeBackgroundJob('parse-backup', { raw: '\uFEFF'+prepared.serialized }).words[0].english, '時計');
   assert.equal(prepared.data.wordReadingHistory[0].id, 'r');
@@ -137,13 +137,13 @@ test('old API key responses and discovery cannot be committed after changing the
 test('version manager distinguishes old deployments, deliberate rollback and invalid metadata', async () => {
   const original=globalThis.fetch;
   const storage={setItem() {}};
-  const manager=new VersionManager({currentVersion:'V1_5_6',currentBuild:2026100901,storage});
+  const manager=new VersionManager({currentVersion:'V1_5_7',currentBuild:2026101501,storage});
   try {
     globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_4'}));
     let result=await manager.check(); assert.equal(result.hasUpdate,false); assert.equal(result.direction,'older-deployment');
-    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_4',build:2026100902}));
+    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_4',build:2026101502}));
     result=await manager.check(); assert.equal(result.hasUpdate,true); assert.equal(result.direction,'rollback');
-    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_6<script>'}));
+    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_7<script>'}));
     await assert.rejects(manager.check(),/VERSION_INVALID/);
   } finally { globalThis.fetch=original; }
 });
@@ -176,7 +176,7 @@ for (const outcome of ['success', 'cancelled', 'expired']) {
     const nodes = Object.fromEntries(['gd-upload-btn', 'gd-download-btn', 'gd-streak-sync-btn', 'gd-operation-status', 'gd-operation-text', 'gd-operation-percent', 'gd-transfer-cancel', 'gd-last-sync', 'gd-account-status', 'gd-account-dot'].map(id => { const node = makeNode(); node.id = id; return [id, node]; }));
     const settings = { scrollTop: 640, unsavedText: '保留未儲存的設定', cloudOpen: true };
     let renders = 0;
-    const ctx = { document: { getElementById: id => nodes[id] || null }, showToast: value => messages.push(value), render() { renders++; settings.scrollTop = 0; },
+    const ctx = { container: { isConnected: true, querySelector: selector => nodes[selector.slice(1)] || null }, document: { getElementById: id => nodes[id] || null }, showToast: value => messages.push(value), render() { renders++; settings.scrollTop = 0; },
       GDrive: { _transferController: null, isSignedIn: () => outcome !== 'expired', getUserEmail: () => 'test@example.test',
         cancelTransfer() { this.cancelled = true; },
         async upload({ onProgress }) {

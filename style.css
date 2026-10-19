@@ -4350,3 +4350,8 @@ body { position: relative; height: 100%; min-height: 0; }
 .practice-compact-group .option-label, .essay-practice-card .essay-words-label { font-size:12px; }
 .essay-practice-card .essay-mode-btn, .practice-two-grid .radio-text { font-size:14px; }
 .practice-five-grid .chip, .practice-six-grid .chip { font-size:12px; }
+
+/* Independent daily vocabulary script selections. */
+.daily-script-group { min-width:0; border:0; border-top:1px solid var(--border); padding:12px 0 8px; margin:12px 0 0; }
+.daily-script-group legend { padding:0 8px 0 0; font-size:15px; font-weight:800; color:var(--text-primary); }
+.daily-script-note { font-size:13px; line-height:1.65; color:var(--text-muted); margin:8px 0 0; }

@@ -1,34 +1,34 @@
-import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_7';
-import { createGeminiClient } from './gemini-client.js?v=V1_5_7';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_7';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_7';
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_7';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_7';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_7';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_8';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_8';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_8';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_8';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_8';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_8';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_8';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_7';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_7';
-import { VersionManager } from './version-manager.js?v=V1_5_7';
-import { TrendChart } from './chart-renderer.js?v=V1_5_7';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_7';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_7';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_7';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_7';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_7';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_7';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_7';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_7';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_7';
+import { AppStorage } from './storage.js?v=V1_5_8';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_8';
+import { VersionManager } from './version-manager.js?v=V1_5_8';
+import { TrendChart } from './chart-renderer.js?v=V1_5_8';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_8';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_8';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_8';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_8';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_8';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_8';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_8';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_8';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_8';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_7
-// V1.5.7：頁面狀態保留、可取消 AI 任務、草稿保護與資料完整性防護
+// 日本語練習 PWA - app.js V1_5_8
+// V1.5.8：每日推薦平假名／片假名獨立選行與完整讀音驗證
 // ===========================
 
 const ViewWork = new ViewWorkManager();
-const APP_VERSION = 'V1_5_7';
-const APP_DISPLAY_VERSION = 'V1.5.7';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_7';
+const APP_VERSION = 'V1_5_8';
+const APP_DISPLAY_VERSION = 'V1.5.8';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_8';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -39,7 +39,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026101501,
+  currentBuild: 2026101901,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -855,9 +855,9 @@ const DB = {
   },
   saveDailyLearningPreferences(patch = {}) {
     const current = this.getDailyLearningPreferences();
-    const normalized = normalizeDailyLearningPreferences({ ...current, ...patch });
+    const normalized = normalizeDailyLearningPreferences({ ...current, ...patch, ...(patch.rows && !patch.scriptRows ? { scriptRows: undefined } : {}) });
     this.saveJlptLevel(normalized.level);
-    AppStorage.setItem('dailyLearningPreferencesV1', JSON.stringify({ source: normalized.source, rows: normalized.rows }));
+    AppStorage.setItem('dailyLearningPreferencesV1', JSON.stringify({ source: normalized.source, rows: normalized.rows, scriptRows: normalized.scriptRows }));
     return normalized;
   },
   getTodayDailyVocabulary() {
@@ -871,10 +871,11 @@ const DB = {
       const words = normalizeDailyVocabulary(saved.words, {
         level: preferences.level,
         rows: preferences.rows,
+        scriptRows: preferences.scriptRows,
         limit: 1
       });
       if (!words.length) return null;
-      const normalized = { ...saved, level: preferences.level, rows: preferences.rows, words };
+      const normalized = { ...saved, level: preferences.level, rows: preferences.rows, scriptRows: preferences.scriptRows, words };
       if (JSON.stringify(saved.words) !== JSON.stringify(normalized.words)) {
         AppStorage.setItem('todayDailyVocabularyV1', JSON.stringify(normalized));
       }
@@ -889,9 +890,11 @@ const DB = {
       source: DAILY_LEARNING_SOURCES.LEVEL,
       level: preferences.level,
       rows: preferences.rows,
+      scriptRows: preferences.scriptRows,
       words: normalizeDailyVocabulary(words, {
         level: preferences.level,
         rows: preferences.rows,
+        scriptRows: preferences.scriptRows,
         limit: 1
       }),
       generatedAt: new Date().toISOString()
@@ -2552,7 +2555,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_7" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_8" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -2583,7 +2586,7 @@ Views.home = {
           <div class="hero-label">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
             <span>${levelLearning ? '今日推薦單字' : '今日例句'}</span>
-            <small class="hero-learning-context">${levelLearning ? `JLPT ${escapeHTML(dailyPreferences.level)}・${escapeHTML(selectedLearningRowLabel(dailyPreferences.rows))}` : '來源：單字庫'}</small>
+            <small class="hero-learning-context">${levelLearning ? `JLPT ${escapeHTML(dailyPreferences.level)}・${escapeHTML(selectedLearningPreferenceLabel(dailyPreferences))}` : '來源：單字庫'}</small>
           </div>
           <div id="hero-content">
             <div class="hero-idle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:28px;height:28px;opacity:0.35;display:block;margin:0 auto 8px"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><div style="font-size:12px;opacity:0.5">${levelLearning ? '正在準備今日推薦單字…' : '點右上角 ↻ 生成今日例句'}</div></div>
@@ -2735,7 +2738,7 @@ Views.home = {
           </article>
         `).join('')}
       </div>
-      <div class="daily-vocab-foot">JLPT ${escapeHTML(data.level || DB.getJlptLevel())}・${escapeHTML(selectedLearningRowLabel(data.rows || ['all']))}・每日一詞</div>
+      <div class="daily-vocab-foot">JLPT ${escapeHTML(data.level || DB.getJlptLevel())}・${escapeHTML(selectedLearningPreferenceLabel(data))}・每日一詞</div>
       <div class="daily-sentence-preview" id="daily-sentence-preview" data-word="${escapeAttr(words[0]?.word || '')}"></div>
       <div class="daily-vocab-sentence-status" id="daily-vocab-sentence-status" role="status" aria-live="polite">正在同步至每日例句…</div>`;
     heroContent.querySelectorAll('[data-daily-speak]').forEach(button => {
@@ -7515,14 +7518,19 @@ Views.settings = {
           </div>
           <div class="daily-learning-row-section ${dailyLearningPreferences.source===DAILY_LEARNING_SOURCES.LEVEL?'':'is-disabled'}" id="daily-learning-row-section">
             <div class="daily-learning-row-head">
-              <strong>想學習的五十音行</strong>
-              <small>可同時選擇多行；推薦單字的完整讀音只使用已選行的音</small>
+              <strong>想學習的假名與行別</strong>
+              <small>兩組可各自複選；至少選一行。只推薦完整讀音符合該組選擇的單字。</small>
             </div>
-            <div class="kana-row-grid daily-learning-row-grid" role="group" aria-label="選擇推薦單字的五十音行">
-              <button class="kana-row-chip ${dailyLearningPreferences.rows.includes('all')?'selected':''}" type="button" data-learning-row="all" aria-pressed="${dailyLearningPreferences.rows.includes('all')}">全部行</button>
-              ${LEARNING_KANA_ROWS.map(row => `<button class="kana-row-chip ${dailyLearningPreferences.rows.includes(row.id)?'selected':''}" type="button" data-learning-row="${row.id}" aria-pressed="${dailyLearningPreferences.rows.includes(row.id)}">${row.label}</button>`).join('')}
-            </div>
-            <div class="kana-row-summary" id="daily-learning-row-summary">目前選擇：${escapeHTML(selectedLearningRowLabel(dailyLearningPreferences.rows))}</div>
+            ${['hiragana', 'katakana'].map(script => {
+              const selected = dailyLearningPreferences.scriptRows[script];
+              const title = script === 'hiragana' ? '平假名' : '片假名';
+              return `<fieldset class="daily-script-group"><legend>${title}</legend>
+                <div class="kana-row-grid daily-learning-row-grid" role="group" aria-label="${title}推薦行別">
+                  ${[{id:'all', label:'全部行'}, ...LEARNING_KANA_ROWS, {id:'none', label:'不練習'}].map(row => `<button class="kana-row-chip ${row.id === 'none' ? (!selected.length ? 'selected' : '') : (selected.includes(row.id) ? 'selected' : '')}" type="button" data-learning-script="${script}" data-learning-row="${row.id}" aria-pressed="${row.id === 'none' ? !selected.length : selected.includes(row.id)}">${script === 'katakana' ? hiraganaToKatakana(row.label) : row.label}</button>`).join('')}
+                </div></fieldset>`;
+            }).join('')}
+            <div class="kana-row-summary" id="daily-learning-row-summary" aria-live="polite">目前選擇：${escapeHTML(selectedLearningPreferenceLabel(dailyLearningPreferences))}</div>
+            <p class="daily-script-note">濁音、半濁音歸原行；拗音需選齊相關行。促音與長音符沿用原規則。行別限制適用推薦單字，例句仍使用自然日文。</p>
           </div>
           <div class="settings-tip" style="margin-bottom:0">「單字庫」保留原本從資料庫抽字並生成例句的方式；「依等級學習」每天依 JLPT 等級與所選五十音行推薦 1 個單字，包含假名、羅馬拼音、詞性及中文。</div>
         </div>
@@ -7849,27 +7857,29 @@ Views.settings = {
       showToast(preferences.source === DAILY_LEARNING_SOURCES.LEVEL ? '✓ 首頁改為依等級推薦單字' : '✓ 首頁改為從單字庫產生例句');
     });
     const refreshDailyLearningRowUI = preferences => {
-      document.querySelectorAll('[data-learning-row]').forEach(button => {
-        const selected = preferences.rows.includes(button.dataset.learningRow);
+      container.querySelectorAll('[data-learning-row]').forEach(button => {
+        const rows = preferences.scriptRows[button.dataset.learningScript];
+        const selected = button.dataset.learningRow === 'none' ? !rows.length : rows.includes(button.dataset.learningRow);
         button.classList.toggle('selected', selected);
-        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        button.setAttribute('aria-pressed', String(selected));
       });
-      const summary = document.getElementById('daily-learning-row-summary');
-      if (summary) summary.textContent = `目前選擇：${selectedLearningRowLabel(preferences.rows)}`;
+      const summary = container.querySelector('#daily-learning-row-summary');
+      if (summary) summary.textContent = `目前選擇：${selectedLearningPreferenceLabel(preferences)}`;
     };
-    document.querySelectorAll('[data-learning-row]').forEach(button => {
+    container.querySelectorAll('[data-learning-row]').forEach(button => {
       button.addEventListener('click', () => {
-        const row = button.dataset.learningRow;
+        const row = button.dataset.learningRow, script = button.dataset.learningScript;
         const current = DB.getDailyLearningPreferences();
         let rows;
         if (row === 'all') rows = ['all'];
+        else if (row === 'none') rows = [];
         else {
-          const selected = new Set(current.rows.includes('all') ? [] : current.rows);
+          const selected = new Set(current.scriptRows[script].includes('all') ? [] : current.scriptRows[script]);
           if (selected.has(row)) selected.delete(row); else selected.add(row);
-          rows = selected.size ? [...selected] : ['all'];
+          rows = [...selected];
           if (rows.length === LEARNING_KANA_ROWS.length) rows = ['all'];
         }
-        const saved = DB.saveDailyLearningPreferences({ rows });
+        const saved = DB.saveDailyLearningPreferences({ scriptRows: { ...current.scriptRows, [script]: rows } });
         refreshDailyLearningRowUI(saved);
       });
     });

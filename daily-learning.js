@@ -30,7 +30,28 @@ export function normalizeDailyLearningPreferences(value = {}) {
     ? [...new Set(value.rows.filter(row => ROW_IDS.has(row)))]
     : ['all'];
   if (value.rows?.includes?.('all') || !rows.length) rows = ['all'];
-  return { source, level, rows };
+  const normalizeRows = list => Array.isArray(list)
+    ? (list.includes('all') ? ['all'] : [...new Set(list.filter(row => ROW_IDS.has(row)))]) : [];
+  // Migrate the old single row selection to hiragana. Explicit empty arrays
+  // mean disabled, never silently broaden them to all rows.
+  const scriptRows = value.scriptRows && typeof value.scriptRows === 'object'
+    ? { hiragana: normalizeRows(value.scriptRows.hiragana), katakana: normalizeRows(value.scriptRows.katakana) }
+    : { hiragana: [...rows], katakana: [] };
+  rows = [...new Set([...scriptRows.hiragana, ...scriptRows.katakana])];
+  if (rows.includes('all')) rows = ['all'];
+  return { source, level, rows, scriptRows };
+}
+
+export function hiraganaToKatakana(value) {
+  return [...String(value || '')].map(c => /[ぁ-ゖ]/u.test(c) ? String.fromCharCode(c.charCodeAt(0) + 0x60) : c).join('');
+}
+
+export function selectedLearningPreferenceLabel(value = {}) {
+  const { scriptRows } = normalizeDailyLearningPreferences(value);
+  return ['hiragana', 'katakana'].filter(script => scriptRows[script].length).map(script => {
+    const label = selectedLearningRowLabel(scriptRows[script]);
+    return `${script === 'hiragana' ? '平假名' : '片假名'}：${script === 'katakana' ? hiraganaToKatakana(label) : label}`;
+  }).join('；') || '尚未選擇假名行';
 }
 
 export function selectedLearningRows(rows = ['all']) {
@@ -138,12 +159,24 @@ export function kanaToRomaji(value) {
   return result;
 }
 
-export function normalizeDailyVocabulary(items, { level = 'N5', rows = ['all'], limit = 1 } = {}) {
+export function normalizeDailyVocabulary(items, { level = 'N5', rows = ['all'], scriptRows, limit = 1 } = {}) {
   const result = [];
   const seen = new Set();
   for (const raw of Array.isArray(items) ? items : []) {
-    const word = String(raw?.word || raw?.japanese || '').trim();
-    const reading = katakanaToHiragana(String(raw?.reading || raw?.kana || '').trim());
+    const word = String(raw?.word || raw?.japanese || '').trim().normalize('NFKC');
+    const script = /^[ァ-ヺー・\s]+$/u.test(word) ? 'katakana' : 'hiragana';
+    let reading = katakanaToHiragana(String(raw?.reading || raw?.kana || '').trim().normalize('NFKC'));
+    if (scriptRows) {
+      const allowed = normalizeDailyLearningPreferences({ scriptRows }).scriptRows[script];
+      if (!allowed.length || !readingMatchesRows(reading, allowed)) continue;
+      // Keep normal katakana vocabulary; do not turn arbitrary kanji words
+      // into katakana merely to pass the learner's selection.
+      if (script === 'hiragana' && /[ァ-ヺ]/u.test(word)) continue;
+      if (script === 'katakana') {
+        reading = hiraganaToKatakana(reading);
+        if (word.replace(/[\s・]/gu, '') !== reading.replace(/[\s・]/gu, '')) continue;
+      }
+    }
     const meaning = String(raw?.meaning || raw?.chinese || '').trim();
     if (!word || !reading || !meaning || !readingMatchesRows(reading, rows)) continue;
     const key = `${word}|${reading}`;
@@ -302,7 +335,7 @@ export function validateStoredGeneratedSentence(entry) {
   });
 }
 
-export function dailyLearningSignature({ date, source, level, rows }) {
-  const normalized = normalizeDailyLearningPreferences({ source, level, rows });
-  return `${date}|${normalized.source}|${normalized.level}|${normalized.rows.slice().sort().join('+')}`;
+export function dailyLearningSignature({ date, source, level, rows, scriptRows }) {
+  const normalized = normalizeDailyLearningPreferences({ source, level, rows, scriptRows });
+  return `${date}|${normalized.source}|${normalized.level}|${normalized.rows.slice().sort().join('+')}|h:${normalized.scriptRows.hiragana.slice().sort().join('+')}|k:${normalized.scriptRows.katakana.slice().sort().join('+')}`;
 }

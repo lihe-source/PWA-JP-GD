@@ -1,5 +1,5 @@
-import { DAILY_LEARNING_SOURCES, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRows, validateGeneratedSentence } from './daily-learning.js?v=V1_5_7';
-import { normalizeJapaneseAnswer } from './japanese-learning.js?v=V1_5_7';
+import { DAILY_LEARNING_SOURCES, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRows, hiraganaToKatakana, validateGeneratedSentence } from './daily-learning.js?v=V1_5_8';
+import { normalizeJapaneseAnswer } from './japanese-learning.js?v=V1_5_8';
 export function createGeminiClient(DB) {
 return {
   _modelCatalog: null,
@@ -174,6 +174,8 @@ return {
     const model = error?.model ? `（${error.model}）` : '';
     const message = String(error?.message || 'API_ERROR');
     if (message === 'OPERATION_CANCELLED') return '已取消；輸入內容仍保留。';
+    if (message === 'DAILY_VOCABULARY_OUT_OF_SCOPE') return '未取得符合所選假名與行別的推薦詞，已攔截不符的內容。請重新產生，或調整選擇的行別。';
+    if (message === 'NO_LEARNING_ROWS') return '請先在每日推薦學習設定，至少選擇一個平假名或片假名的行。';
     if (message === 'NO_API_KEY') return '尚未設定 Gemini API Key。';
     if (message === 'API_KEY_CHANGED') return '生成期間 API Key 已變更，請使用目前設定重新生成。';
     if (/MODEL_LIST|NO_GENERATION_MODELS/.test(message)) return '暫時無法取得可用的文字模型，請稍後重新查詢。';
@@ -500,41 +502,34 @@ Rules:
     throw lastErr || new Error('SENTENCE_GENERATION_FAILED');
   },
 
-  async generateDailyVocabulary({ level, rows, count = 1 }) {
+  async generateDailyVocabulary({ level, rows, scriptRows, count = 1 }) {
     const apiKey = DB.getApiKey();
     if (!apiKey) throw new Error('NO_API_KEY');
+    const normalized = normalizeDailyLearningPreferences({ source: DAILY_LEARNING_SOURCES.LEVEL, level, rows, scriptRows });
+    const enabledScripts = ['hiragana', 'katakana'].filter(script => normalized.scriptRows[script].length);
+    if (!enabledScripts.length) throw new Error('NO_LEARNING_ROWS');
+    const script = enabledScripts[Math.floor(Math.random() * enabledScripts.length)];
+    const taskRows = normalized.scriptRows[script];
+    const taskScriptRows = { hiragana: [], katakana: [], [script]: taskRows };
     await this.ensureModelCatalog();
-    const normalized = normalizeDailyLearningPreferences({ source: DAILY_LEARNING_SOURCES.LEVEL, level, rows });
-    const allowedRows = selectedLearningRows(normalized.rows);
+    const allowedRows = selectedLearningRows(taskRows);
     const rowDescription = allowedRows
       .map(row => `${row.label}（${row.kana}）`).join('、');
-    const examplesByRow = {
-      a:  { word: '愛', reading: 'あい', romaji: 'ai', partOfSpeech: '名詞', meaning: '愛、愛情' },
-      ka: { word: 'ここ', reading: 'ここ', romaji: 'koko', partOfSpeech: '代名詞', meaning: '這裡' },
-      sa: { word: '寿司', reading: 'すし', romaji: 'sushi', partOfSpeech: '名詞', meaning: '壽司' },
-      ta: { word: '父', reading: 'ちち', romaji: 'chichi', partOfSpeech: '名詞', meaning: '父親' },
-      na: { word: '何', reading: 'なに', romaji: 'nani', partOfSpeech: '代名詞', meaning: '什麼' },
-      ha: { word: '母', reading: 'はは', romaji: 'haha', partOfSpeech: '名詞', meaning: '母親' },
-      ma: { word: '耳', reading: 'みみ', romaji: 'mimi', partOfSpeech: '名詞', meaning: '耳朵' },
-      ya: { word: '湯', reading: 'ゆ', romaji: 'yu', partOfSpeech: '名詞', meaning: '熱水' },
-      ra: { word: '瑠璃', reading: 'るり', romaji: 'ruri', partOfSpeech: '名詞', meaning: '琉璃' },
-      wa: { word: '輪', reading: 'わ', romaji: 'wa', partOfSpeech: '名詞', meaning: '環、輪' }
-    };
-    const promptExample = { ...examplesByRow[allowedRows[0]?.id || 'a'], level: normalized.level };
     const prompt = `You are selecting daily Japanese vocabulary for a Traditional Chinese learner.
 
 Target level: JLPT ${normalized.level}
-Allowed kana rows for the ENTIRE reading: ${rowDescription}
+Vocabulary script: ${script}. Use natural words normally written in this script (kanji words with hiragana readings are allowed only in hiragana mode). Do not mechanically transliterate kanji/hiragana vocabulary into katakana.
+Allowed kana rows for the ENTIRE reading: ${script === 'katakana' ? hiraganaToKatakana(rowDescription) : rowDescription}
 Number of words: ${count}
 
 Choose ${count} useful, non-duplicate Japanese words commonly taught around JLPT ${normalized.level}. EVERY pronounced kana in the full reading MUST belong to one of the allowed rows, not only the first kana. A reading containing even one kana from an unselected row is invalid. Small っ and the long-vowel mark ー are neutral modifiers; other small kana belong to their corresponding row. For example, たべる is invalid when ら行 is not selected because る belongs to ら行. When several rows are selected, distribute the words across them as evenly as practical. Avoid names, brands, obsolete words, particles by themselves, and words substantially outside the target level.
 
 Return ONLY a JSON array with exactly ${count} objects and no markdown:
-${JSON.stringify([promptExample])}
+Use fields word, reading, romaji, partOfSpeech, meaning, level. Do not invent words when this narrow selection has no suitable vocabulary.
 
 Requirements:
 - word: normal Japanese spelling (kanji/kana as commonly written)
-- reading: full hiragana reading
+- reading: full ${script} reading; katakana words and their readings must match
 - every kana in reading must be covered by the allowed rows above
 - romaji: Hepburn-style lowercase romaji
 - partOfSpeech: Traditional Chinese label
@@ -576,13 +571,13 @@ Requirements:
           lastError = this._tagError(new Error(`MODEL_${response.finishReason}`), { model, fallback: true });
           continue;
         }
-        const parsed = parseDailyVocabularyResponse(response.text, { level: normalized.level, rows: normalized.rows, limit: count });
+        const parsed = parseDailyVocabularyResponse(response.text, { level: normalized.level, rows: taskRows, scriptRows: taskScriptRows, limit: count });
         if (parsed.length === count) return parsed;
         for (const word of parsed) {
           if (!best.some(item => item.word === word.word && item.reading === word.reading)) best.push(word);
           if (best.length === count) return best;
         }
-        lastError = this._tagError(new Error('AI_OUTPUT_INVALID'), { model, fallback: true });
+        lastError = this._tagError(new Error('DAILY_VOCABULARY_OUT_OF_SCOPE'), { model, fallback: true });
       } catch (error) {
         if (error.message === 'NETWORK_ERROR') throw error;
         if (this._canTryAnotherModel(error)) { lastError = error; continue; }

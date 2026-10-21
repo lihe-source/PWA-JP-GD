@@ -115,3 +115,61 @@ test('backup preparation yields before collection reads and cancellation prevent
   await assert.rejects(context.drive._prepareBackup({signal:controller.signal}), /OPERATION_CANCELLED/);
   assert.equal(reads, 0); assert.equal(jobs, 0);
 });
+
+function speechHarness({voices=[], enabled=true}={}) {
+  const spoken=[], errors=[], timers=new Map();let timerId=0, cancels=0, resumes=0;
+  const synth={speaking:false,pending:false,paused:false,getVoices:()=>voices,
+    speak(utter){spoken.push(utter);this.speaking=true;},
+    cancel(){cancels++;this.speaking=false;},resume(){resumes++;this.paused=false;}};
+  const ctx={window:{speechSynthesis:synth},AppStorage:{getItem:()=>String(enabled),setItem(){}},
+    SpeechSynthesisUtterance:class{constructor(text){this.text=text;}},
+    setTimeout:fn=>{timers.set(++timerId,fn);return timerId;},clearTimeout:id=>timers.delete(id),showToast:message=>errors.push(message)};
+  vm.runInNewContext(app.slice(app.indexOf('const TTS ='),app.indexOf('function loadPracticeDraft'))+'\nglobalThis.tts = TTS;',ctx);
+  return {tts:ctx.tts,synth,spoken,errors,timers,get cancels(){return cancels;},get resumes(){return resumes;},
+    end(utter=spoken.at(-1)){synth.speaking=false;utter.onend();}};
+}
+
+test('kana speech completes the current sound and keeps only the latest next question',()=>{
+  const h=speechHarness();h.tts.speakKana('ア');const first=h.spoken[0];
+  h.tts.speakKana('イ');h.tts.speakKana('ウ');h.tts.speakKana('ウ');
+  assert.deepEqual(h.spoken.map(x=>x.text),['ア']);assert.equal(h.cancels,0);
+  h.end(first);assert.deepEqual(h.spoken.map(x=>x.text),['ア','ウ']);assert.equal(h.cancels,0);
+  h.end();assert.equal(h.tts._active,null);assert.equal(h.timers.size,0);
+});
+test('duplicate replay does not cut the current kana and a later replay still works',()=>{
+  const h=speechHarness();h.tts.speakKana('し');h.tts.speakKana('し');
+  assert.equal(h.spoken.length,1);assert.equal(h.cancels,0);
+  h.end();h.tts.speakKana('し');assert.equal(h.spoken.length,2);
+});
+test('voice loading never delays the initial gesture or replays a stale sound',()=>{
+  const h=speechHarness();assert.equal(h.tts.speakWhenReady('ねこ'),true);
+  assert.equal(h.spoken.length,1);assert.equal(h.spoken[0].lang,'ja-JP');assert.equal(h.synth.onvoiceschanged,undefined);
+});
+test('stop drops queued speech and stale completion callbacks cannot restart it',()=>{
+  const h=speechHarness();h.tts.speakKana('ア');const first=h.spoken[0];h.tts.speakKana('イ');h.tts.stop();
+  first.onend();first.onerror({error:'interrupted'});
+  assert.equal(h.spoken.length,1);assert.equal(h.errors.length,0);assert.equal(h.timers.size,0);assert.equal(h.tts._pending,null);
+});
+test('speech resumes paused synthesis and prefers a local Japanese voice',()=>{
+  const local={lang:'ja-JP',name:'local',localService:true};
+  const h=speechHarness({voices:[{lang:'en-US'},{lang:'ja-JP',name:'network',localService:false},local],enabled:false});
+  assert.equal(h.tts.speak('あ'),false);h.synth.paused=true;h.tts.speakKana('ア');
+  assert.equal(h.resumes,1);assert.equal(h.spoken[0].voice,local);assert.equal(h.tts.enabled,false);
+});
+test('speech failures and timeout release the active utterance without retry loops',()=>{
+  const h=speechHarness();h.tts.speakKana('ア');h.tts.speakKana('イ');h.spoken[0].onerror({error:'not-allowed'});
+  assert.equal(h.errors.length,1);assert.equal(h.tts._active,null);assert.equal(h.tts._pending,null);assert.equal(h.timers.size,0);
+  h.tts.speakKana('ウ');[...h.timers.values()][0]();assert.equal(h.tts._active,null);assert.equal(h.errors.length,2);
+  assert.equal(h.spoken.length,2);
+});
+
+test('row labels and generated questions agree for hiragana, katakana and mixed practice',async()=>{
+  const {kanaRowLabel,getKanaSet,KANA_ROWS}=await import('./kana-data.js');
+  assert.equal(kanaRowLabel('a','katakana'),'ア行');assert.equal(kanaRowLabel('wa','katakana'),'ワ行・ン');
+  assert.equal(kanaRowLabel('ka','both'),'か／カ行');assert.equal(kanaRowLabel('all','katakana'),'全部行');
+  for(const row of KANA_ROWS){
+    const pool=getKanaSet({script:'katakana',rows:[row.id]});
+    assert.ok(pool.length);assert.ok(pool.every(k=>/^[ァ-ヺ]+$/.test(k.character)&&k.rowLabel===kanaRowLabel(row.id,'katakana')));
+    assert.ok(getKanaSet({script:'hiragana',rows:[row.id]}).every(k=>/^[ぁ-ゖ]+$/.test(k.character)));
+  }
+});

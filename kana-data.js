@@ -1,4 +1,4 @@
-import { KANA_STROKES } from './kana-strokes.js?v=V1_5_8';
+import { KANA_STROKES } from './kana-strokes.js?v=V1_5_9';
 
 export const KANA_SCRIPTS = Object.freeze({
   HIRAGANA: 'hiragana',
@@ -18,6 +18,16 @@ const ROWS = [
   { id: 'wa', label: 'わ行・ん', romaji: ['wa', 'wo', 'n'], hiragana: 'わをん', katakana: 'ワヲン' }
 ];
 
+// Row identity is stable across scripts; only its display label changes.
+export function kanaRowLabel(id, script = 'hiragana') {
+  if (id === 'all') return '全部行';
+  const row = ROWS.find(item => item.id === id);
+  if (!row) return '';
+  if (script === 'katakana') return row.label.replace(/[ぁ-ゖ]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+  if (script === 'both') return `${row.hiragana[0]}／${row.katakana[0]}行${id === 'wa' ? '・ん／ン' : ''}`;
+  return row.label;
+}
+
 function buildKana(script) {
   return ROWS.flatMap(row => {
     const characters = [...row[script]];
@@ -27,7 +37,7 @@ function buildKana(script) {
       script,
       scriptLabel: script === KANA_SCRIPTS.HIRAGANA ? '平假名' : '片假名',
       row: row.id,
-      rowLabel: row.label,
+      rowLabel: kanaRowLabel(row.id, script),
       romaji: row.romaji[index],
       strokes: KANA_STROKES[character]?.paths || [],
       starts: KANA_STROKES[character]?.starts || []

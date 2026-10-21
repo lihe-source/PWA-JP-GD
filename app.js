@@ -1,34 +1,34 @@
-import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_8';
-import { createGeminiClient } from './gemini-client.js?v=V1_5_8';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_8';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_8';
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_8';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_8';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_8';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_9';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_9';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_9';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_9';
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_9';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_9';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_9';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_8';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_8';
-import { VersionManager } from './version-manager.js?v=V1_5_8';
-import { TrendChart } from './chart-renderer.js?v=V1_5_8';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_8';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_8';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_8';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_8';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_8';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_8';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_8';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_8';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_8';
+import { AppStorage } from './storage.js?v=V1_5_9';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_9';
+import { VersionManager } from './version-manager.js?v=V1_5_9';
+import { TrendChart } from './chart-renderer.js?v=V1_5_9';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_9';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_9';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_9';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_9';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_9';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_9';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_9';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_9';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_9';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_8
-// V1.5.8：每日推薦平假名／片假名獨立選行與完整讀音驗證
+// 日本語練習 PWA - app.js V1_5_9
+// V1.5.9：片假名行別顯示與手寫短音播放管理
 // ===========================
 
 const ViewWork = new ViewWorkManager();
-const APP_VERSION = 'V1_5_8';
-const APP_DISPLAY_VERSION = 'V1.5.8';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_8';
+const APP_VERSION = 'V1_5_9';
+const APP_DISPLAY_VERSION = 'V1.5.9';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_9';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -39,7 +39,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026101901,
+  currentBuild: 2026102101,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -2398,54 +2398,78 @@ function highlightJapaneseTarget(text, target) {
 const TTS = {
   _synth: window.speechSynthesis || null,
   _enabled: AppStorage.getItem('ttsEnabled') !== 'false',
-
+  _active: null,
+  _pending: null,
+  _timer: null,
   get enabled() { return this._enabled; },
   set enabled(v) { this._enabled = v; AppStorage.setItem('ttsEnabled', v); },
 
-  cancelPending() {
-    if (this._synth) this._synth.onvoiceschanged = null;
-  },
-
+  cancelPending() { this._pending = null; },
   stop() {
-    if (!this._synth) return;
-    this._synth.onvoiceschanged = null;
-    this._synth.cancel();
+    const busy = this._active || this._synth?.speaking || this._synth?.pending;
+    this._active = null;
+    this._pending = null;
+    clearTimeout(this._timer); this._timer = null;
+    // Invalidate callbacks before cancel: some engines emit error synchronously.
+    if (busy) { try { this._synth?.cancel(); } catch {} }
   },
 
   speak(text, rate = 0.85, options = {}) {
-    const force = options?.force === true;
-    if (!this._synth || (!this._enabled && !force)) return false;
-    this._synth.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'ja-JP'; utter.rate = rate; utter.pitch = 1.0; utter.volume = 1.0;
-    const voices = this._synth.getVoices();
-    const preferred = voices.find(v => /^ja/i.test(v.lang) &&
-      /Kyoko|O-ren|Hattori|Google 日本語|Japanese/i.test(v.name)
-    ) || voices.find(v => /^ja-JP/i.test(v.lang)) || voices.find(v => /^ja/i.test(v.lang));
-    if (preferred) utter.voice = preferred;
-    this._synth.speak(utter);
-    return true;
-  },
-
-  speakWhenReady(text, rate = 0.85, options = {}) {
-    const force = options?.force === true;
-    if (!this._synth || (!this._enabled && !force)) return false;
-    const voices = this._synth.getVoices();
-    if (voices.length > 0) {
-      return this.speak(text, rate, options);
-    } else {
-      this._synth.onvoiceschanged = () => { this.speak(text, rate, options); this._synth.onvoiceschanged = null; };
+    if (!this._synth || (!this._enabled && !options.force)) return false;
+    text = String(text || '').trim();
+    if (!text) return false;
+    if (options.queueLatest && this._active) {
+      // Finish the current sound. Keep at most the latest requested question.
+      this._pending = this._active.text === text ? null : { text, rate, options };
       return true;
+    }
+    this.stop();
+    let utter;
+    try {
+      utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'ja-JP'; utter.rate = rate; utter.pitch = 1; utter.volume = 1;
+      const voices = this._synth.getVoices().filter(v => /^ja(?:[-_]|$)/i.test(v.lang));
+      const preferred = voices.find(v => v.localService) || voices[0];
+      if (preferred) utter.voice = preferred;
+      // Retain the utterance until end/error; no polling or repeated cancel/resume.
+      this._active = utter;
+      const finish = error => {
+        if (this._active !== utter) return;
+        clearTimeout(this._timer); this._timer = null;
+        this._active = null;
+        const next = this._pending; this._pending = null;
+        if (error) {
+          if (!['canceled', 'interrupted'].includes(error)) showToast(`日文發音未完成（${error}），請再按「發音」重試。`, 4500);
+          return;
+        }
+        if (next) this.speak(next.text, next.rate, next.options);
+      };
+      utter.onend = () => finish();
+      utter.onerror = event => finish(event.error || 'speech-error');
+      this._timer = setTimeout(() => {
+        if (this._active !== utter) return;
+        this.stop();
+        showToast('日文發音逾時，請再按「發音」重試，並確認裝置音訊設定。', 4500);
+      }, Math.max(12000, text.length * 1000));
+      if (this._synth.paused) this._synth.resume();
+      this._synth.speak(utter);
+      return true;
+    } catch {
+      this.stop();
+      showToast('無法播放日文發音，請確認裝置支援日文語音後重試。', 4500);
+      return false;
     }
   },
 
+  speakWhenReady(text, rate = 0.85, options = {}) {
+    // Speak in the tap event even when the voice list is initially empty.
+    // lang=ja-JP lets the system select a voice without a delayed voiceschanged replay.
+    return this.speak(text, rate, options);
+  },
+
   speakKana(text, rate = 0.62, { immediate = false } = {}) {
-    // Handwriting pronunciation has its own saved preference, independent of
-    // the spelling quiz TTS switch. A direct call preserves the user gesture on
-    // iPhone/iPad; the ready path is retained for manual replay.
-    return immediate
-      ? this.speak(text, rate, { force: true })
-      : this.speakWhenReady(text, rate, { force: true });
+    // Both paths are synchronous on first request; handwriting has its own preference.
+    return this.speak(text, rate, { force: true, queueLatest: true });
   }
 };
 
@@ -2555,7 +2579,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_8" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_9" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -3826,7 +3850,7 @@ Views.kanaPractice = {
               <div class="option-label">五十音行（可複選）</div>
               <div class="kana-row-grid" id="kana-row-grid" role="group" aria-label="選擇要練習的五十音行">
                 <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-kana-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
-                ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-kana-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${row.label}</button>`).join('')}
+                ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-kana-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
               </div>
               <div class="kana-row-summary" id="kana-row-summary"></div>
             </div>
@@ -3888,6 +3912,7 @@ Views.kanaPractice = {
     };
     const updateSetupUI = () => {
       container.querySelectorAll('[data-kana-row]').forEach(button => {
+        button.textContent = kanaRowLabel(button.dataset.kanaRow, this.state.script);
         const selected = this.state.rows.includes(button.dataset.kanaRow);
         button.classList.toggle('selected', selected);
         button.setAttribute('aria-pressed', String(selected));
@@ -4093,7 +4118,7 @@ Views.kanaPractice = {
   _resetWriterQuestion(container) {
     const kana = this.state.items[this.state.index];
     this.state.scored = false;
-    TTS.stop();
+    if (!this.state.autoSpeak) TTS.stop();
     this.engine.setKana(kana);
     const character = document.getElementById('kana-reference-character');
     character.textContent = this.state.mode === 'recall' ? '？' : kana.character;
@@ -4313,7 +4338,7 @@ Views.kanaReadingPractice = {
               <div class="option-label">五十音行（可複選）</div>
               <div class="kana-row-grid kana-row-grid-compact" role="group" aria-label="選擇五十音行">
                 <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-reading-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
-                ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-reading-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${row.label}</button>`).join('')}
+                ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-reading-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
               </div>
               <div class="kana-row-summary" id="kana-reading-row-summary"></div>
             </div>
@@ -4333,6 +4358,7 @@ Views.kanaReadingPractice = {
     bindPracticeModeSelector(container, 'kanaReading');
     const updateSetupUI = () => {
       container.querySelectorAll('[data-reading-row]').forEach(button => {
+        button.textContent = kanaRowLabel(button.dataset.readingRow, this.state.script);
         const selected = this.state.rows.includes(button.dataset.readingRow);
         button.classList.toggle('selected', selected);
         button.setAttribute('aria-pressed', String(selected));
@@ -4585,7 +4611,7 @@ Views.wordReadingPractice = {
           <div class="option-group kana-compact-group kana-row-group"><div class="option-label">五十音行（可複選）</div>
             <div class="kana-row-grid kana-row-grid-compact" role="group" aria-label="選擇單詞包含的五十音行">
               <button type="button" class="kana-row-chip" data-word-row="all">全部行</button>
-              ${KANA_ROWS.map(row => `<button type="button" class="kana-row-chip" data-word-row="${row.id}">${row.label}</button>`).join('')}
+              ${KANA_ROWS.map(row => `<button type="button" class="kana-row-chip" data-word-row="${row.id}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
             </div><div class="kana-row-summary" id="word-reading-row-summary"></div>
           </div>
           <div class="option-group kana-compact-group kana-repeat-group"><div class="option-label">練習題數</div><div class="kana-repeat-grid" role="group" aria-label="選擇練習題數">
@@ -4600,6 +4626,7 @@ Views.wordReadingPractice = {
         button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected));
       });
       container.querySelectorAll('[data-word-row]').forEach(button => {
+        button.textContent = kanaRowLabel(button.dataset.wordRow, this.state.script);
         const selected = this.state.rows.includes(button.dataset.wordRow);
         button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected));
       });
@@ -8600,6 +8627,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
+      TTS.stop();
       Views.practice?._persistPendingSession?.();
       Views.practice?._flushWrongCounts?.();
       void AppStorage.flush().catch(() => {});

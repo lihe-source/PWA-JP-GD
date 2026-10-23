@@ -29,7 +29,7 @@ test('malformed record JSON never replaces existing answers with an empty collec
 });
 
 test('background backup preparation and parsing preserve every collection and checksum', () => {
-  const prepared = executeBackgroundJob('prepare-backup', { collections: { words: [{ id: 'w', english: '時計' }], wordReadingHistory: [{ id: 'r', word: '時計', answer: 'tokei', correct: true }] }, metadata: { appVersion: 'V1.5.9' } });
+  const prepared = executeBackgroundJob('prepare-backup', { collections: { words: [{ id: 'w', english: '時計' }], wordReadingHistory: [{ id: 'r', word: '時計', answer: 'tokei', correct: true }] }, metadata: { appVersion: 'V1.5.10' } });
   assert.equal(BackupSchema.validate(prepared.data).valid, true);
   assert.equal(executeBackgroundJob('parse-backup', { raw: '\uFEFF'+prepared.serialized }).words[0].english, '時計');
   assert.equal(prepared.data.wordReadingHistory[0].id, 'r');
@@ -137,13 +137,13 @@ test('old API key responses and discovery cannot be committed after changing the
 test('version manager distinguishes old deployments, deliberate rollback and invalid metadata', async () => {
   const original=globalThis.fetch;
   const storage={setItem() {}};
-  const manager=new VersionManager({currentVersion:'V1_5_9',currentBuild:2026102101,storage});
+  const manager=new VersionManager({currentVersion:'V1_5_10',currentBuild:2026102301,storage});
   try {
     globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_4'}));
     let result=await manager.check(); assert.equal(result.hasUpdate,false); assert.equal(result.direction,'older-deployment');
-    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_4',build:2026102102}));
+    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_4',build:2026102302}));
     result=await manager.check(); assert.equal(result.hasUpdate,true); assert.equal(result.direction,'rollback');
-    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_9<script>'}));
+    globalThis.fetch=async()=>new Response(JSON.stringify({version:'V1_5_10<script>'}));
     await assert.rejects(manager.check(),/VERSION_INVALID/);
   } finally { globalThis.fetch=original; }
 });

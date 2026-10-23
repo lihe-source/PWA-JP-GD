@@ -1,3 +1,21 @@
+# 日文練習架構 · V1.5.10
+
+## 設定備份邊界
+
+`settings-vault.js` 提供格式驗證、加解密、交易套用及設定頁卡片。`app.js` 以 DB getter 建立目前已儲存設定的完整快照，包含內建有效預設值。設定使用固定白名單，不直接枚舉 localStorage、IndexedDB 或 sessionStorage；不包含學習資料、授權 token 或裝置推播身份。
+
+封裝格式固定為 japanese-pwa-settings/version 1，PBKDF2-SHA256 600,000 次產生不可匯出的 AES-256-GCM key。密碼以 UTF-8 原樣處理，每次 salt 16 bytes、IV 12 bytes，GCM tag 128 bits，AAD 綁定產品、版本與固定演算法。建立時間及所有設定都在 ciphertext 內。解密前限制整檔 128 KiB、固定 KDF 次數與 IV／salt 長度，避免檔案要求無界運算。格式白名單與型別驗證在解密後重做。
+
+還原只有在使用者確認預覽後才呼叫 AppStorage.atomicUpdate；失敗沿用既有交易回復。套用時排除同時進行的 Drive／AI 工作，並延後版本自動啟用。OAuth Client ID 改變時清除本機舊工作階段，不撤銷遠端授權；Drive 目標變更時使舊請求與檔案快取失效。Gemini 模型快取與 TTS 記憶體偏好同步更新，設定畫面以 preserveInputs:false 重繪，避免舊欄位值覆蓋已還原值。關閉視窗清空密碼欄位及預覽引用、撤銷 Blob URL；JavaScript 記憶體不承諾安全清零。
+
+參考：[MDN Web Crypto deriveKey](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/deriveKey)、[AES-GCM 參數](https://developer.mozilla.org/en-US/docs/Web/API/AesGcmParams)。
+
+## 版面責任
+
+ui-runtime.js 的 uiIcon 提供共用純 SVG 線條圖示，沒有新增網路圖示依賴。style.css 的 V1.5.10 區塊負責卡片密度；保留原本 app/nav 的單一安全區責任，不更動手寫 Canvas 與同頁評分的幾何尺寸。設定備份卡在 mountSettingsGroups 後加入，因此確定位於所有類別與資料保存之後。手機兩欄捷徑的 grid-column 已回到 auto，避免舊版 span 3 在兩欄容器建立隱含欄位。
+
+以下保留先前版本沿革。
+
 # 日文練習架構 · V1.5.8
 
 每日推薦偏好增加 scriptRows.hiragana 與 scriptRows.katakana。空陣列表示停用該組，all 表示全部行；舊 rows 欄位保留為聯集供相容讀取，但驗證一定使用詞所屬組別。舊偏好／舊備份僅有 rows 時遷移至平假名，片假名停用。

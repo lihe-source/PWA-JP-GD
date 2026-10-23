@@ -114,6 +114,27 @@ export function createModalFocusManager() {
   };
 }
 
+// One code-native icon family: currentColor, rounded 1.8px strokes, no image downloads.
+export function uiIcon(name) {
+  const paths = {
+    home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-8H9v8H4a1 1 0 0 1-1-1Z"/>',
+    pen:'<path d="m4 16-1 5 5-1L20 8a2.8 2.8 0 0 0-4-4Z"/><path d="m14 6 4 4M13 21h8"/>',
+    book:'<path d="M12 5v16M12 5C9 3 5 3 2 4v15c3-1 7-1 10 2 3-3 7-3 10-2V4c-3-1-7-1-10 1Z"/>',
+    sound:'<path d="M11 4 6 8H3v8h3l5 4ZM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/>',
+    text:'<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M6 16 9 8l3 8M7 13h4M15 8v8M15 12c4-2 5 5 0 4"/>',
+    cloud:'<path d="M7 18a5 5 0 1 1 0-10 6 6 0 0 1 11-1 5.5 5.5 0 0 1 0 11M12 12v9m-3-3 3 3 3-3"/>',
+    spark:'<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4m-2-2h4"/>',
+    settings:'<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2" fill="var(--card-bg)"/><circle cx="16" cy="12" r="2" fill="var(--card-bg)"/><circle cx="10" cy="18" r="2" fill="var(--card-bg)"/>',
+    lock:'<rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V6a4 4 0 0 1 8 0v4M12 15v2"/>',
+    download:'<path d="M12 3v12m-4-4 4 4 4-4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
+    upload:'<path d="M12 15V3m-4 4 4-4 4 4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
+    play:'<path d="m8 4 12 8-12 8Z"/>',
+    stats:'<path d="M4 21V11M12 21V3M20 21V7"/>',
+    database:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0"/>'
+  };
+  return `<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[name] || paths.book}</svg>`;
+}
+
 export function mountSettingsGroups(container, storage) {
   const wrap = container.querySelector('.settings-wrap');
   if (!wrap) return;
@@ -130,7 +151,7 @@ export function mountSettingsGroups(container, storage) {
     details.className = 'settings-category'; details.dataset.category = id;
     const saved = storage.getItem(`settingsCategory:${id}`);
     details.open = saved === null ? defaultOpen : saved === '1';
-    details.innerHTML = `<summary><strong>${title}</strong><small>${subtitle}</small></summary><div class="settings-category-body"></div>`;
+    details.innerHTML = `<summary>${uiIcon({cloud:'cloud',learning:'book',ai:'spark',advanced:'settings'}[id])}<span><strong>${title}</strong><small>${subtitle}</small></span><span class="category-chevron" aria-hidden="true">⌄</span></summary><div class="settings-category-body"></div>`;
     details.addEventListener('toggle', () => storage.setItem(`settingsCategory:${id}`, details.open ? '1' : '0'));
     groups.set(id, details);
   }

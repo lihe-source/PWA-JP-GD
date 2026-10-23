@@ -4355,3 +4355,112 @@ body { position: relative; height: 100%; min-height: 0; }
 .daily-script-group { min-width:0; border:0; border-top:1px solid var(--border); padding:12px 0 8px; margin:12px 0 0; }
 .daily-script-group legend { padding:0 8px 0 0; font-size:15px; font-weight:800; color:var(--text-primary); }
 .daily-script-note { font-size:13px; line-height:1.65; color:var(--text-muted); margin:8px 0 0; }
+
+/* V1.5.10 compact surfaces. The existing shell alone owns the safe area;
+   do not add viewport padding or resize handwriting canvas/score geometry here. */
+.ui-icon { width:22px; height:22px; flex:0 0 auto; vertical-align:middle; }
+button > .ui-icon { width:20px; height:20px; }
+.nav-btn .ui-icon { width:23px; height:23px; }
+.section-header { padding:12px 12px 10px; }
+.section-title { font-size:22px; }
+.home-brand { padding:10px 12px 4px; }
+.home-brand-name img { width:34px; height:34px; }
+.study-streak-card { padding:12px; margin:6px 12px 10px; }
+.study-streak-metrics { margin-top:8px; padding:2px 0; }
+.study-streak-metric b { font-size:27px; }
+.study-week { margin-top:8px; gap:4px; }
+.study-week-day { gap:4px; }
+.home-hero { padding:12px; }
+.hero-label { margin-bottom:8px; font-size:14px; }
+.hero-learning-context { font-size:11px; line-height:1.5; }
+.daily-vocab-foot { display:none; } /* same learning scope is already in the card heading */
+.daily-vocab-word { font-size:32px; }
+.daily-vocab-sentence-status { margin-top:6px; font-size:12px; }
+.daily-sentence-preview { margin-top:10px; padding-top:10px; }
+.daily-vocab-message { padding:12px 0; }
+.home-menu-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:10px; }
+.home-menu-grid .menu-card,
+.home-menu-grid .menu-card[data-nav="kanaPractice"],
+.home-menu-grid .menu-card[data-nav="kanaReadingPractice"] { grid-column:auto; min-height:64px; padding:10px; }
+.home-menu-grid .menu-card[data-nav="wordReadingPractice"] { grid-column:1 / -1; min-height:54px; }
+.home-menu-grid .menu-card-sub { margin-top:2px; font-size:12px; line-height:1.4; }
+.home-menu-grid .menu-icon { display:grid; place-items:center; }
+.home-primary-action { margin-bottom:10px; }
+.sentence-log-header { padding-block:10px 6px; }
+.settings-wrap { max-width:850px; margin-inline:auto; }
+.settings-category { margin-bottom:10px; border-radius:14px; }
+.settings-category > summary { display:flex; align-items:center; gap:10px; list-style:none; padding:12px; min-height:64px; }
+.settings-category > summary::-webkit-details-marker { display:none; }
+.settings-category > summary > .ui-icon { color:var(--primary); width:24px; height:24px; }
+.settings-category > summary > span:not(.category-chevron) { flex:1; }
+.settings-category > summary strong { font-size:16px; }
+.settings-category > summary small { font-size:12px; margin-top:2px; }
+.category-chevron { font-size:20px; color:var(--text-muted); transition:transform .15s; }
+.settings-category[open] > summary > .category-chevron { transform:rotate(180deg); }
+.settings-category-body { padding:0 12px 12px; }
+.settings-category-body > .settings-card { border:0; padding:10px 0; margin:0; background:transparent; }
+.settings-category-body .settings-section-label { margin-top:12px; margin-bottom:6px; letter-spacing:.04em; font-size:12px; }
+.settings-category-body > .settings-section-label:first-child { display:none; }
+.settings-tip { font-size:13px; line-height:1.65; }
+.settings-card .form-group { margin-bottom:12px; }
+.settings-btn-row { gap:8px; margin-bottom:10px; }
+.settings-category-body .form-input { padding:10px 12px; }
+.settings-category-body .settings-collapse-body { padding:10px; }
+.db-toolbar { gap:6px; padding-bottom:8px; }
+.db-sort-bar { padding-bottom:8px; }
+.btn-ecdict-load { background:var(--primary); }
+.btn-export, .btn-import { color:var(--primary); background:var(--primary-faint); }
+.db-word-pos { font-family:inherit; }
+.db-local-search { margin:6px 12px 10px; }
+.db-word-card { padding:12px; margin-bottom:8px; border:1px solid var(--border); box-shadow:none; }
+.db-word-meta { color:var(--text-muted); margin-top:4px; }
+.db-word-en { font-family:inherit; font-size:18px; }
+.db-word-phonetic { font-family:inherit; }
+.db-empty { padding:24px 16px; }
+.ecdict-intro { padding:16px; }
+.ecdict-card-header { padding:12px 14px; }
+.stats-table-card, .chart-card { box-shadow:none; border:1px solid var(--border); }
+.practice-compact-heading { gap:10px; margin-bottom:8px; }
+.practice-compact-card, .kana-setup-compact { padding:12px; }
+.practice-compact-group { padding-block:8px; }
+.kana-small-btn { display:inline-flex; align-items:center; justify-content:center; gap:4px; }
+.settings-vault { margin-top:12px; margin-bottom:0; padding:14px; }
+.vault-heading { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+.vault-heading > .ui-icon { color:var(--primary); }
+.vault-heading h2 { font-size:16px; }
+.vault-heading > span { margin-left:auto; padding:3px 7px; border-radius:6px; background:var(--primary-faint); color:var(--primary-dark); font-size:11px; white-space:nowrap; }
+.settings-vault p, .vault-form p { font-size:14px; line-height:1.65; color:var(--text-muted); }
+.settings-vault .vault-note { font-size:12px; margin-top:10px; }
+.vault-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+.vault-actions button { display:flex; align-items:center; justify-content:center; gap:5px; min-height:46px; font-size:14px; padding:8px; }
+.vault-form { display:grid; gap:14px; }
+.vault-form label { display:grid; gap:6px; font-size:14px; color:var(--text); }
+.vault-form input { width:100%; min-height:46px; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--card-bg); color:var(--text); }
+.vault-form input[type=file] { font-size:13px!important; padding:8px; }
+.vault-form [hidden], .settings-vault [hidden] { display:none!important; }
+.vault-feedback { font-size:14px; line-height:1.6; color:var(--primary-dark); overflow-wrap:anywhere; }
+.vault-feedback:empty { display:none; }
+.vault-preview { font-size:14px; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; padding:12px; border-radius:10px; background:var(--bg); }
+.vault-download { display:block; min-height:44px; padding:8px; color:var(--primary); }
+.vault-form .modal-actions { margin-top:0; }
+.vault-form .modal-actions button { flex:1; min-height:46px; padding:10px; }
+@media (min-width:700px) {
+  .home-menu-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .home-menu-grid .menu-card[data-nav="wordReadingPractice"] { grid-column:auto; }
+  .db-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; align-items:start; }
+  .db-list > .db-empty, .db-list > .list-pagination { grid-column:1 / -1; }
+  .db-list .db-word-card { margin:0; }
+}
+@media (min-width:1100px) {
+  #home-view { max-width:1040px; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); gap:0 12px; align-items:start; }
+  #home-view > * { grid-column:1 / -1; }
+  #home-view > .study-streak-card { grid-column:1; grid-row:2; margin-right:0; }
+  #home-view > .home-hero { grid-column:2; grid-row:2; margin-left:0; margin-top:6px; }
+  #home-view > .home-primary-action { grid-column:1 / -1; grid-row:3; }
+  #home-view > .home-menu-grid { grid-column:1 / -1; grid-row:4; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  #home-view > .home-menu-grid .menu-card { min-height:54px; }
+}
+@media (max-width:370px) {
+  .vault-actions { grid-template-columns:1fr; }
+  .vault-heading > span { display:none; }
+}

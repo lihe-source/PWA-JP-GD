@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { uiIcon } from './ui-runtime.js';
 
 class MockContext {
   constructor() { this.fullPaints = 0; this.segmentPaints = 0; this.contacts = 0; }
@@ -55,7 +56,7 @@ test('50 questions score inline without navigation, DOM replacement, scroll or c
   document.getElementById = id => id === 'kana-writing-canvas' ? canvas : element(id);
   const container = { innerHTML: '', querySelector: element };
   const said = [], recorded = [];
-  const context = { Views: {}, document, HandwritingEngine, escapeHTML: String,
+  const context = { Views: {}, document, HandwritingEngine, escapeHTML: String, uiIcon,
     TTS: { stop() {}, speakKana: ch => said.push(ch) },
     KanaProgress: { recordAttempt: ch => recorded.push(ch.character) },
     GDrive: { scheduleStudyStreakSync() {} },

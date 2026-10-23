@@ -1,37 +1,39 @@
-import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_9';
-import { createGeminiClient } from './gemini-client.js?v=V1_5_9';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_9';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions } from './ui-runtime.js?v=V1_5_9';
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_9';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_9';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_9';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_10';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_10';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_10';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_10';
+import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_10';
+let settingsVaultBusy = false;
+import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_10';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_10';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_10';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_9';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_9';
-import { VersionManager } from './version-manager.js?v=V1_5_9';
-import { TrendChart } from './chart-renderer.js?v=V1_5_9';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_9';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_9';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_9';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_9';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_9';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_9';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_9';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_9';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_9';
+import { AppStorage } from './storage.js?v=V1_5_10';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_10';
+import { VersionManager } from './version-manager.js?v=V1_5_10';
+import { TrendChart } from './chart-renderer.js?v=V1_5_10';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_10';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_10';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_10';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_10';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_10';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_10';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_10';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_10';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_10';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_9
-// V1.5.9：片假名行別顯示與手寫短音播放管理
+// 日本語練習 PWA - app.js V1_5_10
+// V1.5.10：精簡版面、統一圖示與加密設定備份
 // ===========================
 
 const ViewWork = new ViewWorkManager();
-const APP_VERSION = 'V1_5_9';
-const APP_DISPLAY_VERSION = 'V1.5.9';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_9';
+const APP_VERSION = 'V1_5_10';
+const APP_DISPLAY_VERSION = 'V1.5.10';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_10';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
-  cloudBusy: ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
+  cloudBusy: settingsVaultBusy || ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
     !!Views.practice?._pendingSessionSave || !!Views.home?._dailyVocabularyRequest ||
     !!Views.home?._databaseSentenceRequest || !!Views.home?._dailySentenceRequests?.size ||
     !!DB._generatedWriteTask && AppStorage.getStatus().saveState === 'saving'
@@ -39,7 +41,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026102101,
+  currentBuild: 2026102301,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -834,9 +836,9 @@ const DB = {
   },
   saveModel(m) { AppStorage.setItem('geminiModel', m); },
   // ── Google Drive config ──
-  getGDriveClientId()  { return AppStorage.getItem('gdriveClientId') || JAPANESE_DEFAULTS.oauthClientId; },
+  getGDriveClientId()  { return AppStorage.getItem('gdriveClientId') ?? JAPANESE_DEFAULTS.oauthClientId; },
   setGDriveClientId(v) { AppStorage.setItem('gdriveClientId', v); },
-  getGDriveFolderId()  { return AppStorage.getItem('gdriveFolderId') || JAPANESE_DEFAULTS.driveFolderId; },
+  getGDriveFolderId()  { return AppStorage.getItem('gdriveFolderId') ?? JAPANESE_DEFAULTS.driveFolderId; },
   setGDriveFolderId(v) { AppStorage.setItem('gdriveFolderId', v); },
   getGDriveAutoSync()  { return AppStorage.getItem('gdriveAutoSync') === '1'; },
   setGDriveAutoSync(v) { AppStorage.setItem('gdriveAutoSync', v ? '1' : '0'); },
@@ -2346,7 +2348,9 @@ function nl2br(value) { return escapeHTML(value).replace(/\n/g, '<br>'); }
 function escapeAttr(value) { return escapeHTML(value).replace(/`/g, '&#96;'); }
 const ModalFocus = createModalFocusManager();
 const Modal = {
-  show(html) {
+  show(html, onClose = null) {
+    this.onClose?.();
+    this.onClose = onClose;
     const o = document.getElementById('modal-overlay');
     const content = document.getElementById('modal-content');
     content.innerHTML = html;
@@ -2355,7 +2359,7 @@ const Modal = {
     ModalFocus.open(o, content, () => { if (!GDrive._restoreInProgress) { GDrive.cancelTransfer(); this.hide(); } });
     o.onclick = (e) => { if (e.target === o && !GDrive._restoreInProgress) { GDrive.cancelTransfer(); this.hide(); } };
   },
-  hide() { const o = document.getElementById('modal-overlay'); o.classList.add('hidden'); o.setAttribute('aria-hidden','true'); ModalFocus.close(); }
+  hide() { const o = document.getElementById('modal-overlay'); o.classList.add('hidden'); o.setAttribute('aria-hidden','true'); this.onClose?.(); this.onClose = null; ModalFocus.close(); }
 };
 function todayStr() {
   const d = new Date();
@@ -2579,7 +2583,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_9" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_10" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -2626,15 +2630,15 @@ Views.home = {
             <div><div class="menu-card-title">日文練習</div><div class="menu-card-sub">語彙拼寫與閱讀測驗</div></div>
           </div>
           <div class="menu-card" data-nav="kanaPractice">
-            <div class="menu-icon" style="background:#e8eafc;color:#3949ab;font-size:25px;font-weight:800">あ</div>
+            <div class="menu-icon" aria-hidden="true">${uiIcon('pen')}</div>
             <div><div class="menu-card-title">五十音手寫</div><div class="menu-card-sub">平假名・片假名・Apple Pencil</div></div>
           </div>
           <div class="menu-card" data-nav="kanaReadingPractice">
-            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">abc</div>
+            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">${uiIcon('text')}</div>
             <div><div class="menu-card-title">五十音讀音</div><div class="menu-card-sub">看假名・輸入羅馬音</div></div>
           </div>
           <div class="menu-card" data-nav="wordReadingPractice">
-            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">語</div>
+            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">${uiIcon('book')}</div>
             <div><div class="menu-card-title">單詞讀音</div><div class="menu-card-sub">看單詞・輸入羅馬音</div></div>
           </div>
         </div>
@@ -2757,7 +2761,7 @@ Views.home = {
             </div>
             <div class="daily-vocab-side">
               <span>${escapeHTML(word.partOfSpeech || '語彙')}</span>
-              <button type="button" class="daily-vocab-speak" data-daily-speak="${escapeAttr(word.reading)}" aria-label="播放 ${escapeAttr(word.reading)} 發音">🔊</button>
+              <button type="button" class="daily-vocab-speak" data-daily-speak="${escapeAttr(word.reading)}" aria-label="播放 ${escapeAttr(word.reading)} 發音">${uiIcon('sound')}</button>
             </div>
           </article>
         `).join('')}
@@ -3030,13 +3034,13 @@ function renderPracticeModeSelector(currentMode = 'quiz') {
   return `
     <div class="practice-mode-bar">
       <select class="practice-mode-select" id="practice-mode-select" aria-label="選擇練習模式">
-        <option value="quiz" ${isQuiz ? 'selected' : ''}>📝 單字拼寫</option>
-        <option value="kana" ${isKana ? 'selected' : ''}>🖌️ 五十音手寫</option>
-        <option value="kanaReading" ${isKanaReading ? 'selected' : ''}>🔤 五十音讀音</option>
-        <option value="wordReading" ${isWordReading ? 'selected' : ''}>🔠 單詞讀音</option>
-        <option value="essay" ${isEssay ? 'selected' : ''}>✍️ 文章撰寫</option>
-        <option value="reading" ${isReading ? 'selected' : ''}>📖 文章閱讀測驗</option>
-        <option value="aiask" ${isAiAsk ? 'selected' : ''}>💬 AI 詢問</option>
+        <option value="quiz" ${isQuiz ? 'selected' : ''}>單字拼寫</option>
+        <option value="kana" ${isKana ? 'selected' : ''}>五十音手寫</option>
+        <option value="kanaReading" ${isKanaReading ? 'selected' : ''}>五十音讀音</option>
+        <option value="wordReading" ${isWordReading ? 'selected' : ''}>單詞讀音</option>
+        <option value="essay" ${isEssay ? 'selected' : ''}>文章撰寫</option>
+        <option value="reading" ${isReading ? 'selected' : ''}>文章閱讀測驗</option>
+        <option value="aiask" ${isAiAsk ? 'selected' : ''}>AI 詢問</option>
       </select>
     </div>`;
 }
@@ -4036,8 +4040,8 @@ Views.kanaPractice = {
             <strong class="kana-romaji">${escapeHTML(kana.romaji)}</strong>
             <span class="kana-stroke-count">標準 ${kana.strokes.length} 畫</span>
             <div class="kana-reference-actions">
-              <button class="btn-secondary kana-small-btn" id="kana-listen-btn" type="button">🔊 發音</button>
-              <button class="btn-secondary kana-small-btn" id="kana-animate-btn" type="button">▶ 筆順</button>
+              <button class="btn-secondary kana-small-btn" id="kana-listen-btn" type="button">${uiIcon('sound')} 發音</button>
+              <button class="btn-secondary kana-small-btn" id="kana-animate-btn" type="button">${uiIcon('play')} 筆順</button>
               ${hideCharacter ? '<button class="btn-secondary kana-small-btn" id="kana-reveal-btn" type="button">顯示字形</button>' : ''}
             </div>
           </aside>
@@ -4437,7 +4441,7 @@ Views.kanaReadingPractice = {
             <button class="btn-primary" id="kana-reading-submit" type="submit">送出並下一題</button>
           </form>
           <div class="kana-reading-feedback" id="kana-reading-feedback" role="status" aria-live="polite"></div>
-          <button class="btn-secondary kana-reading-listen" id="kana-reading-listen" type="button">🔊 播放假名發音</button>
+          <button class="btn-secondary kana-reading-listen" id="kana-reading-listen" type="button">${uiIcon('sound')} 播放假名發音</button>
         </main>
       </div>`;
     const input = document.getElementById('kana-reading-answer');
@@ -5280,8 +5284,8 @@ Views.database = {
 
       <div class="db-toolbar">
         <button class="btn-icon btn-add" id="add-word-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
-        <button class="btn-icon btn-export" id="export-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="2" fill="#5b8dd9" stroke="#3a6bc4"/><rect x="6" y="2" width="12" height="8" rx="1" fill="#a8c4f0" stroke="#3a6bc4" stroke-width="1.5"/><rect x="9" y="3.5" width="4" height="5" rx="0.5" fill="#3a6bc4" stroke="none"/><rect x="4" y="13" width="16" height="7" rx="1" fill="#d6e8ff" stroke="#3a6bc4" stroke-width="1.5"/></svg>匯出</button>
-        <button class="btn-icon btn-import" id="import-btn"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 7C2 5.9 2.9 5 4 5H10L12 7H20C21.1 7 22 7.9 22 9V18C22 19.1 21.1 20 20 20H4C2.9 20 2 19.1 2 18V7Z" fill="#f5a623" stroke="#d4891a" stroke-width="1.5" stroke-linejoin="round"/><path d="M2 10H22V18C22 19.1 21.1 20 20 20H4C2.9 20 2 19.1 2 18V10Z" fill="#ffc84a" stroke="#d4891a" stroke-width="1.5" stroke-linejoin="round"/></svg>匯入</button>
+        <button class="btn-icon btn-export" id="export-btn">${uiIcon('download')}匯出</button>
+        <button class="btn-icon btn-import" id="import-btn">${uiIcon('upload')}匯入</button>
         <button class="btn-icon ${dm?'btn-delete-confirm':'btn-delete-toggle'}" id="delete-toggle-btn"${words.length===0?' disabled style="opacity:0.4;cursor:not-allowed"':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>${dm?(sel.size>0?`確認(${sel.size})`:'確認'):'刪除'}</button>
         <button class="btn-icon ${acm?'btn-ai-correct-active':'btn-ai-correct'}" id="ai-correct-btn"${!DB.getApiKey()||words.length===0?' disabled style="opacity:0.4;cursor:not-allowed"':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 9.5-9.5z"/></svg>${acm?'取消更正':'AI 更正'}</button>
         ${acm?`<button class="btn-icon btn-ai-correct-run" id="ai-correct-run-btn" style="background:var(--primary);color:#fff">${acs.size>0?`執行 AI 更正 (${acs.size})`:'執行 AI 更正'}</button>`:''}
@@ -5651,7 +5655,7 @@ Views.database = {
               <span style="font-size:12px;color:var(--text-secondary);white-space:nowrap">詞性</span>
               <select class="ai-correct-pos" style="flex:1;padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text-primary)"
                 data-all-entries="${encodeURIComponent(JSON.stringify(r.entries))}">
-                ${r.entries.map((e, i) => `<option value="${i}" ${i===defIdx?'selected':''}>${escapeHTML(e.pos)}</option>`).join('')}
+                ${r.entries.map((e, i) => `<option value="${i}" ${i===defIdx?'selected':''}>escapeHTML(e.pos)}</option>`).join('')}
               </select>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
@@ -5717,11 +5721,11 @@ Views.database = {
     const posOptions = ['名詞','五段動詞','一段動詞','不規則動詞','い形容詞','な形容詞','副詞','助詞','接續詞','慣用語'];
     Modal.show(`<div class="modal-handle"></div><div class="modal-title">新增日文語彙</div>
       <div class="form-group"><label class="form-label">日文語彙 *</label><input class="form-input" id="new-en" placeholder="例：食べる" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="text"></div>
-      <div class="form-group"><label class="form-label">詞性 *</label><select class="form-select" id="new-pos">${posOptions.map(p=>`<option>${p}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">詞性 *</label><select class="form-select" id="new-pos">${posOptions.map(p=>`<option>p}</option>`).join('')}</select></div>
       <div class="form-group"><label class="form-label">繁體中文意思 *</label><input class="form-input" id="new-zh" placeholder="例：吃；食用"></div>
       <div class="form-group"><label class="form-label">假名讀音（可選）</label><input class="form-input" id="new-phonetic" placeholder="例：たべる" lang="ja" autocorrect="off" autocapitalize="off"></div>
       <div class="form-group"><label class="form-label">羅馬拼音（可選）</label><input class="form-input" id="new-romaji" placeholder="例：taberu" autocorrect="off" autocapitalize="off"></div>
-      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="new-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option>${level}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="new-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option>level}</option>`).join('')}</select></div>
       <div class="modal-actions"><button class="modal-btn-cancel" id="cancel-add">取消</button><button class="modal-btn-confirm" id="confirm-add">新增</button></div>`);
     document.getElementById('cancel-add').addEventListener('click', () => Modal.hide());
     document.getElementById('confirm-add').addEventListener('click', () => {
@@ -5738,12 +5742,12 @@ Views.database = {
     if (word.partOfSpeech && !posOptions.includes(word.partOfSpeech)) posOptions.unshift(word.partOfSpeech);
     Modal.show(`<div class="modal-handle"></div><div class="modal-title">編輯日文語彙</div>
       <div class="form-group"><label class="form-label">日文語彙</label><input class="form-input" id="edit-en" value="${escapeAttr(word.english)}" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false"></div>
-      <div class="form-group"><label class="form-label">詞性</label><select class="form-select" id="edit-pos">${posOptions.map(p=>`<option ${p===word.partOfSpeech?'selected':''}>${p}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">詞性</label><select class="form-select" id="edit-pos">${posOptions.map(p=>`<option ${p===word.partOfSpeech?'selected':''}>p}</option>`).join('')}</select></div>
       <div class="form-group"><label class="form-label">中文意思</label><input class="form-input" id="edit-zh" value="${escapeAttr(word.chinese)}"></div>
       <div class="form-group"><label class="form-label">假名讀音（可選）</label><input class="form-input" id="edit-phonetic" value="${escapeAttr(word.phonetic||'')}" lang="ja" autocorrect="off" autocapitalize="off"></div>
       <div class="form-group"><label class="form-label">羅馬拼音（可選）</label><input class="form-input" id="edit-romaji" value="${escapeAttr(word.romaji||'')}" autocorrect="off" autocapitalize="off"></div>
-      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="edit-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option ${level===(word.jlpt||'未分級')?'selected':''}>${level}</option>`).join('')}</select></div>
-      <div class="form-group"><label class="form-label">頻率加權</label><select class="form-select" id="edit-weight">${[1,2,3,5].map(n=>`<option value="${n}" ${n===(word.frequencyWeight||1)?'selected':''}>${n}x${n===1?' (預設)':''}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="edit-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option ${level===(word.jlpt||'未分級')?'selected':''}>level}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">頻率加權</label><select class="form-select" id="edit-weight">${[1,2,3,5].map(n=>`<option value="${n}" ${n===(word.frequencyWeight||1)?'selected':''}>n}x${n===1?' (預設)':''}</option>`).join('')}</select></div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">答錯次數：${word.wrongCount||0} 次</div>
       <div class="modal-actions"><button class="modal-btn-cancel" id="cancel-edit">取消</button><button class="modal-btn-confirm" id="confirm-edit">儲存</button></div>`);
     document.getElementById('cancel-edit').addEventListener('click', () => Modal.hide());
@@ -6356,13 +6360,13 @@ Views.stats = {
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
       <div class="stats-mode-bar">
         <select class="stats-mode-select" id="stats-mode-select">
-          <option value="quiz" ${this.mode==="quiz"?"selected":""}>📝 單字練習</option>
-          <option value="essay" ${this.mode==="essay"?"selected":""}>✍️ 文章撰寫</option>
-          <option value="reading" ${this.mode==="reading"?"selected":""}>📖 文章閱讀測驗</option>
-          <option value="kana" ${this.mode==="kana"?"selected":""}>🖌️ 五十音手寫</option>
-          <option value="kanaReading" ${this.mode==="kanaReading"?"selected":""}>🔤 五十音讀音</option>
-          <option value="wordReading" ${this.mode==="wordReading"?"selected":""}>🔠 單詞讀音</option>
-          <option value="aiask" ${this.mode==="aiask"?"selected":""}>💬 AI 詢問</option>
+          <option value="quiz" ${this.mode==="quiz"?"selected":""}>單字練習</option>
+          <option value="essay" ${this.mode==="essay"?"selected":""}>文章撰寫</option>
+          <option value="reading" ${this.mode==="reading"?"selected":""}>文章閱讀測驗</option>
+          <option value="kana" ${this.mode==="kana"?"selected":""}>五十音手寫</option>
+          <option value="kanaReading" ${this.mode==="kanaReading"?"selected":""}>五十音讀音</option>
+          <option value="wordReading" ${this.mode==="wordReading"?"selected":""}>單詞讀音</option>
+          <option value="aiask" ${this.mode==="aiask"?"selected":""}>AI 詢問</option>
         </select>
       </div>
       <div class="stats-period-chips">${[7,14,21,30].map(d=>`<button class="chip ${d===this.period?'selected':''}" data-period="${d}">${d===30?'近 30 天':d+'天'}</button>`).join('')}</div>
@@ -6457,13 +6461,13 @@ Views.stats = {
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
       <div class="stats-mode-bar">
         <select class="stats-mode-select" id="stats-mode-select">
-          <option value="quiz">📝 單字練習</option>
-          <option value="essay" selected>✍️ 文章撰寫</option>
-          <option value="reading">📖 文章閱讀測驗</option>
-          <option value="kana">🖌️ 五十音手寫</option>
-          <option value="kanaReading">🔤 五十音讀音</option>
-          <option value="wordReading">🔠 單詞讀音</option>
-          <option value="aiask">💬 AI 詢問</option>
+          <option value="quiz">單字練習</option>
+          <option value="essay" selected>文章撰寫</option>
+          <option value="reading">文章閱讀測驗</option>
+          <option value="kana">五十音手寫</option>
+          <option value="kanaReading">五十音讀音</option>
+          <option value="wordReading">單詞讀音</option>
+          <option value="aiask">AI 詢問</option>
         </select>
       </div>
       ${flatSessions.length > 0 ? `<div class="rec-header-styled">
@@ -6610,13 +6614,13 @@ Views.stats = {
     const statsModeSel = `
       <div class="stats-mode-bar">
         <select class="stats-mode-select" id="stats-mode-select">
-          <option value="quiz">📝 單字練習</option>
-          <option value="essay">✍️ 文章撰寫</option>
-          <option value="reading">📖 文章閱讀測驗</option>
-          <option value="kana">🖌️ 五十音手寫</option>
-          <option value="kanaReading">🔤 五十音讀音</option>
-          <option value="wordReading">🔠 單詞讀音</option>
-          <option value="aiask" selected>💬 AI 詢問</option>
+          <option value="quiz">單字練習</option>
+          <option value="essay">文章撰寫</option>
+          <option value="reading">文章閱讀測驗</option>
+          <option value="kana">五十音手寫</option>
+          <option value="kanaReading">五十音讀音</option>
+          <option value="wordReading">單詞讀音</option>
+          <option value="aiask" selected>AI 詢問</option>
         </select>
       </div>`;
 
@@ -6751,13 +6755,13 @@ Views.stats = {
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
       <div class="stats-mode-bar">
         <select class="stats-mode-select" id="stats-mode-select">
-          <option value="quiz">📝 單字練習</option>
-          <option value="essay">✍️ 文章撰寫</option>
-          <option value="reading" selected>📖 文章閱讀測驗</option>
-          <option value="kana">🖌️ 五十音手寫</option>
-          <option value="kanaReading">🔤 五十音讀音</option>
-          <option value="wordReading">🔠 單詞讀音</option>
-          <option value="aiask">💬 AI 詢問</option>
+          <option value="quiz">單字練習</option>
+          <option value="essay">文章撰寫</option>
+          <option value="reading" selected>文章閱讀測驗</option>
+          <option value="kana">五十音手寫</option>
+          <option value="kanaReading">五十音讀音</option>
+          <option value="wordReading">單詞讀音</option>
+          <option value="aiask">AI 詢問</option>
         </select>
       </div>
       <div class="reading-stats-summary">
@@ -6952,13 +6956,13 @@ Views.stats = {
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
       <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select">
-        <option value="quiz">📝 單字練習</option>
-        <option value="essay">✍️ 文章撰寫</option>
-        <option value="reading">📖 文章閱讀測驗</option>
-        <option value="kana" selected>🖌️ 五十音手寫</option>
-        <option value="kanaReading">🔤 五十音讀音</option>
-        <option value="wordReading">🔠 單詞讀音</option>
-        <option value="aiask">💬 AI 詢問</option>
+        <option value="quiz">單字練習</option>
+        <option value="essay">文章撰寫</option>
+        <option value="reading">文章閱讀測驗</option>
+        <option value="kana" selected>五十音手寫</option>
+        <option value="kanaReading">五十音讀音</option>
+        <option value="wordReading">單詞讀音</option>
+        <option value="aiask">AI 詢問</option>
       </select></div>
       <div class="reading-stats-summary kana-stats-summary">
         <div><strong>${summary.practiced}/92</strong><span>已練假名</span></div>
@@ -6994,13 +6998,13 @@ Views.stats = {
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
       <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select">
-        <option value="quiz">📝 單字練習</option>
-        <option value="essay">✍️ 文章撰寫</option>
-        <option value="reading">📖 文章閱讀測驗</option>
-        <option value="kana">🖌️ 五十音手寫</option>
-        <option value="kanaReading" selected>🔤 五十音讀音</option>
-        <option value="wordReading">🔠 單詞讀音</option>
-        <option value="aiask">💬 AI 詢問</option>
+        <option value="quiz">單字練習</option>
+        <option value="essay">文章撰寫</option>
+        <option value="reading">文章閱讀測驗</option>
+        <option value="kana">五十音手寫</option>
+        <option value="kanaReading" selected>五十音讀音</option>
+        <option value="wordReading">單詞讀音</option>
+        <option value="aiask">AI 詢問</option>
       </select></div>
       <div class="reading-stats-summary kana-stats-summary">
         <div><strong>${summary.practiced}/92</strong><span>已練假名</span></div>
@@ -7033,10 +7037,10 @@ Views.stats = {
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
       <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select">
-        <option value="quiz">📝 單字練習</option><option value="essay">✍️ 文章撰寫</option>
-        <option value="reading">📖 文章閱讀測驗</option><option value="kana">🖌️ 五十音手寫</option>
-        <option value="kanaReading">🔤 五十音讀音</option><option value="wordReading" selected>🔠 單詞讀音</option>
-        <option value="aiask">💬 AI 詢問</option>
+        <option value="quiz">單字練習</option><option value="essay">文章撰寫</option>
+        <option value="reading">文章閱讀測驗</option><option value="kana">五十音手寫</option>
+        <option value="kanaReading">五十音讀音</option><option value="wordReading" selected>單詞讀音</option>
+        <option value="aiask">AI 詢問</option>
       </select></div>
       <div class="reading-stats-summary kana-stats-summary">
         <div><strong>${summary.practiced}</strong><span>已練單詞</span></div>
@@ -7263,7 +7267,7 @@ Views.settings = {
             </div>
             <div class="settings-btn-row">
               <button class="btn-icon btn-export" id="export-vocab-btn" style="flex:1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="2" fill="#5b8dd9" stroke="#3a6bc4"/><rect x="6" y="2" width="12" height="8" rx="1" fill="#a8c4f0" stroke="#3a6bc4" stroke-width="1.5"/><rect x="9" y="3.5" width="4" height="5" rx="0.5" fill="#3a6bc4" stroke="none"/><rect x="4" y="13" width="16" height="7" rx="1" fill="#d6e8ff" stroke="#3a6bc4" stroke-width="1.5"/></svg>匯出 CSV
+                ${uiIcon('download')}匯出 CSV
               </button>
               <button class="btn-danger-sm" id="clear-vocab-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>清除全部
@@ -7299,7 +7303,7 @@ Views.settings = {
             </div>
             <div class="settings-btn-row">
               <button class="btn-icon btn-export" id="export-sentences-btn" style="flex:1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="2" fill="#5b8dd9" stroke="#3a6bc4"/><rect x="6" y="2" width="12" height="8" rx="1" fill="#a8c4f0" stroke="#3a6bc4" stroke-width="1.5"/><rect x="9" y="3.5" width="4" height="5" rx="0.5" fill="#3a6bc4" stroke="none"/><rect x="4" y="13" width="16" height="7" rx="1" fill="#d6e8ff" stroke="#3a6bc4" stroke-width="1.5"/></svg>匯出 CSV
+                ${uiIcon('download')}匯出 CSV
               </button>
               <button class="btn-danger-sm" id="clear-sentences-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>清除全部
@@ -7324,7 +7328,7 @@ Views.settings = {
             </div>
             <div class="settings-btn-row">
               <button class="btn-icon btn-export" id="export-stats-settings-btn" style="flex:1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="2" fill="#5b8dd9" stroke="#3a6bc4"/><rect x="6" y="2" width="12" height="8" rx="1" fill="#a8c4f0" stroke="#3a6bc4" stroke-width="1.5"/><rect x="9" y="3.5" width="4" height="5" rx="0.5" fill="#3a6bc4" stroke="none"/><rect x="4" y="13" width="16" height="7" rx="1" fill="#d6e8ff" stroke="#3a6bc4" stroke-width="1.5"/></svg>匯出 CSV
+                ${uiIcon('download')}匯出 CSV
               </button>
               <button class="btn-danger-sm" id="clear-stats-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>清除全部
@@ -7416,7 +7420,7 @@ Views.settings = {
             </div>
             <div class="settings-btn-row">
               <button class="btn-icon btn-export" id="export-study-days-btn" style="flex:1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M12 4v11m0 0-4-4m4 4 4-4"/><path d="M6 19h12"/></svg>匯出 CSV
+                ${uiIcon('download')}匯出 CSV
               </button>
             </div>
             <div class="settings-tip" style="margin-top:9px;margin-bottom:0">完成語彙測驗、五十音手寫、閱讀測驗、文章 AI 批改或 AI 詢問即記錄；同一天只計為 1 個練習日。</div>
@@ -7445,7 +7449,7 @@ Views.settings = {
             </div>
             <div class="settings-btn-row">
               <button class="btn-icon btn-export" id="export-reading-btn" style="flex:1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="2" fill="#5b8dd9" stroke="#3a6bc4"/><rect x="6" y="2" width="12" height="8" rx="1" fill="#a8c4f0" stroke="#3a6bc4" stroke-width="1.5"/><rect x="9" y="3.5" width="4" height="5" rx="0.5" fill="#3a6bc4" stroke="none"/><rect x="4" y="13" width="16" height="7" rx="1" fill="#d6e8ff" stroke="#3a6bc4" stroke-width="1.5"/></svg>匯出 CSV
+                ${uiIcon('download')}匯出 CSV
               </button>
               <button class="btn-danger-sm" id="clear-reading-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>清除全部
@@ -7470,7 +7474,7 @@ Views.settings = {
             </div>
             <div class="settings-btn-row">
               <button class="btn-icon btn-export" id="export-essay-btn" style="flex:1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="2" fill="#5b8dd9" stroke="#3a6bc4"/><rect x="6" y="2" width="12" height="8" rx="1" fill="#a8c4f0" stroke="#3a6bc4" stroke-width="1.5"/><rect x="9" y="3.5" width="4" height="5" rx="0.5" fill="#3a6bc4" stroke="none"/><rect x="4" y="13" width="16" height="7" rx="1" fill="#d6e8ff" stroke="#3a6bc4" stroke-width="1.5"/></svg>匯出 CSV
+                ${uiIcon('download')}匯出 CSV
               </button>
               <button class="btn-danger-sm" id="clear-essay-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>清除全部
@@ -7495,7 +7499,7 @@ Views.settings = {
             </div>
             <div class="settings-btn-row">
               <button class="btn-icon btn-export" id="export-aiask-btn" style="flex:1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="2" fill="#5b8dd9" stroke="#3a6bc4"/><rect x="6" y="2" width="12" height="8" rx="1" fill="#a8c4f0" stroke="#3a6bc4" stroke-width="1.5"/><rect x="9" y="3.5" width="4" height="5" rx="0.5" fill="#3a6bc4" stroke="none"/><rect x="4" y="13" width="16" height="7" rx="1" fill="#d6e8ff" stroke="#3a6bc4" stroke-width="1.5"/></svg>匯出 CSV
+                ${uiIcon('download')}匯出 CSV
               </button>
               <button class="btn-danger-sm" id="clear-aiask-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>清除全部
@@ -7586,9 +7590,9 @@ Views.settings = {
             <label class="model-dropdown-label">AI 模型</label>
             <select class="model-dropdown-select" id="gemini-model-select">
               ${!Gemini.AVAILABLE_MODELS.some(model => model.id === savedModel)
-                ? `<option value="${escapeAttr(savedModel)}" selected disabled>${escapeHTML(savedModel)}（需重新選擇）</option>` : ''}
+                ? `<option value="${escapeAttr(savedModel)}" selected disabled>escapeHTML(savedModel)}（需重新選擇）</option>` : ''}
               ${Gemini.AVAILABLE_MODELS.map(m =>
-                `<option value="${escapeHTML(m.id)}" ${savedModel===m.id?'selected':''}>${escapeHTML(m.label)}${m.tag ? '（' + escapeHTML(m.tag) + '）' : ''}</option>`
+                `<option value="${escapeHTML(m.id)}" ${savedModel===m.id?'selected':''}>escapeHTML(m.label)}${m.tag ? '（' + escapeHTML(m.tag) + '）' : ''}</option>`
               ).join('')}
             </select>
           </div>
@@ -8217,6 +8221,46 @@ Views.settings = {
 
     mountSettingsGroups(container, AppStorage);
     StorageUI?.render();
+    const vaultAvailable = () => !ViewWork.busy && !BackgroundJobs.busy && !GDrive._uploadInProgress && !GDrive._restoreInProgress && !GDrive._streakSyncPromise && !GDrive._transferController && !Views.home._dailyVocabularyRequest && !Views.home._databaseSentenceRequest && !Views.home._dailySentenceRequests.size;
+    mountSettingsVault({
+      container, modal: Modal, icon: uiIcon, notify: showToast, available: vaultAvailable,
+      busyChanged: value => { settingsVaultBusy = value; if (!value) resumeAppUpdateWhenSafe(); },
+      snapshot: async () => {
+        await AppStorage.flush();
+        return {
+          gdriveClientId: DB.getGDriveClientId(), gdriveFolderId: DB.getGDriveFolderId(),
+          geminiApiKey: DB.getApiKey(), geminiModel: DB.getModel(), gdriveAutoSync: DB.getGDriveAutoSync() ? '1' : '0',
+          ttsEnabled: String(TTS.enabled), ttsDelay: String(DB.getTtsDelay()), japaneseJlptLevel: DB.getJlptLevel(),
+          lastPracticeMode: DB.getLastPracticeMode(), dbSortMode: Views.database.sortMode,
+          dailyLearningPreferencesV1: JSON.stringify(DB.getDailyLearningPreferences()),
+          wordPracticePreferencesV1: JSON.stringify(DB.getWordPracticePreferences()),
+          kanaPracticePreferencesV1: JSON.stringify(DB.getKanaPracticePreferences()),
+          kanaReadingPreferencesV1: JSON.stringify(DB.getKanaReadingPreferences()),
+          wordReadingPreferencesV1: JSON.stringify(DB.getWordReadingPreferences())
+        };
+      },
+      restore: async settings => {
+        if (!vaultAvailable()) throw new Error('請等待其他工作完成後再還原設定。');
+        GDrive._restoreInProgress = true;
+        const changedClient = settings.gdriveClientId !== DB.getGDriveClientId();
+        const changedDrive = changedClient || settings.gdriveFolderId !== DB.getGDriveFolderId();
+        try {
+          await applySettings(AppStorage, settings, () => {
+            if (changedClient) [GDrive.SESSION_KEYS.email, GDrive.SESSION_KEYS.clientId, GDrive.SESSION_KEYS.scope, GDrive.SESSION_KEYS.lastLogin].forEach(key => AppStorage.removeItem(key));
+          });
+          if (changedDrive) {
+            GDrive._authEpoch++; GDrive._learningFileCache.clear();
+            clearTimeout(GDrive._streakSyncTimer); GDrive._streakSyncTimer = null;
+          }
+          if (changedClient) { GDrive._clearTokenOnly(); GDrive._email = null; GDrive._client = null; GDrive._clientKey = ''; }
+          Gemini.invalidateCatalog();
+          TTS._enabled = settings.ttsEnabled === 'true';
+          if (!TTS.enabled) TTS.stop();
+          Views.database.sortMode = settings.dbSortMode;
+          this.refresh(container, { preserveInputs: false });
+        } finally { GDrive._restoreInProgress = false; }
+      }
+    });
     // ── Google Drive 設定儲存 ──
     document.getElementById('gd-save-cfg-btn')?.addEventListener('click', () => {
       const cid = document.getElementById('gd-client-id-input').value.trim();

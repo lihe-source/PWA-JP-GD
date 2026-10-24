@@ -30,6 +30,18 @@ const rules = {
   kanaReadingPreferencesV1: jsonSetting(v => script(v.script) && rows(v.rows) && repeat(v.repeat)),
   wordReadingPreferencesV1: jsonSetting(v => script(v.script) && rows(v.rows) && choices([5,10,15,20,25,30])(v.count))
 };
+export const SETTINGS_GROUPS = {
+  'Google Drive':['gdriveClientId','gdriveFolderId','gdriveAutoSync'],
+  'AI':['geminiApiKey','geminiModel'],
+  '發音':['ttsEnabled','ttsDelay'],
+  '學習偏好':['japaneseJlptLevel','lastPracticeMode','dbSortMode','dailyLearningPreferencesV1','wordPracticePreferencesV1','kanaPracticePreferencesV1','kanaReadingPreferencesV1','wordReadingPreferencesV1']
+};
+export function selectSettings(current, incoming, groups) {
+  const result = {...validateSettings(current)};
+  validateSettings(incoming);
+  groups.forEach(group => { if (!SETTINGS_GROUPS[group]) throw new Error('UNKNOWN_SETTINGS_GROUP'); SETTINGS_GROUPS[group].forEach(key => result[key] = incoming[key]); });
+  return validateSettings(result);
+}
 export const SETTINGS_KEYS = Object.freeze(Object.keys(rules));
 export function validateSettings(settings) {
   if (!object(settings) || Object.keys(settings).length !== SETTINGS_KEYS.length || Object.keys(settings).some(key => !Object.hasOwn(rules, key))) throw new Error('設定檔格式不符，未變更本機設定。');
@@ -134,7 +146,9 @@ export function mountSettingsVault({ container, modal, snapshot, restore, availa
         if (preview) {
           submit.textContent = '正在套用…';
           form.querySelector('[data-cancel]').disabled = true;
-          await restore(preview.settings);
+          const groups = [...form.querySelectorAll('[data-setting-group]:checked')].map(node => node.dataset.settingGroup);
+          if (!groups.length) throw new Error('請至少選擇一組要還原的設定。');
+          await restore(selectSettings(await snapshot(), preview.settings, groups));
           modal.hide(); notify('設定已還原；Google 登入與通知請在此裝置確認。'); return;
         }
         let password = form.elements.password.value;
@@ -165,7 +179,21 @@ export function mountSettingsVault({ container, modal, snapshot, restore, availa
           const box = form.querySelector('.vault-preview'); box.hidden = false;
           const s = preview.settings;
           // Never interpolate imported values into HTML, and never show the API key.
-          box.textContent = `備份時間：${new Date(preview.createdAt).toLocaleString()}\nGoogle OAuth ID：${s.gdriveClientId ? '已包含' : '未設定'}\n儲存資料夾：${s.gdriveFolderId || 'Drive 根目錄'}\nAI Key：${s.geminiApiKey ? '已包含（隱藏）' : '未設定'}\nAI 模型：${s.geminiModel}\n日文等級：${s.japaneseJlptLevel}\n將覆蓋以上設定與學習／發音偏好，保留單字、練習紀錄及本機通知設定。`;
+          box.textContent = `備份時間：${new Date(preview.createdAt).toLocaleString()}\n勾選要還原的項目；未勾選的設定維持目前值。`;
+          const current = await snapshot();
+          for (const [group, keys] of Object.entries(SETTINGS_GROUPS)) {
+            const changed = keys.filter(key => current[key] !== s[key]);
+            const label = document.createElement('label'); label.className = 'vault-group';
+            const check = document.createElement('input'); check.type='checkbox'; check.dataset.settingGroup=group; check.checked=changed.length>0;
+            const text = document.createElement('span'); text.textContent = `${group}：${changed.length ? `${changed.length} 個設定不同` : '與目前相同'}`;
+            label.append(check,text); box.append(label);
+            if (group === 'AI' && changed.includes('geminiApiKey')) {
+              const hint=document.createElement('small'); hint.textContent='API Key 有變更（內容隱藏）'; box.append(hint);
+            }
+            if (group === 'Google Drive' && changed.includes('gdriveFolderId')) {
+              const hint=document.createElement('small'); hint.textContent=`資料夾：${current.gdriveFolderId || 'Drive 根目錄'} → ${s.gdriveFolderId || 'Drive 根目錄'}`; box.append(hint);
+            }
+          }
           feedback.textContent = '解密成功，尚未修改設定。'; submit.textContent = '確認還原設定';
         }
       } catch (error) {

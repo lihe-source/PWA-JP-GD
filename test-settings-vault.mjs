@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { encryptSettings, decryptSettings, validateSettings, applySettings, MAX_SETTINGS_BYTES } from './settings-vault.js';
+import { encryptSettings, decryptSettings, validateSettings, applySettings, selectSettings, MAX_SETTINGS_BYTES } from './settings-vault.js';
 import { normalizeDailyLearningPreferences } from './daily-learning.js';
 const fixture = () => ({
   gdriveClientId:'example.apps.googleusercontent.com', gdriveFolderId:'test-folder-123',
@@ -71,4 +71,14 @@ test('explicit empty Drive settings survive export and restore instead of revert
     const read=value=>vm.runInNewContext(`({${getter}}).${name}()`,{AppStorage:{getItem:()=>value},JAPANESE_DEFAULTS:defaults});
     assert.equal(read(null),defaults[defaultKey]);assert.equal(read(''),'');assert.equal(read('saved-id'),'saved-id');
   }
+});
+
+test('selective settings restore changes only selected groups and keeps credentials masked by UI', () => {
+  const current=fixture(), incoming={...fixture(),geminiApiKey:'NEW-TEST-KEY',gdriveFolderId:'different-folder',japaneseJlptLevel:'N1',ttsEnabled:'true'};
+  const selected=selectSettings(current,incoming,['AI']);
+  assert.equal(selected.geminiApiKey,'NEW-TEST-KEY');
+  assert.equal(selected.gdriveFolderId,current.gdriveFolderId);
+  assert.equal(selected.japaneseJlptLevel,current.japaneseJlptLevel);
+  assert.equal(selected.ttsEnabled,current.ttsEnabled);
+  assert.throws(()=>selectSettings(current,incoming,['unknown']),/UNKNOWN_SETTINGS_GROUP/);
 });

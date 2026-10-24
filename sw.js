@@ -1,40 +1,42 @@
 const CACHE_PREFIX = 'Japanese-PWA-';
-const CACHE_NAME = 'Japanese-PWA-V1_5_10';
+const CACHE_NAME = 'Japanese-PWA-V1_5_11';
 const APP_SHELL = [
-  './settings-vault.js?v=V1_5_10',
-  './interaction-runtime.js?v=V1_5_10',
-  './gemini-client.js?v=V1_5_10',
-  './ui-runtime.js?v=V1_5_10',
-  './background-jobs.js?v=V1_5_10',
-  './data-worker.js?v=V1_5_10',
-  './learning-sync.js?v=V1_5_10',
-  './practice-lifecycle.js?v=V1_5_10',
-  './storage-status-ui.js?v=V1_5_10',
+  './cloud-runtime.js?v=V1_5_11',
+  './collection-store.js?v=V1_5_11',
+  './settings-vault.js?v=V1_5_11',
+  './interaction-runtime.js?v=V1_5_11',
+  './gemini-client.js?v=V1_5_11',
+  './ui-runtime.js?v=V1_5_11',
+  './background-jobs.js?v=V1_5_11',
+  './data-worker.js?v=V1_5_11',
+  './learning-sync.js?v=V1_5_11',
+  './practice-lifecycle.js?v=V1_5_11',
+  './storage-status-ui.js?v=V1_5_11',
   './',
   './index.html',
-  './style.css?v=V1_5_10',
-  './app.js?v=V1_5_10',
-  './manifest.json?v=V1_5_10',
+  './style.css?v=V1_5_11',
+  './app.js?v=V1_5_11',
+  './manifest.json?v=V1_5_11',
   './version.json',
-  './storage.js?v=V1_5_10',
-  './backup-schema.js?v=V1_5_10',
-  './study-streak.js?v=V1_5_10',
-  './japanese-learning.js?v=V1_5_10',
-  './kana-data.js?v=V1_5_10',
-  './kana-strokes.js?v=V1_5_10',
-  './handwriting-engine.js?v=V1_5_10',
-  './version-manager.js?v=V1_5_10',
-  './chart-renderer.js?v=V1_5_10',
-  './push-config.js?v=V1_5_10',
-  './reminder-manager.js?v=V1_5_10',
-  './daily-learning.js?v=V1_5_10',
-  './kana-reading.js?v=V1_5_10',
-  './word-reading.js?v=V1_5_10',
+  './storage.js?v=V1_5_11',
+  './backup-schema.js?v=V1_5_11',
+  './study-streak.js?v=V1_5_11',
+  './japanese-learning.js?v=V1_5_11',
+  './kana-data.js?v=V1_5_11',
+  './kana-strokes.js?v=V1_5_11',
+  './handwriting-engine.js?v=V1_5_11',
+  './version-manager.js?v=V1_5_11',
+  './chart-renderer.js?v=V1_5_11',
+  './push-config.js?v=V1_5_11',
+  './reminder-manager.js?v=V1_5_11',
+  './daily-learning.js?v=V1_5_11',
+  './kana-reading.js?v=V1_5_11',
+  './word-reading.js?v=V1_5_11',
   './jszip.min.js?v=3_10_1',
   './icon-192.png',
   './icon-512.png',
-  './icon-192.png?v=V1_5_10',
-  './icon-512.png?v=V1_5_10'
+  './icon-192.png?v=V1_5_11',
+  './icon-512.png?v=V1_5_11'
 ];
 
 self.addEventListener('install', event => {
@@ -170,7 +172,7 @@ self.addEventListener('fetch', event => {
   }
 
   if (event.request.mode === 'navigate') {
-    event.respondWith(networkFirst(event.request, './index.html'));
+    event.respondWith(caches.open(CACHE_NAME).then(async cache => (await cache.match('./index.html')) || networkFirst(event.request, './index.html')));
     return;
   }
 

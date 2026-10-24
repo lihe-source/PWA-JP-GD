@@ -1,4 +1,4 @@
-import { BackupSchema } from './backup-schema.js?v=V1_5_10';
+import { BackupSchema } from './backup-schema.js?v=V1_5_11';
 
 // Heavy pure work is isolated from the input/drawing thread. No credentials are sent to the worker.
 export function executeBackgroundJob(type, payload) {
@@ -25,9 +25,10 @@ export function executeBackgroundJob(type, payload) {
 export class BackgroundJobRunner {
   constructor({ workerFactory, timeoutMs = 45000 } = {}) {
     this._customFactory = !!workerFactory;
-    this.workerFactory = workerFactory || (() => new Worker(new URL('./data-worker.js?v=V1_5_10', import.meta.url), { type: 'module' }));
+    this.workerFactory = workerFactory || (() => new Worker(new URL('./data-worker.js?v=V1_5_11', import.meta.url), { type: 'module' }));
     this.timeoutMs = timeoutMs;
     this.active = new Set();
+    this.idleWorker = null;
   }
   get busy() { return this.active.size > 0; }
   async run(type, payload, { signal, onStage } = {}) {
@@ -36,10 +37,14 @@ export class BackgroundJobRunner {
     // Let operation status paint before cloning input data to the worker.
     await new Promise(resolve => setTimeout(resolve, 0));
     if (signal?.aborted) throw new Error('OPERATION_CANCELLED');
-    if (typeof Worker === 'undefined' && !this._customFactory) return executeBackgroundJob(type, payload);
+    const fallback = () => {
+      if (JSON.stringify(payload).length > 256 * 1024) throw new Error('此環境無法啟動背景處理；大型資料操作已停止，請更新瀏覽器後重試。本機資料未變更。');
+      return executeBackgroundJob(type, payload);
+    };
+    if (typeof Worker === 'undefined' && !this._customFactory) return fallback();
     let worker;
-    try { worker = this.workerFactory(); }
-    catch { return executeBackgroundJob(type, payload); }
+    try { worker = this.idleWorker || this.workerFactory(); this.idleWorker = null; }
+    catch { return fallback(); }
     this.active.add(worker);
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -47,7 +52,9 @@ export class BackgroundJobRunner {
         if (settled) return;
         settled = true;
         clearTimeout(timer); signal?.removeEventListener('abort', cancel);
-        worker.terminate(); this.active.delete(worker);
+        if (!error && !this.idleWorker) { this.idleWorker = worker; worker.onmessage = null; worker.onerror = null; }
+        else worker.terminate();
+        this.active.delete(worker);
         error ? reject(error) : resolve(result);
       };
       const cancel = () => finish(new Error('OPERATION_CANCELLED'));

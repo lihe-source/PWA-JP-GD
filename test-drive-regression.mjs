@@ -1,8 +1,10 @@
+import {readArray} from './interaction-runtime.js';
+import {cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt} from './cloud-runtime.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { mergeLearningStates, escapeDriveQuery } from './learning-sync.js';
+import { mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js';
 import { normalizeJapaneseWord } from './japanese-learning.js';
 
 const app = await readFile(new URL('./app.js', import.meta.url), 'utf8');
@@ -12,13 +14,17 @@ const objectSource = app.slice(app.indexOf('const GDrive = {'), app.indexOf('// 
 function makeDrive() {
   const writes = [];
   const ctx = {
+    readArray, cloudError, sessionValue, setSessionValue, verifyDriveReceipt,
+    driveReadFetch: (url, options) => driveReadFetch(url,options,ctx.fetch),
+    google: {accounts:{oauth2:{}}}, window:{google:{accounts:{oauth2:{}}}},
     URLSearchParams, Response, AbortController, setTimeout, clearTimeout,
-    mergeLearningStates, escapeDriveQuery, normalizeJapaneseWord,
+    mergeLearningStates, mergeDeletedRecords, escapeDriveQuery, normalizeJapaneseWord,
     APP_DISPLAY_VERSION: 'V1.5.0', isPracticeActive: () => false, document: {}, Router: {},
     resumeAppUpdateWhenSafe() {}, refreshStudyStreakUI() {},
     DB: { getGDriveFolderId: () => "folder'one", setGDriveLastSync(value) { writes.push(['synced', value]); } },
     StudyStreak: { replace(value) { writes.push(['days', value]); } },
     AppStorage: {
+      getItem: () => null,
       async createRecoverySnapshot() { return { id: 'snapshot' }; },
       setItem(key, value) { writes.push([key, value]); }, async flush() {}
     },
@@ -186,4 +192,12 @@ test('Drive timeout remains active while response body is pending', async () => 
   });
   const response = await drive._fetch('https://www.googleapis.com/drive/v3/files', {}, 20);
   await assert.rejects(response.json(), /DRIVE_TIMEOUT/);
+});
+
+test('old-account upload receipt cannot mark the current account as backed up', async () => {
+  const {drive,ctx,writes}=makeDrive();ctx.requestAnimationFrame=callback=>callback();
+  drive.ensureToken=async()=>{};drive._countPayloadItems=()=>({});
+  drive._fetch=async()=>{drive._authEpoch++;return new Response('{"id":"old-file","size":"2"}');};
+  await assert.rejects(drive.upload(),/AUTH_CONTEXT_CHANGED/);
+  assert.equal(writes.length,0);
 });

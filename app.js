@@ -1,36 +1,37 @@
-import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_10';
-import { createGeminiClient } from './gemini-client.js?v=V1_5_10';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_10';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_10';
-import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_10';
+import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_11';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_11';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_11';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_11';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_11';
+import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_11';
 let settingsVaultBusy = false;
-import { syncLearningState, mergeLearningStates, escapeDriveQuery } from './learning-sync.js?v=V1_5_10';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_10';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_10';
+import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_11';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_11';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_11';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_10';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_10';
-import { VersionManager } from './version-manager.js?v=V1_5_10';
-import { TrendChart } from './chart-renderer.js?v=V1_5_10';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_10';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_10';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_10';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_10';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_10';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_10';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_10';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_10';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_10';
+import { AppStorage } from './storage.js?v=V1_5_11';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_11';
+import { VersionManager } from './version-manager.js?v=V1_5_11';
+import { TrendChart } from './chart-renderer.js?v=V1_5_11';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_11';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_11';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_11';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_11';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_11';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_11';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_11';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_11';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_11';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_10
-// V1.5.10：精簡版面、統一圖示與加密設定備份
+// 日本語練習 PWA - app.js V1_5_11
+// V1.5.11：精簡版面、統一圖示與加密設定備份
 // ===========================
 
 const ViewWork = new ViewWorkManager();
-const APP_VERSION = 'V1_5_10';
-const APP_DISPLAY_VERSION = 'V1.5.10';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_10';
+const APP_VERSION = 'V1_5_11';
+const APP_DISPLAY_VERSION = 'V1.5.11';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_11';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: settingsVaultBusy || ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -41,7 +42,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026102301,
+  currentBuild: 2026102401,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -1539,7 +1540,12 @@ const GDrive = {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const cleanup = () => { clearTimeout(timeout); options.signal?.removeEventListener('abort', cancel); };
     try {
-      const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+      const response = await driveReadFetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({})); cleanup();
+        if (response.status === 401) this._clearTokenOnly();
+        throw cloudError(response.status, detail);
+      }
       if (!response.body || response.status === 204) {
         cleanup();
         return response;
@@ -1564,15 +1570,16 @@ const GDrive = {
       });
     } catch (error) {
       cleanup();
+      if (error?.code === 'DRIVE_HTTP') throw error;
       if (options.signal?.aborted) throw new Error('OPERATION_CANCELLED');
                 if (error?.name === 'AbortError') throw new Error('DRIVE_TIMEOUT');
-      throw new Error('DRIVE_NETWORK_ERROR: ' + (error?.message || 'Fetch failed'));
+      throw new Error('無法連上 Google Drive，可能是網路、代理或服務限制；本機資料仍保留。');
     }
   },
 
   _sessionClientId() { return AppStorage.getItem(this.SESSION_KEYS.clientId) || ''; },
   _sessionScope() { return AppStorage.getItem(this.SESSION_KEYS.scope) || ''; },
-  _expiry() { return parseInt(sessionStorage.getItem(this.SESSION_KEYS.expiry) || '0', 10) || 0; },
+  _expiry() { return parseInt(sessionValue(this.SESSION_KEYS.expiry) || '0', 10) || 0; },
   _isTokenExpired() { return !this._token || Date.now() > this._expiry() - this.EXPIRY_MARGIN_MS; },
   _hasSameClientAndScope(clientId) {
     return this._sessionClientId() === clientId && this._sessionScope() === this.SCOPE;
@@ -1583,8 +1590,8 @@ const GDrive = {
     this._token = token;
     this._email = email === undefined ? this.getUserEmail() : email;
     // Access tokens are intentionally session-only and never written to localStorage/IndexedDB.
-    sessionStorage.setItem(this.SESSION_KEYS.token, token);
-    sessionStorage.setItem(this.SESSION_KEYS.expiry, String(exp));
+    setSessionValue(this.SESSION_KEYS.token, token);
+    setSessionValue(this.SESSION_KEYS.expiry, String(exp));
     AppStorage.setItem(this.SESSION_KEYS.email, this._email || '');
     AppStorage.setItem(this.SESSION_KEYS.clientId, clientId || DB.getGDriveClientId());
     AppStorage.setItem(this.SESSION_KEYS.scope, this.SCOPE);
@@ -1593,22 +1600,22 @@ const GDrive = {
 
   _clearTokenOnly() {
     this._token = null;
-    sessionStorage.removeItem(this.SESSION_KEYS.token);
-    sessionStorage.removeItem(this.SESSION_KEYS.expiry);
+    setSessionValue(this.SESSION_KEYS.token, null);
+    setSessionValue(this.SESSION_KEYS.expiry, null);
   },
 
   _clearSession() {
     this._token = null;
     this._email = null;
-    sessionStorage.removeItem(this.SESSION_KEYS.token);
-    sessionStorage.removeItem(this.SESSION_KEYS.expiry);
+    setSessionValue(this.SESSION_KEYS.token, null);
+    setSessionValue(this.SESSION_KEYS.expiry, null);
     [this.SESSION_KEYS.email, this.SESSION_KEYS.clientId, this.SESSION_KEYS.scope, this.SESSION_KEYS.lastLogin]
       .forEach(k => AppStorage.removeItem(k));
   },
 
   tryRestoreFromStorage() {
     const clientId = DB.getGDriveClientId();
-    const token = sessionStorage.getItem(this.SESSION_KEYS.token);
+    const token = sessionValue(this.SESSION_KEYS.token);
     const email = AppStorage.getItem(this.SESSION_KEYS.email) || '';
     const exp = this._expiry();
     if (email) this._email = email;
@@ -1648,11 +1655,21 @@ const GDrive = {
     }
   },
 
-  async _requestToken({ promptMode, accountHint = '' } = {}) {
+  _requestToken(options = {}) {
+    if (this._tokenRequest) return this._tokenRequest;
+    const request = this._requestTokenOnce(options);
+    this._tokenRequest = request;
+    request.finally(() => { if (this._tokenRequest === request) this._tokenRequest = null; }).catch(() => {});
+    return request;
+  },
+  async _requestTokenOnce({ promptMode, accountHint = '' } = {}) {
     const clientId = DB.getGDriveClientId();
     if (!clientId) throw new Error('NO_CLIENT_ID');
     const epoch = this._authEpoch;
-    await this._loadGIS();
+    if (!window.google?.accounts?.oauth2) {
+      this.preload();
+      throw new Error('Google 登入元件準備中，請稍候再按一次。');
+    }
     if (epoch !== this._authEpoch || clientId !== DB.getGDriveClientId()) throw new Error('AUTH_CONTEXT_CHANGED');
     const hint = accountHint || this.getUserEmail();
     return new Promise((resolve, reject) => {
@@ -1668,6 +1685,10 @@ const GDrive = {
         if (settled) return;
         if (epoch !== this._authEpoch || clientId !== DB.getGDriveClientId()) { fail(new Error('AUTH_CONTEXT_CHANGED')); return; }
         if (resp.error) { fail(new Error(resp.error)); return; }
+        if (!resp.access_token || (google.accounts.oauth2.hasGrantedAllScopes &&
+            !google.accounts.oauth2.hasGrantedAllScopes(resp, ...this.SCOPE.split(' ')))) {
+          fail(new Error('請允許 Google Drive 檔案及帳戶識別權限，再重新連線。')); return;
+        }
         settled = true;
         clearTimeout(timer);
         this._authEpoch++;
@@ -1736,11 +1757,21 @@ const GDrive = {
     return restored;
   },
 
+  async disconnect() {
+    await this.ensureToken({ interactive:true });
+    const epoch = this._authEpoch, token = this._token;
+    await new Promise((resolve,reject) => {
+      const timer = setTimeout(() => reject(new Error('解除授權逾時，請至 Google 帳戶確認授權狀態。')),15000);
+      google.accounts.oauth2.revoke(token, response => {
+        clearTimeout(timer);
+        if (response?.successful) resolve(); else reject(new Error('Google 尚未確認解除授權，請稍後重試。'));
+      });
+    });
+    if (epoch === this._authEpoch) this.signOut();
+  },
   signOut() {
     this._authEpoch++;
-    if (this._token && window.google?.accounts?.oauth2) {
-      google.accounts.oauth2.revoke(this._token, () => {});
-    }
+    this.cancelTransfer();
     this._client = null;
     this._clientKey = '';
     this._silentRestorePromise = null;
@@ -1773,7 +1804,7 @@ const GDrive = {
         jlptLevel: DB.getJlptLevel(),
         ttsDelay: DB.getTtsDelay(),
         geminiModel: DB.getModel(),
-        practice: DB.getPracticePreferenceBundle()
+        practice: DB.getPracticePreferenceBundle(), deletedRecords: this.getDeletedRecords()
       }]
     };
   },
@@ -1785,7 +1816,7 @@ const GDrive = {
       readingQuizHistory: () => DB.getReadingQuizHistory(), essayHistory: () => DB.getEssayHistory(), aiAskHistory: () => DB.getAiAskHistory(),
       studyDays: () => StudyStreak.getDays(), handwritingHistory: () => KanaProgress.getHistory(),
       kanaReadingHistory: () => KanaReadingProgress.getHistory(), wordReadingHistory: () => WordReadingProgress.getHistory(),
-      kanaProgress: () => KanaProgress.getProgress(), preferences: () => [{ jlptLevel: DB.getJlptLevel(), ttsDelay: DB.getTtsDelay(), geminiModel: DB.getModel(), practice: DB.getPracticePreferenceBundle() }]
+      kanaProgress: () => KanaProgress.getProgress(), preferences: () => [{ jlptLevel: DB.getJlptLevel(), ttsDelay: DB.getTtsDelay(), geminiModel: DB.getModel(), practice: DB.getPracticePreferenceBundle(), deletedRecords: this.getDeletedRecords() }]
     };
     for (let attempt = 0; attempt < 2; attempt++) {
       await AppStorage.flush();
@@ -1838,6 +1869,15 @@ const GDrive = {
     ].join('・');
   },
 
+  getDeletedRecords() { return readArray(AppStorage, 'syncDeletedRecords'); },
+  async clearLearningHistory(collection, manager) {
+    const deleted = mergeDeletedRecords(this.getDeletedRecords(), manager.getHistory().map(record => collection + ':' + record.id));
+    await AppStorage.atomicUpdate(() => {
+      AppStorage.setItem('syncDeletedRecords', JSON.stringify(deleted));
+      manager.saveHistory([]); StudyStreak.markPending();
+    });
+    this.scheduleStudyStreakSync();
+  },
   _studyStateName() {
     return `japanese_learning_state_${this._getDeviceId().replace(/[^a-zA-Z0-9_-]/g, '')}.json`;
   },
@@ -1888,6 +1928,7 @@ const GDrive = {
   _buildStudyStreakPayload(studyDays, handwritingHistory = KanaProgress.getHistory(), kanaReadingHistory = KanaReadingProgress.getHistory(), wordReadingHistory = WordReadingProgress.getHistory()) {
     return {
       dataType: 'japanese-learning-state',
+      deletedRecords: this.getDeletedRecords(),
       schemaVersion: 1,
       appVersion: APP_DISPLAY_VERSION,
       deviceId: this._getDeviceId(),
@@ -1976,12 +2017,13 @@ const GDrive = {
       };
       const result = await syncLearningState({
         ready,
-        readLocal: () => ({ studyDays: StudyStreak.getDays(), handwritingHistory: KanaProgress.getHistory(), kanaReadingHistory: KanaReadingProgress.getHistory(), wordReadingHistory: WordReadingProgress.getHistory() }),
+        readLocal: () => ({ deletedRecords: this.getDeletedRecords(), studyDays: StudyStreak.getDays(), handwritingHistory: KanaProgress.getHistory(), kanaReadingHistory: KanaReadingProgress.getHistory(), wordReadingHistory: WordReadingProgress.getHistory() }),
         writeLocal: state => {
           StudyStreak.merge(state.studyDays, { markPending: true });
-          KanaProgress.mergeRemote(state.handwritingHistory);
-          KanaReadingProgress.mergeRemote(state.kanaReadingHistory);
-          WordReadingProgress.mergeRemote(state.wordReadingHistory);
+          AppStorage.setItem('syncDeletedRecords', JSON.stringify(state.deletedRecords || []));
+          KanaProgress.saveHistory(state.handwritingHistory);
+          KanaReadingProgress.saveHistory(state.kanaReadingHistory);
+          WordReadingProgress.saveHistory(state.wordReadingHistory);
         },
         readRemote: async () => {
           this._progress(options, '讀取跨裝置學習資料…', 30);
@@ -1989,9 +2031,12 @@ const GDrive = {
           ownFile = files.find(file => file.name === this._studyStateName()) || null;
           return this._readStudyStreakFiles(files, ready);
         },
-        writeRemote: async state => {
+        writeRemote: async (state, delta) => {
           this._progress(options, '保存合併後的學習資料…', 65);
-          const payload = this._buildStudyStreakPayload(state.studyDays, state.handwritingHistory, state.kanaReadingHistory, state.wordReadingHistory);
+          const ownState = ownFile ? this._learningFileCache.get(ownFile.id)?.data : {};
+          const contribution = mergeLearningStates(ownState, delta || state);
+          const payload = this._buildStudyStreakPayload(contribution.studyDays, contribution.handwritingHistory, contribution.kanaReadingHistory, contribution.wordReadingHistory);
+          payload.deletedRecords = contribution.deletedRecords || [];
           // Each device publishes its own file. Concurrent devices cannot
           // overwrite each other's answers; legacy shared files remain readable.
           if (ownFile) await this._updateStudyStreakFile(ownFile.id, payload);
@@ -2075,7 +2120,7 @@ const GDrive = {
       + prepared.serialized + '\r\n--' + boundary + '--';
     if (authEpoch !== this._authEpoch || folderId !== DB.getGDriveFolderId()) throw new Error('AUTH_CONTEXT_CHANGED');
     this._progress(options, '上傳至 Google Drive…', 55);
-    const r = await this._fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    const r = await this._fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,size,createdTime', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + this._token, 'Content-Type': 'multipart/related; boundary=' + boundary },
       body, signal: options.signal
@@ -2085,10 +2130,14 @@ const GDrive = {
       if (r.status === 401) { this._clearTokenOnly(); throw new Error('TOKEN_EXPIRED'); }
       throw new Error('UPLOAD_FAILED: ' + (err.error?.message || r.status));
     }
-    await r.text(); // consume response and release the transfer deadline
-    if (authEpoch !== this._authEpoch) throw new Error('AUTH_CONTEXT_CHANGED');
+    const receipt = await r.json();
+    verifyDriveReceipt(receipt, prepared.serialized);
+    if (authEpoch !== this._authEpoch || folderId !== DB.getGDriveFolderId()) throw new Error('AUTH_CONTEXT_CHANGED');
+    if (options.signal.aborted) throw new Error('OPERATION_CANCELLED');
+    AppStorage.setItem('gdriveBackupReceipt', JSON.stringify({ id: receipt.id, size: receipt.size, at: new Date().toISOString(), folderId }));
     const now = new Date().toLocaleString('zh-TW');
     DB.setGDriveLastSync(now);
+    AppStorage.setItem('gdriveLastBackupAt', now);
     await AppStorage.flush();
     this._progress(options, '備份上傳完成', 100);
     // The full backup already contains study days. Keep the separate live-state
@@ -2306,6 +2355,14 @@ const GDrive = {
       }
       StudyStreak.merge(data.studyDays || [], { markPending: true });
     }
+    const deleted = mergeDeletedRecords(this.getDeletedRecords(), data.preferences?.[0]?.deletedRecords);
+    if (deleted.length) {
+      AppStorage.setItem('syncDeletedRecords', JSON.stringify(deleted));
+      const set = new Set(deleted);
+      for (const [collection, manager] of [['handwritingHistory',KanaProgress],['kanaReadingHistory',KanaReadingProgress],['wordReadingHistory',WordReadingProgress]]) {
+        manager.saveHistory(manager.getHistory().filter(record => !set.has(collection+':'+record.id)));
+      }
+    }
     });
     const now = new Date().toLocaleString('zh-TW');
     DB.setGDriveLastSync(now);
@@ -2499,6 +2556,7 @@ function beginAIWork(container, status, label) {
 // ===== ROUTER — FIX: quiz guard applies to ALL nav clicks including practice =====
 const Router = {
   currentView: 'home',
+  scrollPositions: new Map(),
   quizActive: false,
   essayActive: false,
   handwritingActive: false,
@@ -2543,6 +2601,8 @@ const Router = {
       btn.classList.toggle('active', active);
       if (active) btn.setAttribute('aria-current', 'page'); else btn.removeAttribute('aria-current');
     });
+    const oldScroller = document.getElementById('view-container');
+    this.scrollPositions.set(this.currentView, oldScroller?.scrollTop || 0);
     this.currentView = view;
     const container = document.getElementById('view-container');
     container.innerHTML = '';
@@ -2554,6 +2614,7 @@ const Router = {
       viewDiv.innerHTML = `<section class="settings-card"><h2>此頁資料暫時無法載入</h2><p>${escapeHTML(error.message)}</p><button class="btn-secondary" data-storage-action="export">匯出救援資料</button><p id="storage-operation-message" role="status"></p></section>`;
     }
     enhanceKeyboardOptions(viewDiv);
+    container.scrollTop = ['home', 'database', 'stats', 'settings'].includes(view) ? (this.scrollPositions.get(view) || 0) : 0;
     setTimeout(() => {
       window.updateScrollFabs?.();
       resumeAppUpdateWhenSafe();
@@ -2583,7 +2644,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_10" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_11" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -7151,7 +7212,8 @@ Views.settings = {
               <div id="gd-account-dot" class="fb-status-dot ${signedIn ? 'connected' : 'disconnected'}"></div>
               <span id="gd-account-status" class="fb-status-text">${signedIn ? '已登入' : '帳號已記住・雲端待授權'}：${escapeHTML(email || 'Google 帳戶')}</span>
             </div>
-            <div id="gd-last-sync" class="fb-last-sync" style="margin-bottom:10px">${lastSync ? '完整備份／還原：' + escapeHTML(lastSync) : '尚無備份上傳紀錄'}</div>
+            <div id="gd-last-sync" class="fb-last-sync" style="margin-bottom:10px">${lastSync ? '最近備份或還原：' + escapeHTML(lastSync) : '尚無備份上傳紀錄'}</div>
+            <p class="backup-scope-note">完整備份上傳：${escapeHTML(AppStorage.getItem('gdriveLastBackupAt') || '尚無已核對紀錄')}<br>包含單字、例句及所有練習資料；API Key 請使用頁底加密設定備份。</p>
             <div class="settings-btn-row" style="margin-bottom:10px">
               <button class="btn-fb-upload" id="gd-upload-btn" style="flex:1">${svgUp} 上傳備份</button>
               <button class="btn-fb-download" id="gd-download-btn" style="flex:1">${svgDn} 還原備份</button>
@@ -7176,8 +7238,9 @@ Views.settings = {
             ${remembered ? '<div class="settings-tip" style="margin-top:8px">開啟程式直接進入主畫面，不會自動叫出 Google 登入視窗。有效授權會沿用；到期時本機功能仍可使用，操作雲端功能時才重新授權。</div>' : ''}
             <button class="btn-fb-signout-bottom" id="gd-signout-btn" style="margin-top:10px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              登出 Google（${escapeHTML(email || '目前帳戶')}）
+              登出此裝置（${escapeHTML(email || '目前帳戶')}）
             </button>
+            <button type="button" class="settings-revoke-btn" id="gd-revoke-btn">解除 Google 授權</button>
           ` : `
             <div class="fb-status-row" style="margin-bottom:8px">
               <div class="fb-status-dot disconnected"></div>
@@ -7676,7 +7739,7 @@ Views.settings = {
         <!-- 資料保存（設定頁最下方） -->
         <section class="settings-card storage-status-card" aria-label="資料保存狀態" style="margin-top:16px">
           <strong>資料保存</strong>
-          <p data-storage-summary role="status" aria-live="polite"></p>
+          <p data-storage-summary role="status" aria-live="polite"></p><p data-storage-health class="settings-tip"></p><button type="button" class="btn-secondary storage-protect-btn" data-storage-action="protect">檢查儲存保護</button>
           <div class="storage-status-actions">
             <button type="button" data-storage-action="retry">重試儲存</button>
             <button type="button" data-storage-action="export">匯出救援備份</button>
@@ -7967,7 +8030,7 @@ Views.settings = {
     });
     document.getElementById('clear-handwriting-btn')?.addEventListener('click', () => {
       confirmClear('清除五十音手寫記錄', `確定要清除全部 ${handwritingHistory.length} 次手寫記錄嗎？此操作無法復原。`, () => {
-        KanaProgress.saveHistory([]); showToast('已清除五十音手寫記錄'); this.refresh(container);
+        void GDrive.clearLearningHistory('handwritingHistory', KanaProgress).then(() => { showToast('已清除五十音手寫記錄，等待雲端同步'); this.refresh(container); }).catch(error => showToast(error.message, 5000));
       });
     });
 
@@ -7979,7 +8042,7 @@ Views.settings = {
     });
     document.getElementById('clear-kana-reading-btn')?.addEventListener('click', () => {
       confirmClear('清除五十音讀音記錄', `確定要清除全部 ${kanaReadingHistory.length} 題讀音記錄嗎？此操作無法復原。`, () => {
-        KanaReadingProgress.saveHistory([]); showToast('已清除五十音讀音記錄'); this.refresh(container);
+        void GDrive.clearLearningHistory('kanaReadingHistory', KanaReadingProgress).then(() => { showToast('已清除五十音讀音記錄，等待雲端同步'); this.refresh(container); }).catch(error => showToast(error.message, 5000));
       });
     });
 
@@ -7990,7 +8053,7 @@ Views.settings = {
     });
     document.getElementById('clear-word-reading-btn')?.addEventListener('click', () => {
       confirmClear('清除單詞讀音記錄', `確定要清除全部 ${wordReadingHistory.length} 題單詞讀音記錄嗎？此操作無法復原。`, () => {
-        WordReadingProgress.saveHistory([]); showToast('已清除單詞讀音記錄'); this.refresh(container);
+        void GDrive.clearLearningHistory('wordReadingHistory', WordReadingProgress).then(() => { showToast('已清除單詞讀音記錄，等待雲端同步'); this.refresh(container); }).catch(error => showToast(error.message, 5000));
       });
     });
 
@@ -8261,6 +8324,7 @@ Views.settings = {
         } finally { GDrive._restoreInProgress = false; }
       }
     });
+    GDrive.preload();
     // ── Google Drive 設定儲存 ──
     document.getElementById('gd-save-cfg-btn')?.addEventListener('click', () => {
       const cid = document.getElementById('gd-client-id-input').value.trim();
@@ -8284,7 +8348,7 @@ Views.settings = {
         GDrive.scheduleStudyStreakSync(250);
         this.refresh(container);
       } catch(err) {
-        let msg = '登入失敗，請稍後再試';
+        let msg = err.message || '登入失敗，請稍後再試';
         if (err.message === 'NO_CLIENT_ID')    msg = '請先填入並儲存 OAuth Client ID';
         if (['GIS_LOAD_FAILED', 'GIS_LOAD_TIMEOUT'].includes(err.message)) msg = 'Google 登入元件載入失敗，請確認網路連線';
         if (['popup_closed_by_user', 'popup_closed'].includes(err.message)) msg = '登入視窗已關閉';
@@ -8314,10 +8378,15 @@ Views.settings = {
       }
     });
 
+    document.getElementById('gd-revoke-btn')?.addEventListener('click', async () => {
+      if (!confirm('解除後，這個 Google 帳戶下次使用本程式的雲端功能需重新授權。雲端檔案不會刪除。')) return;
+      try { await GDrive.disconnect(); showToast('已解除 Google 授權；雲端檔案保留。'); this.refresh(container); }
+      catch (error) { showToast(error.message); }
+    });
     // ── Google 登出 ──
     document.getElementById('gd-signout-btn')?.addEventListener('click', () => {
       GDrive.signOut();
-      showToast('已登出 Google');
+      showToast('已登出此裝置；Google 授權與雲端檔案保留。');
       this.refresh(container);
     });
 
@@ -8334,7 +8403,7 @@ Views.settings = {
         const ts = await GDrive.upload({ interactive: true, onProgress: driveProgress });
         // Keep the same DOM, disclosure state and user scroll position throughout upload.
         const lastSync = document.getElementById('gd-last-sync');
-        if (lastSync) lastSync.textContent = '完整備份／還原：' + ts;
+        if (lastSync) lastSync.textContent = '最近備份或還原：' + ts;
         setDriveOperation('備份已上傳完成', 100, 'done');
         showToast('✓ 備份已上傳至 Google Drive');
       } catch(err) {
@@ -8529,6 +8598,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Paint the shell before hydration; do not allow edits until storage is ready.
   await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
   await AppStorage.init();
+  if (AppStorage.getStatus().externalWriter) {
+    shell.innerHTML = '<section class="settings-card"><h2>程式已在另一個視窗開啟</h2><p>為保護學習資料，請使用原視窗，或關閉原視窗後在此重新載入。</p><button class="btn-primary" id="retry-window">重新載入</button></section>';
+    document.getElementById('retry-window').onclick = () => location.reload();
+    return;
+  }
   document.querySelectorAll('.nav-btn').forEach(button => { button.disabled = false; });
   StorageUI = mountStorageStatus({
     storage: AppStorage,

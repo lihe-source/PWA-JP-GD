@@ -1,7 +1,7 @@
-import { kanaToRomaji, readingMatchesRows, katakanaToHiragana } from './daily-learning.js?v=V1_5_10';
-import { toKatakana } from './japanese-learning.js?v=V1_5_10';
-import { normalizeRomajiAnswer } from './kana-reading.js?v=V1_5_10';
-import { KANA_ROWS } from './kana-data.js?v=V1_5_10';
+import { kanaToRomaji, readingMatchesRows, katakanaToHiragana } from './daily-learning.js?v=V1_5_11';
+import { toKatakana } from './japanese-learning.js?v=V1_5_11';
+import { normalizeRomajiAnswer } from './kana-reading.js?v=V1_5_11';
+import { KANA_ROWS } from './kana-data.js?v=V1_5_11';
 
 const ROW_IDS = new Set(KANA_ROWS.map(row => row.id));
 export const WORD_READING_COUNTS = Object.freeze([5, 10, 15, 20, 25, 30]);

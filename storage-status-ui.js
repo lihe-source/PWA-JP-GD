@@ -1,12 +1,17 @@
-import { BackupSchema } from './backup-schema.js?v=V1_5_10';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_10';
+import { BackupSchema } from './backup-schema.js?v=V1_5_11';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_11';
 export function mountStorageStatus({ storage, cloudState, exportPayload, restorePayload, onSafe }) {
   const banner = document.getElementById('storage-warning');
   const render = () => {
     const state = storage.getStatus();
     if (banner) banner.hidden = state.saveState !== 'error';
+    const health = state.health || {};
+    document.querySelectorAll('[data-storage-health]').forEach(node => {
+      const mb = bytes => (bytes / 1048576).toFixed(1);
+      node.textContent = `${health.persistent === true ? '已啟用持久儲存保護' : health.persistent === false ? '瀏覽器目前使用一般儲存' : '持久儲存狀態尚未確認'}${health.quota ? `・此網站約使用 ${mb(health.usage)} / ${mb(health.quota)} MiB` : ''}。請仍定期保留外部備份。`;
+    });
     const corrupt = state.failedKeys?.some(key => key.startsWith('integrity:'));
-    const summary = corrupt ? '資料格式異常：已保留原始資料，請先匯出救援資料' : state.saveState === 'error' ? '儲存失敗：資料仍在暫存，請勿關閉程式'
+    const summary = state.externalWriter ? '另一個視窗正在使用資料。請關閉另一個視窗後重新載入。' : corrupt ? '資料格式異常：已保留原始資料，請先匯出救援資料' : state.saveState === 'error' ? '儲存失敗：資料仍在暫存，請勿關閉程式'
       : state.saveState === 'saving' ? '正在儲存到本機…'
         : cloudState()?.pending ? '本機已儲存・雲端待同步' : '本機已儲存';
     document.querySelectorAll('[data-storage-summary]').forEach(node => {
@@ -41,7 +46,8 @@ export function mountStorageStatus({ storage, cloudState, exportPayload, restore
     const status = document.getElementById('storage-operation-message');
     button.disabled = true;
     try {
-      if (button.dataset.storageAction === 'retry') await storage.retryFailedWrites();
+      if (button.dataset.storageAction === 'protect') { await storage.checkStorageHealth(true); if(status) status.textContent='已重新檢查儲存保護，核准狀態由瀏覽器決定。'; }
+      else if (button.dataset.storageAction === 'retry') await storage.retryFailedWrites();
       else if (button.dataset.storageAction === 'export') await exportBackup();
       else if (button.dataset.storageAction === 'import') document.getElementById('storage-recovery-file')?.click();
       if (status) status.textContent = button.dataset.storageAction === 'retry' ? '本機資料已成功儲存。' : '';

@@ -1,5 +1,6 @@
+import { ITEM_STORE, ORDER_PREFIX, writeCollection, readCollections } from './collection-store.js?v=V1_5_11';
 const DB_NAME = 'pwa_japanese_v1';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const KV_STORE = 'kv';
 const SNAPSHOT_STORE = 'snapshots';
 const RECORD_STORE = 'records';
@@ -28,6 +29,8 @@ function normalizeRecordList(records = []) {
 export class StorageBridge {
   constructor() {
     this.cache = new Map();
+    this.storageHealth = {};
+    this.externalWriter = false;
     this.recordCache = new Map([...RECORD_COLLECTIONS].map(key => [key, new Map()]));
     this.recordSortedCache = new Map();
     this.db = null;
@@ -59,6 +62,8 @@ export class StorageBridge {
   async init() {
     if (this.ready) return this.getStatus();
     try {
+      await this._claimWriter();
+      if (this.externalWriter) { this.ready = true; return this.getStatus(); }
       this.db = await this._open();
       this.db.onversionchange = () => {
         this.db?.close();
@@ -69,6 +74,20 @@ export class StorageBridge {
       };
       const [kvRecords, collectionRows] = await Promise.all([this._getAllKvRecords(), this._getAllCollectionRows()]);
       const kv = new Map(kvRecords.map(record => [record.key, record.value]));
+      if (this.db.objectStoreNames?.contains(ITEM_STORE)) {
+        const collections = await readCollections(this.db);
+        for (const [meta, count] of kv) {
+          if (!meta.startsWith(ORDER_PREFIX)) continue;
+          const key = meta.slice(ORDER_PREFIX.length);
+          const rows = collections.get(key) || [];
+          const order = JSON.parse(count);
+          if (!Array.isArray(order) || rows.length !== order.length || new Set(order).size !== order.length) throw new Error('COLLECTION_COUNT_MISMATCH');
+          const byId = new Map(rows.map(row => [row.id,row]));
+          if (order.some(id => !byId.has(id))) throw new Error('COLLECTION_ID_MISMATCH');
+          const value = JSON.stringify(order.map(id => byId.get(id).value));
+          kv.set(key,value); kvRecords.push({key,value});
+        }
+      }
       kvRecords.forEach(record => {
         if (!RECORD_COLLECTIONS.has(record.key) && typeof record.value === 'string') this.cache.set(record.key, record.value);
       });
@@ -129,8 +148,15 @@ export class StorageBridge {
       this._localRemove('gdriveToken');
       this._localRemove('gdriveExpiry');
       try { sessionStorage.removeItem('gdriveToken'); sessionStorage.removeItem('gdriveExpiry'); } catch {}
-      this.setItem('storageSchemaVersion', '2');
-      this.setItem('storageMigratedAt', new Date().toISOString());
+      // Copy-on-migrate: old arrays remain as recovery sources; no source is deleted until the transaction commits.
+      for (const key of ARRAY_KEYS) {
+        if (!kv.has(key) || kv.has(ORDER_PREFIX+key)) continue;
+        this._checkArray(key,kv.get(key),true);
+        await this._putRecord(key,kv.get(key));
+      }
+      if (!this.readOnly) this.setItem('storageSchemaVersion', '3');
+      if (!this.readOnly && !this.getItem('storageMigratedAt')) this.setItem('storageMigratedAt', new Date().toISOString());
+      void this.checkStorageHealth();
       this.ready = true;
       return this.getStatus();
     } catch (error) {
@@ -150,7 +176,9 @@ export class StorageBridge {
       ready: this.ready,
       mode: this.readOnly ? 'read-only' : this.db && !this.fallback ? 'indexeddb' : 'localstorage-fallback',
       readOnly: this.readOnly,
-      schemaVersion: 2,
+      schemaVersion: 3,
+      externalWriter: this.externalWriter,
+      health: this.storageHealth,
       saveState: this.failures.size ? 'error' : this.pending.size || this.atomicLock ? 'saving' : 'saved',
       failedKeys: [...this.failures.keys()],
       pendingWrites: this.pending.size + Number(this.atomicLock) + this.deferredWrites.length,
@@ -199,6 +227,7 @@ export class StorageBridge {
       else { try { raw[key] = this.getItem(key); } catch { raw[key] = this._localGet(key); } }
     }
     return { recoveryOnly: true, format: 'japanese-raw-recovery-v1', createdAt: new Date().toISOString(), raw,
+      migrationSources: Object.fromEntries([...this.cache].filter(([key]) => key.startsWith('migration-v3:'))),
       records: Object.fromEntries([...this.recordCache].map(([key, map]) => [key, [...map.values()]])),
       note: '包含未修復的原始資料，保留此檔供修復；不可直接當作一般備份匯入。' };
   }
@@ -505,11 +534,37 @@ export class StorageBridge {
     this.pending.add(tracked); this._notifyStatus();
   }
 
+  async _claimWriter() {
+    if (!globalThis.navigator?.locks?.request) return;
+    await new Promise(resolve => {
+      navigator.locks.request(DB_NAME + ':writer', { ifAvailable:true }, lock => {
+        if (!lock) {
+          this.externalWriter = true; this.readOnly = true;
+          this.failures.set('anotherWindow', new Error('另一個視窗正在使用資料，請關閉另一個視窗後重新載入。'));
+          resolve(); return;
+        }
+        const held = new Promise(release => { this.releaseWriter = release; });
+        resolve(); return held;
+      }).catch(() => resolve());
+    });
+  }
+
+  async checkStorageHealth(requestPersistent = false) {
+    const api = globalThis.navigator?.storage;
+    try {
+      const persistent = requestPersistent && api?.persist ? await api.persist() : await api?.persisted?.();
+      const estimate = await api?.estimate?.();
+      this.storageHealth = { persistent: persistent ?? null, usage: estimate?.usage || 0, quota: estimate?.quota || 0, checkedAt:Date.now() };
+    } catch { this.storageHealth = { persistent:null, checkedAt:Date.now() }; }
+    this._notifyStatus(); return this.storageHealth;
+  }
+
   _open() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = event => {
         const db = event.target.result;
+        if (!db.objectStoreNames.contains(ITEM_STORE)) { const items = db.createObjectStore(ITEM_STORE, {keyPath:['collection','id']}); items.createIndex('collection','collection'); }
         if (!db.objectStoreNames.contains(KV_STORE)) db.createObjectStore(KV_STORE, { keyPath: 'key' });
         if (!db.objectStoreNames.contains(SNAPSHOT_STORE)) db.createObjectStore(SNAPSHOT_STORE, { keyPath: 'id' });
         if (!db.objectStoreNames.contains(RECORD_STORE)) {
@@ -549,7 +604,19 @@ export class StorageBridge {
   }
 
   _getAllKvRecords() { return this._getAll(KV_STORE); }
-  _getAllCollectionRows() { return this._getAll(RECORD_STORE); }
+  async _getAllCollectionRows() {
+    const result = []; let after;
+    for (;;) {
+      const rows = await new Promise((resolve,reject) => {
+        const req = this.db.transaction(RECORD_STORE).objectStore(RECORD_STORE).getAll(after ? IDBKeyRange.lowerBound(after,true) : null,300);
+        req.onsuccess = () => resolve(req.result || []); req.onerror = () => reject(req.error);
+      });
+      result.push(...rows);
+      if (rows.length < 300) return result;
+      const last = rows.at(-1); after = [last.collection,last.id];
+      await new Promise(resolve => setTimeout(resolve,0));
+    }
+  }
   _getAll(storeName) {
     return new Promise((resolve, reject) => {
       const req = this.db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
@@ -560,8 +627,13 @@ export class StorageBridge {
 
   _putRecord(key, value) {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(KV_STORE, 'readwrite');
-      tx.objectStore(KV_STORE).put({ key, value, updatedAt: new Date().toISOString() });
+      const array = ARRAY_KEYS.has(key) && this.db.objectStoreNames?.contains(ITEM_STORE);
+      const tx = this.db.transaction(array ? [KV_STORE, ITEM_STORE] : KV_STORE, 'readwrite');
+      if (array) {
+        const kv = tx.objectStore(KV_STORE), legacy = kv.get(key);
+        legacy.onsuccess = () => { if (legacy.result) kv.put({key:'migration-v3:'+key,value:legacy.result.value}); };
+        writeCollection(tx,key,value);
+      } else tx.objectStore(KV_STORE).put({ key, value, updatedAt: new Date().toISOString() });
       tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(tx.error);
     });
   }
@@ -576,8 +648,9 @@ export class StorageBridge {
   }
   _deleteRecord(key) {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(KV_STORE, 'readwrite');
-      tx.objectStore(KV_STORE).delete(key);
+      const array = ARRAY_KEYS.has(key) && this.db.objectStoreNames?.contains(ITEM_STORE);
+      const tx = this.db.transaction(array ? [KV_STORE,ITEM_STORE] : KV_STORE, 'readwrite');
+      if (array) writeCollection(tx,key,null); else tx.objectStore(KV_STORE).delete(key);
       tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(tx.error);
     });
   }
@@ -592,7 +665,7 @@ export class StorageBridge {
     return new Promise((resolve, reject) => {
       const tx = this.db.transaction(RECORD_STORE, 'readwrite');
       const store = tx.objectStore(RECORD_STORE);
-      const cursor = store.openCursor();
+      const cursor = store.index('collection').openCursor(IDBKeyRange.only(collection));
       cursor.onsuccess = () => {
         const item = cursor.result;
         if (item) { if (item.value?.collection === collection) item.delete(); item.continue(); return; }
@@ -608,17 +681,19 @@ export class StorageBridge {
 
   _commitAtomicStage(stage) {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction([KV_STORE, RECORD_STORE], 'readwrite');
+      const tx = this.db.transaction([KV_STORE, RECORD_STORE, ITEM_STORE], 'readwrite');
       const kv = tx.objectStore(KV_STORE);
-      stage.kv.forEach((value, key) => value === null
-        ? kv.delete(key)
-        : kv.put({ key, value, updatedAt: new Date().toISOString() }));
+      stage.kv.forEach((value, key) => {
+        if (ARRAY_KEYS.has(key)) writeCollection(tx,key,value);
+        else if (value === null) kv.delete(key);
+        else kv.put({ key, value, updatedAt: new Date().toISOString() });
+      });
       const store = tx.objectStore(RECORD_STORE);
       const collections = [...stage.collections.entries()];
       const replaceNext = index => {
         if (index >= collections.length) return;
         const [collection, map] = collections[index];
-        const cursor = store.openCursor();
+        const cursor = store.index('collection').openCursor(IDBKeyRange.only(collection));
         cursor.onsuccess = () => {
           const item = cursor.result;
           if (item) { if (item.value?.collection === collection) item.delete(); item.continue(); return; }

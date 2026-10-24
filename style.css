@@ -4356,7 +4356,7 @@ body { position: relative; height: 100%; min-height: 0; }
 .daily-script-group legend { padding:0 8px 0 0; font-size:15px; font-weight:800; color:var(--text-primary); }
 .daily-script-note { font-size:13px; line-height:1.65; color:var(--text-muted); margin:8px 0 0; }
 
-/* V1.5.10 compact surfaces. The existing shell alone owns the safe area;
+/* V1.5.11 compact surfaces. The existing shell alone owns the safe area;
    do not add viewport padding or resize handwriting canvas/score geometry here. */
 .ui-icon { width:22px; height:22px; flex:0 0 auto; vertical-align:middle; }
 button > .ui-icon { width:20px; height:20px; }
@@ -4463,4 +4463,24 @@ button > .ui-icon { width:20px; height:20px; }
 @media (max-width:370px) {
   .vault-actions { grid-template-columns:1fr; }
   .vault-heading > span { display:none; }
+}
+
+/* V1.5.11: readable density, aligned account tools; no changes to canvas or safe-area ownership. */
+:root { --section-gap:12px; --control-radius:12px; }
+.backup-scope-note,.sync-scope-note { font-size:13px; line-height:1.6; color:var(--text-muted); margin:8px 0 12px; overflow-wrap:anywhere; }
+.settings-revoke-btn { background:none; border:0; color:var(--text-muted); text-decoration:underline; font:inherit; font-size:13px; min-height:44px; margin:4px 0 0; }
+.storage-protect-btn { min-height:44px; margin:6px 0 10px; }
+.vault-group { display:flex!important; align-items:center; gap:10px; min-height:44px; border-bottom:1px solid var(--border); padding:8px 0; }
+.vault-group input { width:20px!important; height:20px; flex:none; }
+.vault-preview small { display:block; font-size:13px; overflow-wrap:anywhere; }
+.settings-card .settings-tip { font-size:13px; line-height:1.65; }
+.home-menu-desc { font-size:13px; line-height:1.5; }
+.hero-learning-context { font-size:12px; line-height:1.5; }
+.settings-wrap,.db-list { gap:var(--section-gap); }
+.settings-category-body { min-width:0; }
+.settings-category-body input,.settings-category-body select { max-width:100%; }
+.settings-vault .vault-note { font-size:12px; line-height:1.6; }
+@media (min-width:700px) {
+  .settings-wrap { max-width:960px; margin-inline:auto; }
+  .db-list { align-items:start; }
 }

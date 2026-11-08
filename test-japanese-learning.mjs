@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { BASIC_KANA, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js';
 import { buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, resolveWritingLayout, toHiragana } from './japanese-learning.js';
 
-test('the basic kana curriculum includes 46 hiragana and 46 katakana with strokes', () => {
-  assert.equal(BASIC_KANA.length, 92);
-  assert.equal(getKanaSet({ script: 'hiragana' }).length, 46);
-  assert.equal(getKanaSet({ script: 'katakana' }).length, 46);
+test('the basic kana curriculum includes 71 hiragana and 71 katakana with strokes', () => {
+  assert.equal(BASIC_KANA.length, 142);
+  assert.equal(getKanaSet({ script: 'hiragana' }).length, 71);
+  assert.equal(getKanaSet({ script: 'katakana' }).length, 71);
   assert.equal(BASIC_KANA.every(kana => kana.strokes.length > 0), true);
 });
 

@@ -1,4 +1,4 @@
-import { KANA_STROKES } from './kana-strokes.js?v=V1_5_11';
+import { KANA_STROKES } from './kana-strokes.js?v=V1_5_12';
 
 export const KANA_SCRIPTS = Object.freeze({
   HIRAGANA: 'hiragana',
@@ -15,7 +15,12 @@ const ROWS = [
   { id: 'ma', label: 'ま行', romaji: ['ma', 'mi', 'mu', 'me', 'mo'], hiragana: 'まみむめも', katakana: 'マミムメモ' },
   { id: 'ya', label: 'や行', romaji: ['ya', 'yu', 'yo'], hiragana: 'やゆよ', katakana: 'ヤユヨ' },
   { id: 'ra', label: 'ら行', romaji: ['ra', 'ri', 'ru', 're', 'ro'], hiragana: 'らりるれろ', katakana: 'ラリルレロ' },
-  { id: 'wa', label: 'わ行・ん', romaji: ['wa', 'wo', 'n'], hiragana: 'わをん', katakana: 'ワヲン' }
+  { id: 'wa', label: 'わ行・ん', romaji: ['wa', 'wo', 'n'], hiragana: 'わをん', katakana: 'ワヲン' },
+  { id: 'ga', label: 'が行', group: 'voiced', romaji: ['ga','gi','gu','ge','go'], hiragana: 'がぎぐげご', katakana: 'ガギグゲゴ' },
+  { id: 'za', label: 'ざ行', group: 'voiced', romaji: ['za','ji','zu','ze','zo'], hiragana: 'ざじずぜぞ', katakana: 'ザジズゼゾ' },
+  { id: 'da', label: 'だ行', group: 'voiced', romaji: ['da','ji','zu','de','do'], hiragana: 'だぢづでど', katakana: 'ダヂヅデド' },
+  { id: 'ba', label: 'ば行', group: 'voiced', romaji: ['ba','bi','bu','be','bo'], hiragana: 'ばびぶべぼ', katakana: 'バビブベボ' },
+  { id: 'pa', label: 'ぱ行', group: 'semiVoiced', romaji: ['pa','pi','pu','pe','po'], hiragana: 'ぱぴぷぺぽ', katakana: 'パピプペポ' }
 ];
 
 // Row identity is stable across scripts; only its display label changes.
@@ -48,13 +53,13 @@ function buildKana(script) {
 export const HIRAGANA = Object.freeze(buildKana(KANA_SCRIPTS.HIRAGANA));
 export const KATAKANA = Object.freeze(buildKana(KANA_SCRIPTS.KATAKANA));
 export const BASIC_KANA = Object.freeze([...HIRAGANA, ...KATAKANA]);
-export const KANA_ROWS = Object.freeze(ROWS.map(({ id, label }) => Object.freeze({ id, label })));
+export const KANA_ROWS = Object.freeze(ROWS.map(({ id, label, hiragana, group = 'basic' }) => Object.freeze({ id, label, kana: hiragana, group })));
 
 const BY_ID = new Map(BASIC_KANA.map(item => [item.id, item]));
 const BY_CHARACTER = new Map(BASIC_KANA.map(item => [item.character, item]));
 
 export function getKana(value) {
-  const key = String(value || '');
+  const key = String(value || '').normalize('NFC');
   return BY_ID.get(key) || BY_CHARACTER.get(key) || null;
 }
 
@@ -117,4 +122,10 @@ export function buildRepeatedKanaPractice(items, repeat = 1, random = Math.rando
   const repeated = [];
   for (let round = 0; round < repetitions; round++) repeated.push(...source);
   return arrangeWithoutAdjacentDuplicates(repeated, random);
+}
+
+// Group headings have no selection state; row IDs remain stable across scripts.
+export function kanaRowGroupHeading(id) {
+  const label = { a: '清音', ga: '濁音', pa: '半濁音' }[id];
+  return label ? `<span class="kana-row-group-title">${label}</span>` : '';
 }

@@ -1,4 +1,4 @@
-import { ITEM_STORE, ORDER_PREFIX, writeCollection, readCollections } from './collection-store.js?v=V1_5_11';
+import { ITEM_STORE, ORDER_PREFIX, writeCollection, readCollections } from './collection-store.js?v=V1_5_12';
 const DB_NAME = 'pwa_japanese_v1';
 const DB_VERSION = 3;
 const KV_STORE = 'kv';

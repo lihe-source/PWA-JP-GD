@@ -39,11 +39,11 @@ test('daily learning settings support JLPT level and multiple kana rows', () => 
 
 test('the complete reading must stay inside selected rows', () => {
   assert.equal(readingMatchesRows('がっこう', ['ka']), false);
-  assert.equal(readingMatchesRows('がっこう', ['ka', 'a']), true);
-  assert.equal(readingMatchesRows('ざっし', ['sa']), true);
+  assert.equal(readingMatchesRows('がっこう', ['ga', 'ka', 'a']), true);
+  assert.equal(readingMatchesRows('ざっし', ['za', 'sa']), true);
   assert.equal(readingMatchesRows('あい', ['ka', 'sa']), false);
   assert.equal(readingMatchesRows('たべる', ['a', 'ka', 'sa', 'ta', 'na', 'ha']), false);
-  assert.equal(readingMatchesRows('たべた', ['a', 'ka', 'sa', 'ta', 'na', 'ha']), true);
+  assert.equal(readingMatchesRows('たべた', ['a', 'ka', 'sa', 'ta', 'na', 'ha']), false);
   assert.equal(readingMatchesRows('キャー', ['ka']), false);
   assert.equal(readingMatchesRows('キャー', ['ka', 'ya']), true);
 });
@@ -116,7 +116,7 @@ test('daily script settings migrate legacy rows and preserve explicit disabled g
 });
 
 test('daily script pools never borrow rows from the other script and preserve katakana', () => {
-  const options = {scriptRows:{hiragana:['a','ka'],katakana:['sa','ta']},limit:20};
+  const options = {scriptRows:{hiragana:['a','ka','ga'],katakana:['sa','ta']},limit:20};
   const values = [
     {word:'愛',reading:'あい',meaning:'愛'},
     {word:'学校',reading:'がっこう',meaning:'學校'},
@@ -182,7 +182,7 @@ test('daily script preferences survive actual DB save, backup, restore, and inva
   const data=new Map();const storage={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v)};
   const context={DAILY_LEARNING_SOURCES,AppStorage:storage,normalizeDailyLearningPreferences,normalizeDailyVocabulary,dailyLearningSignature,todayStr:()=> '2026-10-19',JAPANESE_DEFAULTS:{jlptLevel:'N5'},STUDY_DAYS_CSV_HEADER:'date,type'};
   vm.runInNewContext(source+'\nthis.db=DB',context);const db=context.db;
-  const scriptRows={hiragana:['a','ka'],katakana:['sa','ta']};
+  const scriptRows={hiragana:['a','ka','ga'],katakana:['sa','ta']};
   db.saveDailyLearningPreferences({source:'level',scriptRows});
   db.saveTodayDailyVocabulary([{word:'テスト',reading:'テスト',meaning:'測驗'}]);
   assert.equal(db.getTodayDailyVocabulary().words[0].reading,'テスト');

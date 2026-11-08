@@ -20,7 +20,7 @@ test('word pool checks every pronounced kana against all selected rows', () => {
   assert.deepEqual(makeWordReadingPool(words, ['a']).map(w => w.word), ['愛']);
   assert.deepEqual(makeWordReadingPool(words, ['a', 'ka']).map(w => w.word), ['愛', '赤', 'ココア']);
   assert.equal(makeWordReadingPool(words, ['ta']).some(w => w.word === '食べる'), false);
-  assert.equal(makeWordReadingPool(words, ['ta', 'ha', 'ra']).some(w => w.word === '食べる'), true);
+  assert.equal(makeWordReadingPool(words, ['ta', 'ba', 'ra']).some(w => w.word === '食べる'), true);
   assert.equal(makeWordReadingPool(words, ['sa']).some(w => w.word === '寿司'), true);
   assert.equal(makeWordReadingPool(words, ['a', 'ta']).some(w => w.word === 'お茶'), false);
   assert.equal(makeWordReadingPool(words, ['a', 'ta', 'ya']).some(w => w.word === 'お茶'), true);

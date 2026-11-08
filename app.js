@@ -1,37 +1,37 @@
-import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_11';
-import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_11';
-import { createGeminiClient } from './gemini-client.js?v=V1_5_11';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_11';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_11';
-import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_11';
+import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_12';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_12';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_12';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_12';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_12';
+import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_12';
 let settingsVaultBusy = false;
-import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_11';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_11';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_11';
+import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_12';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_12';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_12';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_11';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_11';
-import { VersionManager } from './version-manager.js?v=V1_5_11';
-import { TrendChart } from './chart-renderer.js?v=V1_5_11';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_11';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_11';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_11';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_11';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_11';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_11';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_11';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_11';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_11';
+import { AppStorage } from './storage.js?v=V1_5_12';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_12';
+import { VersionManager } from './version-manager.js?v=V1_5_12';
+import { TrendChart } from './chart-renderer.js?v=V1_5_12';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_12';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_12';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_12';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_12';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, kanaRowGroupHeading, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_12';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_12';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_12';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_12';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_12';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_11
-// V1.5.11：精簡版面、統一圖示與加密設定備份
+// 日本語練習 PWA - app.js V1_5_12
+// V1.5.12：精簡版面、統一圖示與加密設定備份
 // ===========================
 
 const ViewWork = new ViewWorkManager();
-const APP_VERSION = 'V1_5_11';
-const APP_DISPLAY_VERSION = 'V1.5.11';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_11';
+const APP_VERSION = 'V1_5_12';
+const APP_DISPLAY_VERSION = 'V1.5.12';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_12';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: settingsVaultBusy || ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -42,7 +42,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026102401,
+  currentBuild: 2026110701,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -2644,7 +2644,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_11" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_12" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -3912,10 +3912,10 @@ Views.kanaPractice = {
               </div>
             </div>
             <div class="option-group kana-compact-group kana-row-group">
-              <div class="option-label">五十音行（可複選）</div>
+              <div class="option-label">假名行（清音／濁音／半濁音，可複選）</div>
               <div class="kana-row-grid" id="kana-row-grid" role="group" aria-label="選擇要練習的五十音行">
                 <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-kana-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
-                ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-kana-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
+                ${KANA_ROWS.map(row => `${kanaRowGroupHeading(row.id)}<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-kana-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
               </div>
               <div class="kana-row-summary" id="kana-row-summary"></div>
             </div>
@@ -3992,7 +3992,7 @@ Views.kanaPractice = {
       const totalQuestions = practiceCount * this.state.repeat;
       const rowSummary = document.getElementById('kana-row-summary');
       if (rowSummary) {
-        const rowText = this.state.rows.includes('all') ? '全部 10 行' : `已選 ${this.state.rows.length} 行`;
+        const rowText = this.state.rows.includes('all') ? `全部 ${KANA_ROWS.length} 行` : `已選 ${this.state.rows.length} 行`;
         rowSummary.textContent = `${rowText}・${selectedCount} 個假名`;
       }
       const repeatSummary = document.getElementById('kana-repeat-summary');
@@ -4400,10 +4400,10 @@ Views.kanaReadingPractice = {
               </div>
             </div>
             <div class="option-group kana-compact-group kana-row-group">
-              <div class="option-label">五十音行（可複選）</div>
+              <div class="option-label">假名行（清音／濁音／半濁音，可複選）</div>
               <div class="kana-row-grid kana-row-grid-compact" role="group" aria-label="選擇五十音行">
                 <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-reading-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
-                ${KANA_ROWS.map(row => `<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-reading-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
+                ${KANA_ROWS.map(row => `${kanaRowGroupHeading(row.id)}<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-reading-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
               </div>
               <div class="kana-row-summary" id="kana-reading-row-summary"></div>
             </div>
@@ -4435,7 +4435,7 @@ Views.kanaReadingPractice = {
       });
       const pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
       const total = pool.length * this.state.repeat;
-      const rowLabel = this.state.rows.includes('all') ? '全部 10 行' : `已選 ${this.state.rows.length} 行`;
+      const rowLabel = this.state.rows.includes('all') ? `全部 ${KANA_ROWS.length} 行` : `已選 ${this.state.rows.length} 行`;
       const rowSummary = document.getElementById('kana-reading-row-summary');
       if (rowSummary) rowSummary.textContent = `${rowLabel}・${pool.length} 個假名`;
       const repeatSummary = document.getElementById('kana-reading-repeat-summary');
@@ -4673,10 +4673,10 @@ Views.wordReadingPractice = {
             <button type="button" class="chip" data-word-script="katakana">片假名</button>
             <button type="button" class="chip" data-word-script="both">兩者混合</button>
           </div></div>
-          <div class="option-group kana-compact-group kana-row-group"><div class="option-label">五十音行（可複選）</div>
+          <div class="option-group kana-compact-group kana-row-group"><div class="option-label">假名行（清音／濁音／半濁音，可複選）</div>
             <div class="kana-row-grid kana-row-grid-compact" role="group" aria-label="選擇單詞包含的五十音行">
               <button type="button" class="kana-row-chip" data-word-row="all">全部行</button>
-              ${KANA_ROWS.map(row => `<button type="button" class="kana-row-chip" data-word-row="${row.id}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
+              ${KANA_ROWS.map(row => `${kanaRowGroupHeading(row.id)}<button type="button" class="kana-row-chip" data-word-row="${row.id}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
             </div><div class="kana-row-summary" id="word-reading-row-summary"></div>
           </div>
           <div class="option-group kana-compact-group kana-repeat-group"><div class="option-label">練習題數</div><div class="kana-repeat-grid" role="group" aria-label="選擇練習題數">
@@ -7026,13 +7026,13 @@ Views.stats = {
         <option value="aiask">AI 詢問</option>
       </select></div>
       <div class="reading-stats-summary kana-stats-summary">
-        <div><strong>${summary.practiced}/92</strong><span>已練假名</span></div>
-        <div><strong>${summary.mastered}/92</strong><span>已熟練（80 分）</span></div>
+        <div><strong>${summary.practiced}/${BASIC_KANA.length}</strong><span>已練假名</span></div>
+        <div><strong>${summary.mastered}/${BASIC_KANA.length}</strong><span>已熟練（80 分）</span></div>
         <div><strong>${summary.averageScore}</strong><span>平均分數</span></div>
         <div><strong>${summary.attempts}</strong><span>總練習次數</span></div>
       </div>
-      <section class="kana-stat-card"><header><h2>平假名</h2><span>熟練 ${summary.hiraganaMastered} / 46</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
-      <section class="kana-stat-card"><header><h2>片假名</h2><span>熟練 ${summary.katakanaMastered} / 46</span></header><div class="kana-stat-grid">${renderGrid('katakana')}</div></section>
+      <section class="kana-stat-card"><header><h2>平假名</h2><span>熟練 ${summary.hiraganaMastered} / ${BASIC_KANA.filter(item => item.script === 'hiragana').length}</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
+      <section class="kana-stat-card"><header><h2>片假名</h2><span>熟練 ${summary.katakanaMastered} / ${BASIC_KANA.filter(item => item.script === 'katakana').length}</span></header><div class="kana-stat-grid">${renderGrid('katakana')}</div></section>
       <button class="btn-primary" id="kana-stats-practice-btn">開始五十音手寫</button><div style="height:20px"></div>`;
     document.getElementById('stats-mode-select')?.addEventListener('change', event => {
       this.mode = event.target.value;
@@ -7068,14 +7068,14 @@ Views.stats = {
         <option value="aiask">AI 詢問</option>
       </select></div>
       <div class="reading-stats-summary kana-stats-summary">
-        <div><strong>${summary.practiced}/92</strong><span>已練假名</span></div>
+        <div><strong>${summary.practiced}/${BASIC_KANA.length}</strong><span>已練假名</span></div>
         <div><strong>${summary.correct}</strong><span>答對題數</span></div>
         <div><strong>${summary.accuracy}%</strong><span>整體正確率</span></div>
         <div><strong>${summary.attempts}</strong><span>總答題數</span></div>
       </div>
       <div class="kana-reading-stat-note">每格顯示該假名的累積正確率；綠色代表正確率達 80%。</div>
-      <section class="kana-stat-card"><header><h2>平假名</h2><span>已練 ${summary.hiraganaPracticed} / 46</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
-      <section class="kana-stat-card"><header><h2>片假名</h2><span>已練 ${summary.katakanaPracticed} / 46</span></header><div class="kana-stat-grid">${renderGrid('katakana')}</div></section>
+      <section class="kana-stat-card"><header><h2>平假名</h2><span>已練 ${summary.hiraganaPracticed} / ${BASIC_KANA.filter(item => item.script === 'hiragana').length}</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
+      <section class="kana-stat-card"><header><h2>片假名</h2><span>已練 ${summary.katakanaPracticed} / ${BASIC_KANA.filter(item => item.script === 'katakana').length}</span></header><div class="kana-stat-grid">${renderGrid('katakana')}</div></section>
       <button class="btn-primary" id="kana-reading-stats-practice-btn">開始五十音讀音練習</button><div style="height:20px"></div>`;
     document.getElementById('stats-mode-select')?.addEventListener('change', event => {
       this.mode = event.target.value;
@@ -7620,11 +7620,11 @@ Views.settings = {
               const title = script === 'hiragana' ? '平假名' : '片假名';
               return `<fieldset class="daily-script-group"><legend>${title}</legend>
                 <div class="kana-row-grid daily-learning-row-grid" role="group" aria-label="${title}推薦行別">
-                  ${[{id:'all', label:'全部行'}, ...LEARNING_KANA_ROWS, {id:'none', label:'不練習'}].map(row => `<button class="kana-row-chip ${row.id === 'none' ? (!selected.length ? 'selected' : '') : (selected.includes(row.id) ? 'selected' : '')}" type="button" data-learning-script="${script}" data-learning-row="${row.id}" aria-pressed="${row.id === 'none' ? !selected.length : selected.includes(row.id)}">${script === 'katakana' ? hiraganaToKatakana(row.label) : row.label}</button>`).join('')}
+                  ${[{id:'all', label:'全部行'}, ...LEARNING_KANA_ROWS, {id:'none', label:'不練習'}].map(row => `${kanaRowGroupHeading(row.id)}<button class="kana-row-chip ${row.id === 'none' ? (!selected.length ? 'selected' : '') : (selected.includes(row.id) ? 'selected' : '')}" type="button" data-learning-script="${script}" data-learning-row="${row.id}" aria-pressed="${row.id === 'none' ? !selected.length : selected.includes(row.id)}">${script === 'katakana' ? hiraganaToKatakana(row.label) : row.label}</button>`).join('')}
                 </div></fieldset>`;
             }).join('')}
             <div class="kana-row-summary" id="daily-learning-row-summary" aria-live="polite">目前選擇：${escapeHTML(selectedLearningPreferenceLabel(dailyLearningPreferences))}</div>
-            <p class="daily-script-note">濁音、半濁音歸原行；拗音需選齊相關行。促音與長音符沿用原規則。行別限制適用推薦單字，例句仍使用自然日文。</p>
+            <p class="daily-script-note">濁音（が／ざ／だ／ば）與半濁音（ぱ）須分別勾選，不再包含於清音行。「全部行」包含所有清音、濁音與半濁音。拗音需選齊相關行。促音與長音符沿用原規則。行別限制適用推薦單字，例句仍使用自然日文。</p>
           </div>
           <div class="settings-tip" style="margin-bottom:0">「單字庫」保留原本從資料庫抽字並生成例句的方式；「依等級學習」每天依 JLPT 等級與所選五十音行推薦 1 個單字，包含假名、羅馬拼音、詞性及中文。</div>
         </div>

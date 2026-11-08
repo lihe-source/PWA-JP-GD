@@ -4356,7 +4356,7 @@ body { position: relative; height: 100%; min-height: 0; }
 .daily-script-group legend { padding:0 8px 0 0; font-size:15px; font-weight:800; color:var(--text-primary); }
 .daily-script-note { font-size:13px; line-height:1.65; color:var(--text-muted); margin:8px 0 0; }
 
-/* V1.5.11 compact surfaces. The existing shell alone owns the safe area;
+/* V1.5.12 compact surfaces. The existing shell alone owns the safe area;
    do not add viewport padding or resize handwriting canvas/score geometry here. */
 .ui-icon { width:22px; height:22px; flex:0 0 auto; vertical-align:middle; }
 button > .ui-icon { width:20px; height:20px; }
@@ -4465,7 +4465,7 @@ button > .ui-icon { width:20px; height:20px; }
   .vault-heading > span { display:none; }
 }
 
-/* V1.5.11: readable density, aligned account tools; no changes to canvas or safe-area ownership. */
+/* V1.5.12: readable density, aligned account tools; no changes to canvas or safe-area ownership. */
 :root { --section-gap:12px; --control-radius:12px; }
 .backup-scope-note,.sync-scope-note { font-size:13px; line-height:1.6; color:var(--text-muted); margin:8px 0 12px; overflow-wrap:anywhere; }
 .settings-revoke-btn { background:none; border:0; color:var(--text-muted); text-decoration:underline; font:inherit; font-size:13px; min-height:44px; margin:4px 0 0; }
@@ -4484,3 +4484,6 @@ button > .ui-icon { width:20px; height:20px; }
   .settings-wrap { max-width:960px; margin-inline:auto; }
   .db-list { align-items:start; }
 }
+
+/* Shared compact row groups: headings span the grid without adding cards. */
+.kana-row-group-title { grid-column: 1 / -1; font-size: 13px; font-weight: 700; color: var(--text-muted, #5d728a); margin-top: 4px; }

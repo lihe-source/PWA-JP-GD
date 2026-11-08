@@ -4,7 +4,8 @@ const ROMAJI_ALIASES = Object.freeze({
   tsu: ['tu'],
   fu: ['hu'],
   wo: ['o'],
-  n: ['nn']
+  n: ['nn'],
+  ji: ['zi']
 });
 
 export function normalizeRomajiAnswer(value) {
@@ -17,7 +18,9 @@ export function normalizeRomajiAnswer(value) {
 
 export function acceptedRomaji(kana = {}) {
   const canonical = normalizeRomajiAnswer(kana.romaji);
-  return [...new Set([canonical, ...(ROMAJI_ALIASES[canonical] || [])].map(normalizeRomajiAnswer).filter(Boolean))];
+  // ぢ/づ have standard ji/zu readings and accept common kana input spellings.
+  const characterAliases = { 'ぢ': ['di'], 'ヂ': ['di'], 'づ': ['du'], 'ヅ': ['du'] }[kana.character] || [];
+  return [...new Set([canonical, ...(ROMAJI_ALIASES[canonical] || []), ...characterAliases].map(normalizeRomajiAnswer).filter(Boolean))];
 }
 
 export function checkKanaReadingAnswer(kana, answer) {

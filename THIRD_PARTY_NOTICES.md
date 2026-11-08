@@ -14,3 +14,13 @@ The icons add a blue background and a book-line motif. These adapted icon assets
 are licensed under CC BY-SA 3.0; see KANJIVG-LICENSE.txt and
 https://kanjivg.tagaini.net/ . Other application code retains its existing terms.
 
+
+## V1.5.12 voiced and semi-voiced kana
+
+50 additional hiragana/katakana stroke definitions in `kana-strokes.js` are
+adapted from KanjiVG (Ulrich Apel and contributors), fetched 2026-11-07 from:
+https://github.com/KanjiVG/kanjivg/tree/610091ce618cf757ed1357a8954cd65283e015d6/kanji
+
+The SVG path data and initial points are converted to offline JavaScript JSON.
+These derived stroke definitions retain CC BY-SA 3.0 attribution and terms;
+see KANJIVG-LICENSE.txt. Existing basic kana paths are unchanged.

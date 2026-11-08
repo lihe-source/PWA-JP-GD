@@ -1,5 +1,5 @@
-import { DAILY_LEARNING_SOURCES, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRows, hiraganaToKatakana, validateGeneratedSentence } from './daily-learning.js?v=V1_5_11';
-import { normalizeJapaneseAnswer } from './japanese-learning.js?v=V1_5_11';
+import { DAILY_LEARNING_SOURCES, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRows, hiraganaToKatakana, validateGeneratedSentence } from './daily-learning.js?v=V1_5_12';
+import { normalizeJapaneseAnswer } from './japanese-learning.js?v=V1_5_12';
 export function createGeminiClient(DB) {
 return {
   _modelCatalog: null,
@@ -522,7 +522,7 @@ Vocabulary script: ${script}. Use natural words normally written in this script 
 Allowed kana rows for the ENTIRE reading: ${script === 'katakana' ? hiraganaToKatakana(rowDescription) : rowDescription}
 Number of words: ${count}
 
-Choose ${count} useful, non-duplicate Japanese words commonly taught around JLPT ${normalized.level}. EVERY pronounced kana in the full reading MUST belong to one of the allowed rows, not only the first kana. A reading containing even one kana from an unselected row is invalid. Small っ and the long-vowel mark ー are neutral modifiers; other small kana belong to their corresponding row. For example, たべる is invalid when ら行 is not selected because る belongs to ら行. When several rows are selected, distribute the words across them as evenly as practical. Avoid names, brands, obsolete words, particles by themselves, and words substantially outside the target level.
+Choose ${count} useful, non-duplicate Japanese words commonly taught around JLPT ${normalized.level}. EVERY pronounced kana in the full reading MUST belong to one of the allowed rows, not only the first kana. A reading containing even one kana from an unselected row is invalid. Voiced が/ざ/だ/ば rows and semi-voiced ぱ row are independent from か/さ/た/は: selecting an unvoiced row never permits its voiced variants. Small っ and the long-vowel mark ー are neutral modifiers; other small kana belong to their corresponding row. For example, たべる is invalid when ら行 is not selected because る belongs to ら行. When several rows are selected, distribute the words across them as evenly as practical. Avoid names, brands, obsolete words, particles by themselves, and words substantially outside the target level.
 
 Return ONLY a JSON array with exactly ${count} objects and no markdown:
 Use fields word, reading, romaji, partOfSpeech, meaning, level. Do not invent words when this narrow selection has no suitable vocabulary.

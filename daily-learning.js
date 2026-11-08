@@ -1,20 +1,12 @@
+import { KANA_ROWS } from './kana-data.js?v=V1_5_12';
+
 export const DAILY_LEARNING_SOURCES = Object.freeze({
   DATABASE: 'database',
   LEVEL: 'level'
 });
 
-export const LEARNING_KANA_ROWS = Object.freeze([
-  { id: 'a',  label: 'あ行', kana: 'あいうえお' },
-  { id: 'ka', label: 'か行', kana: 'かきくけこがぎぐげご' },
-  { id: 'sa', label: 'さ行', kana: 'さしすせそざじずぜぞ' },
-  { id: 'ta', label: 'た行', kana: 'たちつてとだぢづでど' },
-  { id: 'na', label: 'な行', kana: 'なにぬねの' },
-  { id: 'ha', label: 'は行', kana: 'はひふへほばびぶべぼぱぴぷぺぽ' },
-  { id: 'ma', label: 'ま行', kana: 'まみむめも' },
-  { id: 'ya', label: 'や行', kana: 'やゆよ' },
-  { id: 'ra', label: 'ら行', kana: 'らりるれろ' },
-  { id: 'wa', label: 'わ行', kana: 'わをん' }
-]);
+// One curriculum defines strict row membership across practice and recommendations.
+export const LEARNING_KANA_ROWS = KANA_ROWS;
 
 const JLPT_LEVELS = new Set(['N1', 'N2', 'N3', 'N4', 'N5']);
 const ROW_IDS = new Set(LEARNING_KANA_ROWS.map(row => row.id));
@@ -109,7 +101,7 @@ export function readingMatchesRows(reading, rows = ['all']) {
   if (!reading) return false;
   const selected = selectedLearningRows(rows);
   const allowedRowIds = new Set(selected.map(row => row.id));
-  const normalized = katakanaToHiragana(reading).normalize('NFC');
+  const normalized = katakanaToHiragana(String(reading).normalize('NFKC')).normalize('NFC');
   let kanaCount = 0;
   for (const rawCharacter of normalized) {
     if (/[\s・]/u.test(rawCharacter) || ROW_NEUTRAL_READING_MARKS.has(rawCharacter)) continue;
@@ -337,5 +329,5 @@ export function validateStoredGeneratedSentence(entry) {
 
 export function dailyLearningSignature({ date, source, level, rows, scriptRows }) {
   const normalized = normalizeDailyLearningPreferences({ source, level, rows, scriptRows });
-  return `${date}|${normalized.source}|${normalized.level}|${normalized.rows.slice().sort().join('+')}|h:${normalized.scriptRows.hiragana.slice().sort().join('+')}|k:${normalized.scriptRows.katakana.slice().sort().join('+')}`;
+  return `rows-v2|${date}|${normalized.source}|${normalized.level}|${normalized.rows.slice().sort().join('+')}|h:${normalized.scriptRows.hiragana.slice().sort().join('+')}|k:${normalized.scriptRows.katakana.slice().sort().join('+')}`;
 }

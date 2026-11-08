@@ -1,3 +1,4 @@
+import { KANA_ROWS } from './kana-data.js?v=V1_5_12';
 // Portable settings only. Never include OAuth tokens, device identities or learning records.
 const FORMAT = 'japanese-pwa-settings';
 const ITERATIONS = 600000;
@@ -6,7 +7,7 @@ const encoder = new TextEncoder();
 const aad = encoder.encode(`${FORMAT}:1:PBKDF2-SHA256:${ITERATIONS}:AES-256-GCM`);
 const choices = values => value => values.includes(value);
 const shortText = max => value => typeof value === 'string' && value.length <= max && !/[\u0000-\u001f]/u.test(value);
-const rows = value => Array.isArray(value) && value.length <= 11 && value.every(choices(['all','a','ka','sa','ta','na','ha','ma','ya','ra','wa']));
+const rows = value => Array.isArray(value) && value.length <= KANA_ROWS.length + 1 && value.every(choices(['all', ...KANA_ROWS.map(row => row.id)]));
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const script = choices(['hiragana','katakana','both']);
 const repeat = choices([1,2,3,5,10]);

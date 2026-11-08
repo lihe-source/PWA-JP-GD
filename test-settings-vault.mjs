@@ -8,11 +8,11 @@ const fixture = () => ({
   gdriveClientId:'example.apps.googleusercontent.com', gdriveFolderId:'test-folder-123',
   geminiApiKey:'TEST-ONLY-NOT-A-REAL-KEY', geminiModel:'gemini-test', gdriveAutoSync:'1',
   ttsEnabled:'false', ttsDelay:'300', japaneseJlptLevel:'N4', lastPracticeMode:'kana', dbSortMode:'createdAt',
-  dailyLearningPreferencesV1:JSON.stringify(normalizeDailyLearningPreferences({source:'level',scriptRows:{hiragana:['a','ka'],katakana:['sa']}})),
+  dailyLearningPreferencesV1:JSON.stringify(normalizeDailyLearningPreferences({source:'level',scriptRows:{hiragana:['a','ka','ga'],katakana:['sa','pa']}})),
   wordPracticePreferencesV1:JSON.stringify({count:10,order:'all'}),
-  kanaPracticePreferencesV1:JSON.stringify({script:'katakana',rows:['ka'],repeat:3,mode:'copy',count:10,weakOnly:false,layout:'auto',inputMode:'auto',diagnostics:false,autoSpeak:true}),
-  kanaReadingPreferencesV1:JSON.stringify({script:'katakana',rows:['a','ka'],repeat:3}),
-  wordReadingPreferencesV1:JSON.stringify({script:'both',rows:['all'],count:10})
+  kanaPracticePreferencesV1:JSON.stringify({script:'katakana',rows:['ga','pa'],repeat:3,mode:'copy',count:10,weakOnly:false,layout:'auto',inputMode:'auto',diagnostics:false,autoSpeak:true}),
+  kanaReadingPreferencesV1:JSON.stringify({script:'katakana',rows:['za','da'],repeat:3}),
+  wordReadingPreferencesV1:JSON.stringify({script:'both',rows:['ba','pa'],count:10})
 });
 const password = 'Test-only-password-2026';
 test('encrypted settings roundtrip includes requested secrets and both kana row preferences', async () => {

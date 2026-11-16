@@ -17,6 +17,7 @@ export function normalizeRomajiAnswer(value) {
 }
 
 export function acceptedRomaji(kana = {}) {
+  if (kana.character === 'ッ') return ['xtsu', 'ltsu'];
   const canonical = normalizeRomajiAnswer(kana.romaji);
   // ぢ/づ have standard ji/zu readings and accept common kana input spellings.
   const characterAliases = { 'ぢ': ['di'], 'ヂ': ['di'], 'づ': ['du'], 'ヅ': ['du'] }[kana.character] || [];

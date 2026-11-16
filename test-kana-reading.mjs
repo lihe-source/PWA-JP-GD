@@ -53,7 +53,7 @@ function readingSession(characters) {
   const source = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
   const block = source.slice(source.indexOf('Views.kanaReadingPractice ='), source.indexOf('// READING QUIZ VIEW'));
   const elements = new Map();
-  for (const id of ['answer', 'submit', 'feedback', 'progress-text', 'progress-fill', 'character']) elements.set('kana-reading-' + id, { value: '', style: {}, setAttribute() {}, isConnected: true, focus() {}, setSelectionRange() {} });
+  for (const id of ['answer', 'submit', 'feedback', 'progress-text', 'progress-fill', 'character']) elements.set('kana-reading-' + id, { value: '', style: {}, classList: {toggle(){}}, setAttribute() {}, isConnected: true, focus() {}, setSelectionRange() {} });
   const timers = [], records = [];
   const context = { readingProgress, readingFeedback, firstAttemptSummary, Views: {}, checkKanaReadingAnswer, escapeHTML: String, showToast() {},
     document: { getElementById: id => elements.get(id) }, requestAnimationFrame() {},

@@ -1,4 +1,4 @@
-import { KANA_ROWS } from './kana-data.js?v=V1_5_12';
+import { KANA_ROWS } from './kana-data.js?v=V1_5_13';
 // Portable settings only. Never include OAuth tokens, device identities or learning records.
 const FORMAT = 'japanese-pwa-settings';
 const ITERATIONS = 600000;
@@ -23,7 +23,7 @@ const rules = {
   geminiModel: value => /^gemini-[a-z0-9.-]{1,100}$/i.test(value),
   gdriveAutoSync: choices(['0','1']), ttsEnabled: choices(['true','false']),
   ttsDelay: choices(['0','300','600','1000','2000']), japaneseJlptLevel: choices(['N1','N2','N3','N4','N5']),
-  lastPracticeMode: choices(['quiz','kana','kanaReading','wordReading','essay','reading','aiask']),
+  lastPracticeMode: choices(['quiz','kana','kanaReading','similarKana','wordReading','essay','reading','aiask']),
   dbSortMode: choices(['createdAt','alpha','wrongCount']),
   dailyLearningPreferencesV1: jsonSetting(v => choices(['database','level'])(v.source) && rows(v.rows) && object(v.scriptRows) && rows(v.scriptRows.hiragana) && rows(v.scriptRows.katakana)),
   wordPracticePreferencesV1: jsonSetting(v => choices([5,10,15,20,25,30])(v.count) && choices(['newest','all'])(v.order)),

@@ -1,4 +1,4 @@
-# V1.5.12 架構與驗收範圍
+# V1.5.13 架構與驗收範圍
 
 ## 模組責任
 
@@ -63,7 +63,7 @@ Web Locks 可用時持有單一寫入視窗鎖，第二視窗顯示關閉原視�
 
 完整 ZIP 的外層目錄與 ZIP 同名，內部檔案單層。僅保留三份固定文件，不累積各版本文件／截圖；不含 node_modules、測試產物、密碼或個人備份。更新版本時同步 app、manifest、index、SW、import 查詢字串、package 及 version.json build。此版僅前端變更，不需重新執行 D1 schema 或 Worker deploy。
 
-## V1.5.12 假名課程擴充
+## V1.5.13 假名課程擴充
 
 `kana-data.js` 的 KANA_ROWS 為練習、每日推薦及加密設定驗證共用的行別來源，新增 ga / za / da / ba / pa。每行以穩定 ID 儲存，畫面依 script 轉換標籤。每日推薦不再把濁音與半濁音歸入清音行；快取簽章增加 rows-v2，避免使用舊規則產生的推薦快取。
 
@@ -72,3 +72,13 @@ Web Locks 可用時持有單一寫入視窗鎖，第二視窗顯示關閉原視�
 所有練習偏好、每日推薦偏好仍使用原儲存鍵和既有完整備份格式。設定加密格式不變，行別驗證允許新行且仍拒絕未知行。學習歷史沿用三種 progress manager 與既有雲端合併流程。
 
 驗收：202 項測試通過；實機操作與真實外部服務仍須部署後確認。本次不變更 Google 授權、AI 模型、D1 或通知流程。
+
+## V1.5.13 相似字形模式
+
+similar-kana.js 定義使用者指定的 11 組，按字形去重（23 個）並重用 buildRepeatedKanaPractice。SMALL_TSU 是讀音辨識題專用資料，不加入手寫課程、不編造筆順或獨立發音。
+
+Views.similarKanaPractice 繼承讀音 session 方法，持有獨立 state、計時器與 viewport cleanup；只新增設定頁與模式標題、完整結果清單。Router 和模式切換均清理其生命週期。使用既有 kanaReadingHistory 和讀音 progress manager，因此不需資料庫／備份格式升級。重複次數與五十音讀音共用，lastPracticeMode 新增 similarKana 並納入加密設定 allowlist。
+
+讀音統計加入小促音，共 143 字形（平假名 71、片假名 72）。相似字形記錄合計於五十音讀音，不新增獨立統計頁。
+
+驗證：208 項測試，包含真實 session 方法的錯題重排、輸入框保留、音效呼叫、結束總表與離開清理。這不代表完成真機鍵盤、音訊或 Google 服務驗證。

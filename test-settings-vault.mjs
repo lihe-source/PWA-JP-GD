@@ -7,7 +7,7 @@ import { normalizeDailyLearningPreferences } from './daily-learning.js';
 const fixture = () => ({
   gdriveClientId:'example.apps.googleusercontent.com', gdriveFolderId:'test-folder-123',
   geminiApiKey:'TEST-ONLY-NOT-A-REAL-KEY', geminiModel:'gemini-test', gdriveAutoSync:'1',
-  ttsEnabled:'false', ttsDelay:'300', japaneseJlptLevel:'N4', lastPracticeMode:'kana', dbSortMode:'createdAt',
+  ttsEnabled:'false', ttsDelay:'300', japaneseJlptLevel:'N4', lastPracticeMode:'similarKana', dbSortMode:'createdAt',
   dailyLearningPreferencesV1:JSON.stringify(normalizeDailyLearningPreferences({source:'level',scriptRows:{hiragana:['a','ka','ga'],katakana:['sa','pa']}})),
   wordPracticePreferencesV1:JSON.stringify({count:10,order:'all'}),
   kanaPracticePreferencesV1:JSON.stringify({script:'katakana',rows:['ga','pa'],repeat:3,mode:'copy',count:10,weakOnly:false,layout:'auto',inputMode:'auto',diagnostics:false,autoSpeak:true}),

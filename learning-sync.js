@@ -1,7 +1,7 @@
-import { mergeStudyDays } from './study-streak.js?v=V1_5_12';
-import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_5_12';
-import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_5_12';
-import { mergeWordReadingHistory } from './word-reading.js?v=V1_5_12';
+import { mergeStudyDays } from './study-streak.js?v=V1_5_13';
+import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_5_13';
+import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_5_13';
+import { mergeWordReadingHistory } from './word-reading.js?v=V1_5_13';
 
 export function mergeDeletedRecords(...lists) {
   const ids = new Set();

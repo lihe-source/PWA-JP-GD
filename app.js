@@ -1,37 +1,38 @@
-import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_12';
-import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_12';
-import { createGeminiClient } from './gemini-client.js?v=V1_5_12';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_12';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_12';
-import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_12';
+import { SIMILAR_KANA_GROUPS, SMALL_TSU, similarKanaPool, similarKanaQuestions } from './similar-kana.js?v=V1_5_13';
+import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_13';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_13';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_13';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_13';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_13';
+import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_13';
 let settingsVaultBusy = false;
-import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_12';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_12';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_12';
+import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_13';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_13';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_13';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_12';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_12';
-import { VersionManager } from './version-manager.js?v=V1_5_12';
-import { TrendChart } from './chart-renderer.js?v=V1_5_12';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_12';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_12';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_12';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_12';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, kanaRowGroupHeading, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_12';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_12';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_12';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_12';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_12';
+import { AppStorage } from './storage.js?v=V1_5_13';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_13';
+import { VersionManager } from './version-manager.js?v=V1_5_13';
+import { TrendChart } from './chart-renderer.js?v=V1_5_13';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_13';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_13';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_13';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_13';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, kanaRowGroupHeading, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_13';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_13';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_13';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_13';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_13';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_12
-// V1.5.12：精簡版面、統一圖示與加密設定備份
+// 日本語練習 PWA - app.js V1_5_13
+// V1.5.13：精簡版面、統一圖示與加密設定備份
 // ===========================
 
 const ViewWork = new ViewWorkManager();
-const APP_VERSION = 'V1_5_12';
-const APP_DISPLAY_VERSION = 'V1.5.12';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_12';
+const APP_VERSION = 'V1_5_13';
+const APP_DISPLAY_VERSION = 'V1.5.13';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_13';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: settingsVaultBusy || ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -42,7 +43,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026110701,
+  currentBuild: 2026111601,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -907,10 +908,10 @@ const DB = {
   },
   getLastPracticeMode() {
     const saved = AppStorage.getItem('lastPracticeMode') || 'quiz';
-    return ['quiz', 'kana', 'kanaReading', 'wordReading', 'essay', 'reading', 'aiask'].includes(saved) ? saved : 'quiz';
+    return ['quiz', 'kana', 'kanaReading', 'similarKana', 'wordReading', 'essay', 'reading', 'aiask'].includes(saved) ? saved : 'quiz';
   },
   saveLastPracticeMode(mode) {
-    const value = ['quiz', 'kana', 'kanaReading', 'wordReading', 'essay', 'reading', 'aiask'].includes(mode) ? mode : 'quiz';
+    const value = ['quiz', 'kana', 'kanaReading', 'similarKana', 'wordReading', 'essay', 'reading', 'aiask'].includes(mode) ? mode : 'quiz';
     AppStorage.setItem('lastPracticeMode', value);
     return value;
   },
@@ -2593,9 +2594,10 @@ const Router = {
     ViewWork.cancel();
     if (this.currentView === 'practice') Views.practice?.cleanupQuiz?.();
     if (this.currentView === 'kanaReadingPractice' || document.getElementById('kana-reading-answer')) Views.kanaReadingPractice?.cleanup?.();
+    Views.similarKanaPractice?.cleanup?.();
     if (this.currentView === 'wordReadingPractice' || document.getElementById('word-reading-answer')) Views.wordReadingPractice?.cleanup?.();
     if (this.currentView === 'kanaPractice' || this.handwritingActive || document.documentElement.classList.contains('kana-view-active')) Views.kanaPractice?.cleanup?.();
-    const activeNavView = ['practice', 'kanaPractice', 'kanaReadingPractice', 'wordReadingPractice', 'essay', 'readingQuiz', 'aiAsk'].includes(view) ? 'practice' : view;
+    const activeNavView = ['practice', 'kanaPractice', 'kanaReadingPractice', 'similarKanaPractice', 'wordReadingPractice', 'essay', 'readingQuiz', 'aiAsk'].includes(view) ? 'practice' : view;
     document.querySelectorAll('.nav-btn').forEach(btn => {
       const active = btn.dataset.view === activeNavView;
       btn.classList.toggle('active', active);
@@ -2644,7 +2646,7 @@ Views.home = {
     container.innerHTML = `
       <div id="home-view">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_12" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_13" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -3098,6 +3100,7 @@ function renderPracticeModeSelector(currentMode = 'quiz') {
         <option value="quiz" ${isQuiz ? 'selected' : ''}>單字拼寫</option>
         <option value="kana" ${isKana ? 'selected' : ''}>五十音手寫</option>
         <option value="kanaReading" ${isKanaReading ? 'selected' : ''}>五十音讀音</option>
+        <option value="similarKana" ${currentMode === 'similarKana' ? 'selected' : ''}>相似字形讀音</option>
         <option value="wordReading" ${isWordReading ? 'selected' : ''}>單詞讀音</option>
         <option value="essay" ${isEssay ? 'selected' : ''}>文章撰寫</option>
         <option value="reading" ${isReading ? 'selected' : ''}>文章閱讀測驗</option>
@@ -3109,6 +3112,7 @@ function renderPracticeModeSelector(currentMode = 'quiz') {
 function renderPracticeModeInContainer(container, mode) {
   if (mode === 'kana') Views.kanaPractice.render(container);
   else if (mode === 'kanaReading') Views.kanaReadingPractice.render(container);
+  else if (mode === 'similarKana') Views.similarKanaPractice.render(container);
   else if (mode === 'wordReading') Views.wordReadingPractice.render(container);
   else if (mode === 'essay') Views.essay.render(container);
   else if (mode === 'reading') Views.readingQuiz.render(container);
@@ -3130,6 +3134,7 @@ function bindPracticeModeSelector(container, currentMode = 'quiz') {
     Router.handwritingActive = false;
     Views.kanaPractice?.cleanup?.();
     Views.kanaReadingPractice?.cleanup?.();
+    Views.similarKanaPractice?.cleanup?.();
     Views.wordReadingPractice?.cleanup?.();
     renderPracticeModeInContainer(container, mode);
     });
@@ -4318,6 +4323,7 @@ Views.kanaPractice = {
 // KANA READING VIEW — kana to romaji practice
 // ===========================
 Views.kanaReadingPractice = {
+  title: '五十音讀音',
   state: {
     script: 'hiragana', rows: ['all'], repeat: 1,
     items: [], initialTotal: 0, index: 0, results: [], answered: false, transitioning: false
@@ -4519,10 +4525,11 @@ Views.kanaReadingPractice = {
     });
     document.getElementById('kana-reading-listen')?.addEventListener('click', () => {
       const kana = this.state.items[this.state.index];
+      if (kana?.character === 'ッ') { showToast('小促音沒有單獨讀音；本題以 xtsu 或 ltsu 識別。', 4000); return; }
       if (kana) TTS.speakKana(kana.character, 0.62, { immediate: true });
     });
     document.getElementById('kana-reading-exit-btn')?.addEventListener('click', () => {
-      Modal.show(`<div class="modal-handle"></div><div class="modal-title">離開五十音讀音練習？</div><p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">已完成的題目會保留，這次未完成的進度不列入測驗結果。</p><div class="modal-actions"><button class="modal-btn-cancel" id="kana-reading-stay">繼續練習</button><button class="modal-btn-delete" id="kana-reading-leave">離開</button></div>`);
+      Modal.show(`<div class="modal-handle"></div><div class="modal-title">離開${this.title}練習？</div><p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">已完成的題目會保留，這次未完成的進度不列入測驗結果。</p><div class="modal-actions"><button class="modal-btn-cancel" id="kana-reading-stay">繼續練習</button><button class="modal-btn-delete" id="kana-reading-leave">離開</button></div>`);
       document.getElementById('kana-reading-stay')?.addEventListener('click', () => Modal.hide());
       document.getElementById('kana-reading-leave')?.addEventListener('click', () => { Modal.hide(); this.cleanup(); this.renderSetup(container); });
     });
@@ -4549,18 +4556,22 @@ Views.kanaReadingPractice = {
     const input = document.getElementById('kana-reading-answer');
     const submit = document.getElementById('kana-reading-submit');
     const feedback = document.getElementById('kana-reading-feedback');
-    if (progressText) progressText.textContent = readingProgress('五十音讀音', this.state);
+    if (progressText) progressText.textContent = readingProgress(this.title, this.state);
     if (progressFill) progressFill.style.width = `${progress}%`;
     if (character) {
       character.textContent = kana.character;
+      character.classList.toggle('is-small-tsu', kana.character === 'ッ');
       character.setAttribute('aria-label', `題目 ${kana.character}`);
     }
     if (input) {
       input.value = '';
+      input.placeholder = kana.character === 'ッ' ? '小促音輸入：xtsu 或 ltsu' : '例如：a';
       input.disabled = false;
       input.setAttribute('aria-label', `輸入 ${kana.character} 的羅馬拼音`);
       input.setAttribute('enterkeyhint', 'next');
     }
+    const listen = document.getElementById('kana-reading-listen');
+    if (listen) listen.hidden = kana.character === 'ッ';
     if (submit) {
       submit.disabled = false;
       submit.textContent = isLast ? '送出答案（答對後完成）' : '送出並下一題';
@@ -4585,7 +4596,7 @@ Views.kanaReadingPractice = {
       const updatedTotal = this.state.items.length;
       const progressText = document.getElementById('kana-reading-progress-text');
       const progressFill = document.getElementById('kana-reading-progress-fill');
-      if (progressText) progressText.textContent = `五十音讀音 ${this.state.index + 1} / ${updatedTotal}`;
+      if (progressText) progressText.textContent = `${this.title} ${this.state.index + 1} / ${updatedTotal}`;
       if (progressFill) progressFill.style.width = `${Math.round((this.state.index + 1) / updatedTotal * 100)}%`;
       KanaReadingProgress.recordAttempt(kana, checked.normalized, checked.correct);
       void (checked.correct ? Sound.playCorrect() : Sound.playWrong());
@@ -4621,10 +4632,11 @@ Views.kanaReadingPractice = {
     container.innerHTML = `
       <div class="kana-reading-result-view">
         <div class="kana-result-mark">${score >= 80 ? '上手！' : score >= 60 ? '進步中' : '再練習'}</div>
-        <h1>五十音讀音完成</h1>
+        <h1>${this.title}完成</h1>
         <p>原定 ${this.state.initialTotal} 題 ＋ 錯題補練 ${results.length - this.state.initialTotal} 題 ＝ 完成 ${results.length} 題</p>
         <div class="kana-result-summary"><div><strong>${score}</strong><span>正確率</span></div><div><strong>${correct}/${results.length}</strong><span>答對題數</span></div></div><p class="first-attempt-summary">首次作答：${firstAttempt.correct}/${firstAttempt.total} 題答對（${firstAttempt.accuracy}%）</p>
         ${wrong.length ? `<section class="kana-reading-wrong-list"><h2>需要加強</h2>${wrong.map(item => `<div><b>${item.kana.character}</b><span>你的答案：${escapeHTML(item.answer)}</span><strong>${escapeHTML(item.kana.romaji)}</strong></div>`).join('')}</section>` : '<div class="kana-reading-perfect">🎉 全部答對！</div>'}
+        ${this.title === '相似字形讀音' ? `<section class="similar-result-list"><h2>本次作答總表（含補練）</h2>${results.map((item,i) => `<div class="similar-result-row ${item.correct ? 'is-correct' : 'is-wrong'}"><b>${i+1}. ${item.kana.character}</b><span>${item.correct ? '答對' : '答錯'}・你的答案：${escapeHTML(item.answer)}</span><strong>正確：${escapeHTML(item.kana.romaji)}${item.kana.character === 'ッ' ? '（小促音輸入碼）' : ''}</strong></div>`).join('')}</section>` : ''}
         <button class="btn-primary" id="kana-reading-again">再練一次</button>
         <button class="btn-secondary" id="kana-reading-home">回到主頁</button>
       </div>`;
@@ -4634,6 +4646,51 @@ Views.kanaReadingPractice = {
     resumeAppUpdateWhenSafe();
   }
 };
+
+Views.similarKanaPractice = Object.assign(Object.create(Views.kanaReadingPractice), {
+  title: '相似字形讀音',
+  state: { items: [], initialTotal: 0, index: 0, results: [], repeat: 1, transitioning: false },
+  _advanceTimer: null,
+  _viewportCleanup: null,
+  renderSetup(container) {
+    this.cleanup();
+    const repeat = DB.getKanaReadingPreferences().repeat;
+    Object.assign(this.state, { repeat, items: [], initialTotal: 0, index: 0, results: [], lastFeedback: '', answered: false, transitioning: false });
+    container.innerHTML = `<div class="kana-setup-page practice-compact-page">
+      <div class="section-header"><h1 class="section-title">練習</h1></div>
+      ${renderPracticeModeSelector('similarKana')}
+      <section class="kana-setup-card kana-setup-compact">
+        <div class="kana-setup-heading"><div class="kana-setup-mark" aria-hidden="true">あ</div><div><h2>相似字形讀音練習</h2><p>平假名與片假名混合，辨認字形並輸入羅馬拼音。</p></div></div>
+        <div class="option-label">相似字形組合（全部混合出題）</div>
+        <div class="similar-group-grid">${SIMILAR_KANA_GROUPS.map(group => `<div lang="ja">${[...group].join('・')}</div>`).join('')}</div>
+        <p class="kana-row-summary">重複出現在不同組的字只計一次，共 ${similarKanaPool().length} 個字形。每輪全部練到，順序隨機且相同字形不相鄰。</p>
+        <div class="option-label">每個字形練習次數</div>
+        <div class="kana-repeat-grid">${KANA_REPEAT_OPTIONS.map(n => `<button type="button" class="kana-repeat-chip ${n===repeat?'selected':''}" data-similar-repeat="${n}" aria-pressed="${n===repeat}">${n} 次</button>`).join('')}</div>
+        <p class="daily-script-note">「ッ」是小促音，沒有單獨讀音；本模式輸入 xtsu 或 ltsu 識別。「ツ」才輸入 tsu。答錯會追加到最後補練，紀錄納入五十音讀音統計與雲端備份。</p>
+        <button type="button" class="btn-primary kana-start-btn" id="similar-start">開始練習</button>
+      </section></div>`;
+    bindPracticeModeSelector(container, 'similarKana');
+    const update = () => {
+      container.querySelectorAll('[data-similar-repeat]').forEach(button => {
+        const selected = Number(button.dataset.similarRepeat) === this.state.repeat;
+        button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected));
+      });
+      container.querySelector('#similar-start').textContent = `開始 ${similarKanaPool().length * this.state.repeat} 題相似字形練習`;
+    };
+    container.querySelectorAll('[data-similar-repeat]').forEach(button => button.addEventListener('click', () => {
+      this.state.repeat = Number(button.dataset.similarRepeat);
+      DB.saveKanaReadingPreferences({ repeat: this.state.repeat }); update();
+    }));
+    container.querySelector('#similar-start').addEventListener('click', () => {
+      void Sound.unlock();
+      this.state.items = similarKanaQuestions(this.state.repeat);
+      this.state.initialTotal = this.state.items.length;
+      Router.quizActive = true;
+      this.renderQuestion(container);
+    });
+    update();
+  }
+});
 
 // A word's entire kana reading must belong to the selected rows. The question
 // shows only kana; the word and meaning are revealed in the result list.
@@ -7049,7 +7106,7 @@ Views.stats = {
   renderKanaReadingStats(container) {
     const summary = KanaReadingProgress.getSummary();
     const progressMap = new Map(KanaReadingProgress.getProgress().map(item => [item.key, item]));
-    const renderGrid = script => BASIC_KANA.filter(item => item.script === script).map(kana => {
+    const renderGrid = script => [...BASIC_KANA, SMALL_TSU].filter(item => item.script === script).map(kana => {
       const item = progressMap.get(kana.id);
       const accuracy = item?.accuracy || 0;
       return `<div class="kana-stat-item ${accuracy >= 80 ? 'is-mastered' : item ? 'is-practiced' : ''}" title="${escapeAttr(kana.romaji)}・${item?.correct || 0}/${item?.attempts || 0}">
@@ -7068,14 +7125,14 @@ Views.stats = {
         <option value="aiask">AI 詢問</option>
       </select></div>
       <div class="reading-stats-summary kana-stats-summary">
-        <div><strong>${summary.practiced}/${BASIC_KANA.length}</strong><span>已練假名</span></div>
+        <div><strong>${summary.practiced}/${BASIC_KANA.length + 1}</strong><span>已練假名</span></div>
         <div><strong>${summary.correct}</strong><span>答對題數</span></div>
         <div><strong>${summary.accuracy}%</strong><span>整體正確率</span></div>
         <div><strong>${summary.attempts}</strong><span>總答題數</span></div>
       </div>
       <div class="kana-reading-stat-note">每格顯示該假名的累積正確率；綠色代表正確率達 80%。</div>
-      <section class="kana-stat-card"><header><h2>平假名</h2><span>已練 ${summary.hiraganaPracticed} / ${BASIC_KANA.filter(item => item.script === 'hiragana').length}</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
-      <section class="kana-stat-card"><header><h2>片假名</h2><span>已練 ${summary.katakanaPracticed} / ${BASIC_KANA.filter(item => item.script === 'katakana').length}</span></header><div class="kana-stat-grid">${renderGrid('katakana')}</div></section>
+      <section class="kana-stat-card"><header><h2>平假名</h2><span>已練 ${summary.hiraganaPracticed} / ${[...BASIC_KANA, SMALL_TSU].filter(item => item.script === 'hiragana').length}</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
+      <section class="kana-stat-card"><header><h2>片假名</h2><span>已練 ${summary.katakanaPracticed} / ${[...BASIC_KANA, SMALL_TSU].filter(item => item.script === 'katakana').length}</span></header><div class="kana-stat-grid">${renderGrid('katakana')}</div></section>
       <button class="btn-primary" id="kana-reading-stats-practice-btn">開始五十音讀音練習</button><div style="height:20px"></div>`;
     document.getElementById('stats-mode-select')?.addEventListener('change', event => {
       this.mode = event.target.value;

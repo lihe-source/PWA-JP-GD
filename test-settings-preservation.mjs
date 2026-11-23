@@ -14,7 +14,7 @@ test('Japanese defaults and separate push deployment are packaged', async () => 
   assert.match(wrangler, /name = "japanese-daily-reminder"/);
   assert.match(wrangler, /PWA-JP-GD/);
   assert.match(wrangler, /crons = \["\* \* \* \* \*"\]/);
-  assert.match(worker, /SERVICE_VERSION = 'V1\.4\.1'/);
+  assert.match(worker, /SERVICE_VERSION = 'V1\.4\.2'/);
   assert.match(worker, /Japanese Daily Reminder/);
   assert.match(worker, /SELECT 1 FROM japanese_reminders/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS japanese_reminders/);
@@ -29,7 +29,7 @@ test('the GitHub release directory is completely flat', async () => {
   const releaseEntries = entries.filter(entry => !['node_modules', '.git'].includes(entry.name));
   assert.deepEqual(releaseEntries.filter(entry => entry.isDirectory()).map(entry => entry.name), []);
   if (repository) assert.ok(releaseEntries.length >= 46, 'repository may retain historical documents');
-  else assert.ok(releaseEntries.length >= 53 && releaseEntries.length <= 64, 'flat release keeps runtime, documentation and regression tests bounded');
+  else assert.ok(releaseEntries.length >= 53 && releaseEntries.length <= 65, 'flat release keeps runtime, documentation and regression tests bounded');
   for (const doc of ['README.md', 'ARCHITECTURE.md', 'CHANGELOG.md']) assert.ok(releaseEntries.some(entry => entry.name === doc));
   if (!repository) assert.ok(!releaseEntries.some(entry => /^(ARCHITECTURE_V|CHANGELOG_V|QA_V|UPDATE_V|icon-source|indexl\.html)/.test(entry.name)));
 });
@@ -41,7 +41,7 @@ test('new install icons are opaque square PNGs and versioned in the manifest', a
     assert.equal(png.subarray(1,4).toString(), 'PNG');
     assert.equal(png.readUInt32BE(16), size);
     assert.equal(png.readUInt32BE(20), size);
-    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_5_13`));
+    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_5_14`));
   }
   assert.match(await text('THIRD_PARTY_NOTICES.md'), /icons.*add a blue|icons add a blue/);
 });

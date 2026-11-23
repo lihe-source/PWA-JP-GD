@@ -297,3 +297,72 @@ test('no-op cross-device sync does not upload an identical union', async () => {
   });
   assert.equal(writes, 0);
 });
+
+test('identical device histories commit no learning collections, a remote change commits only that collection', async () => {
+  let local = state('original');
+  let remote = structuredClone(local);
+  const writes = [];
+  let uploads = 0;
+  const run = () => syncLearningState({
+    readLocal: () => local, readRemote: async () => remote,
+    writeLocal(next, keys) { writes.push(keys); local = next; },
+    async writeRemote() { uploads++; }, async flush() {}, markPending() {}, markSynced() {}
+  });
+  await run();
+  assert.deepEqual(writes, []);
+  remote = mergeLearningStates(remote, { kanaReadingHistory: [{ id: 'single', ts: 20, character: 'ぱ', correct: true }] });
+  await run();
+  assert.deepEqual(writes, [['kanaReadingHistory']]);
+  assert.equal(uploads, 0);
+  assert.deepEqual(local, remote);
+});
+
+test('a saved deletion marker still removes a matching local row after interrupted synchronization', async () => {
+  let local = { ...state('remove'), deletedRecords: ['handwritingHistory:remove'] };
+  const remote = mergeLearningStates(local);
+  let changed;
+  await syncLearningState({
+    readLocal: () => local, readRemote: async () => remote,
+    writeLocal(next, keys) { local = next; changed = keys; },
+    async writeRemote() { assert.fail('no upload needed'); }, async flush() {}, markPending() {}, markSynced() {}
+  });
+  assert.deepEqual(changed, ['handwritingHistory']);
+  assert.deepEqual(local.handwritingHistory, []);
+});
+
+test('kana CSVs retain distinct same-millisecond IDs across exports, old CSV imports and fresh-device restores', () => {
+  const cases = [
+    [KanaReadingProgressManager, { character:'ぱ', row:'pa', romaji:'pa', answer:'pa', correct:true }],
+    [KanaProgressManager, { character:'ぱ', romaji:'pa', mode:'trace', score:90, strokeCount:3, expectedStrokeCount:3 }]
+  ];
+  const managerFor = C => {
+    const values = new Map();
+    return new C({ getItem: k => values.get(k) ?? null, setItem: (k,v) => values.set(k,v) });
+  };
+  for (const [Manager, sample] of cases) {
+    const manager = managerFor(Manager);
+    manager.saveHistory(['x','y'].map(id => ({ ...sample, id, ts:12345, date:'2026-11-23', script:'hiragana' })));
+    const original = manager.getHistory();
+    const csv = manager.exportCSV();
+    assert.match(csv.split('\n')[0], /,紀錄ID$/);
+    assert.equal(manager.importCSV(csv).added, 0);
+    assert.deepEqual(manager.getHistory(), original);
+    const oldCSV = csv.split('\n').map(line => line.slice(0, line.lastIndexOf(','))).join('\n');
+    assert.equal(manager.importCSV(oldCSV).added, 0);
+    assert.deepEqual(manager.getHistory(), original);
+    const blank = managerFor(Manager);
+    assert.equal(blank.importCSV(csv).added, 2);
+    assert.deepEqual(blank.getHistory(), original);
+    const legacy = managerFor(Manager);
+    assert.equal(legacy.importCSV(oldCSV).added, 2);
+    assert.equal(legacy.importCSV(oldCSV).added, 0);
+  }
+});
+
+test('offline version checks do not mark a cached version as freshly verified', async t => {
+  const writes = [];
+  t.mock.getter(globalThis, 'navigator', () => ({ onLine: false }));
+  const checker = new VersionManager({ currentVersion:'V1_5_14', storage:{ setItem: (...args) => writes.push(args) } });
+  await assert.rejects(checker.check(), /VERSION_OFFLINE/);
+  assert.deepEqual(writes, []);
+});

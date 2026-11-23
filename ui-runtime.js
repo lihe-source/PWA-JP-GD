@@ -172,7 +172,7 @@ export function mountSettingsGroups(container, storage) {
   for (const details of groups.values()) wrap.append(details);
   if (saveCard) wrap.append(saveCard); // data saving is always the last section
   // Errors and manual diagnostic checks must not be hidden inside a collapsed category.
-  container.addEventListener('click', event => {
+  wrap.addEventListener('click', event => {
     const target = event.target.closest?.('[data-open-category]');
     const details = target && groups.get(target.dataset.openCategory);
     if (details) details.open = true;

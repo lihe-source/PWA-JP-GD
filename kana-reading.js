@@ -1,3 +1,5 @@
+import { legacyAttemptIds } from './japanese-learning.js?v=V1_5_14';
+
 const ROMAJI_ALIASES = Object.freeze({
   shi: ['si'],
   chi: ['ti'],
@@ -56,7 +58,7 @@ export function mergeKanaReadingHistory(...collections) {
     const existing = byId.get(id);
     if (!existing || normalized.ts >= existing.ts) byId.set(id, normalized);
   });
-  return [...byId.values()].sort((a, b) => b.ts - a.ts);
+  return [...byId.values()].sort((a, b) => b.ts - a.ts || a.id.localeCompare(b.id));
 }
 
 export function buildKanaReadingProgress(history = []) {
@@ -179,7 +181,7 @@ export class KanaReadingProgressManager {
   }
 
   exportCSV() {
-    const header = ['日期', '假名類型', '行別', '假名', '正確讀音', '使用者答案', '是否正確', '時間戳'];
+    const header = ['日期', '假名類型', '行別', '假名', '正確讀音', '使用者答案', '是否正確', '時間戳', '紀錄ID'];
     const rows = this.getHistory().map(item => [
       item.date,
       item.script === 'katakana' ? '片假名' : '平假名',
@@ -188,7 +190,7 @@ export class KanaReadingProgressManager {
       item.romaji,
       item.answer,
       item.correct ? '正確' : '錯誤',
-      item.ts
+      item.ts, item.id
     ].map(csvEscape).join(','));
     return [header.join(','), ...rows].join('\n');
   }
@@ -198,14 +200,15 @@ export class KanaReadingProgressManager {
     const lines = source.split(/\r?\n/).filter(Boolean);
     if (lines.length < 2) return { added: 0, total: this.getHistory().length };
     const header = lines[0].replace(/"/g, '').trim();
-    if (header !== '日期,假名類型,行別,假名,正確讀音,使用者答案,是否正確,時間戳') throw new Error('FORMAT_MISMATCH_KANA_READING');
+    const legacyHeader = '日期,假名類型,行別,假名,正確讀音,使用者答案,是否正確,時間戳';
+    if (header !== legacyHeader && header !== legacyHeader + ',紀錄ID') throw new Error('FORMAT_MISMATCH_KANA_READING');
     const before = this.getHistory();
+    let matchLegacy;
     const imported = lines.slice(1).map((line, index) => {
       const columns = parseCsvLine(line);
       const ts = Number(columns[7]) || Date.now() + index;
       const script = columns[1] === '片假名' || columns[1] === 'katakana' ? 'katakana' : 'hiragana';
-      return {
-        id: `import:kana-reading:${script}:${columns[3] || ''}:${ts}`,
+      const entry = {
         date: columns[0] || '',
         script,
         row: columns[2] || '',
@@ -215,6 +218,9 @@ export class KanaReadingProgressManager {
         correct: columns[6] === '正確' || columns[6] === 'true' || columns[6] === '1',
         ts
       };
+      if (header !== legacyHeader && columns[8]) return { ...entry, id: columns[8] };
+      matchLegacy ??= legacyAttemptIds(before, Object.keys(entry));
+      return { ...entry, id: matchLegacy(entry, `import:kana-reading:${script}:${entry.character}:${ts}`) };
     });
     const merged = mergeKanaReadingHistory(before, imported);
     this.saveHistory(merged);

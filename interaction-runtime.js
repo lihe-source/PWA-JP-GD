@@ -27,32 +27,42 @@ export function preserveSettingsView(container, render, { preserveInputs = true 
     .filter(node => preserveInputs && node.type !== 'file')
     .map(node => ({ id: node.id, value: node.value, checked: node.checked,
       start: node.selectionStart, end: node.selectionEnd }));
-  const disclosures = [...container.querySelectorAll('details')].map(node => ({ id: node.id, category: node.dataset.category, open: node.open }));
+  const disclosureKey = (node, index) => {
+    if (node.id) return 'id:' + node.id;
+    if (node.dataset.category) return 'category:' + node.dataset.category;
+    const title = node.querySelector(':scope > summary .settings-collapse-title')?.textContent.trim();
+    return title ? 'section:' + title : 'position:' + index;
+  };
+  const disclosures = new Map([...container.querySelectorAll('details')]
+    .map((node, index) => [disclosureKey(node, index), node.open]));
   const scroller = container.closest('#view-container');
   const scrollTop = scroller?.scrollTop || 0;
   const focusId = container.contains(document.activeElement) ? document.activeElement.id : '';
+  const scrollerTop = scroller?.getBoundingClientRect().top || 0;
   const anchor = [...container.querySelectorAll('[id], details[data-category]')].find(node => {
     const rect = node.getBoundingClientRect();
-    return rect.height && rect.top >= (scroller?.getBoundingClientRect().top || 0) && rect.top < window.innerHeight;
+    return rect.height && rect.top >= scrollerTop && rect.top < window.innerHeight;
   });
   const anchorId = anchor?.id, category = anchor?.dataset.category, anchorTop = anchor?.getBoundingClientRect().top;
   render();
-  const byId = id => [...container.querySelectorAll('[id]')].find(node => node.id === id);
+  const renderedRoot = container.firstElementChild;
+  const byId = new Map([...container.querySelectorAll('[id]')].map(node => [node.id, node]));
   controls.forEach(saved => {
-    const node = byId(saved.id); if (!node) return;
+    const node = byId.get(saved.id); if (!node) return;
     if (node.tagName !== 'SELECT' || [...node.options].some(option => option.value === saved.value)) node.value = saved.value;
     if (node.type === 'checkbox' || node.type === 'radio') node.checked = saved.checked;
   });
-  disclosures.forEach(saved => {
-    const node = saved.id ? byId(saved.id) : [...container.querySelectorAll('details')].find(item => item.dataset.category === saved.category);
-    if (node) node.open = saved.open;
+  const sections = [...container.querySelectorAll('details')];
+  sections.forEach((node, index) => {
+    const key = disclosureKey(node, index);
+    if (disclosures.has(key)) node.open = disclosures.get(key);
   });
+  const nextAnchor = anchorId ? byId.get(anchorId) : category && sections.find(node => node.dataset.category === category);
   const restore = () => {
-    if (!container.isConnected) return;
-    const nextAnchor = anchorId ? byId(anchorId) : [...container.querySelectorAll('details')].find(node => node.dataset.category === category);
+    if (!container.isConnected || container.firstElementChild !== renderedRoot) return;
     if (scroller) scroller.scrollTop = scrollTop;
     if (scroller && nextAnchor && Number.isFinite(anchorTop)) scroller.scrollTop += nextAnchor.getBoundingClientRect().top - anchorTop;
-    const focus = focusId && byId(focusId);
+    const focus = focusId && byId.get(focusId);
     if (focus && !focus.disabled) {
       focus.focus({ preventScroll: true });
       const saved = controls.find(item => item.id === focusId);

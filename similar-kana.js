@@ -1,4 +1,4 @@
-import { getKana, buildRepeatedKanaPractice } from './kana-data.js?v=V1_5_13';
+import { getKana, buildRepeatedKanaPractice } from './kana-data.js?v=V1_5_14';
 
 export const SIMILAR_KANA_GROUPS = Object.freeze([
   'あお', 'こニ', 'せサ', 'さこ', 'ぬめ', 'ねれわ', 'るろ', 'ウワ', 'タク', 'シッンツ', 'ソン'

@@ -1,4 +1,4 @@
-import { KANA_ROWS } from './kana-data.js?v=V1_5_13';
+import { KANA_ROWS } from './kana-data.js?v=V1_5_14';
 
 export const DAILY_LEARNING_SOURCES = Object.freeze({
   DATABASE: 'database',

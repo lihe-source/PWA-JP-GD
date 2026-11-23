@@ -4233,7 +4233,7 @@ body { position: relative; height: 100%; min-height: 0; }
   .nav-btn { flex: 0 0 64px; width: 100%; }
   #view-container { padding: 16px 16px 24px; }
   #view-container:has(.kana-session) { padding: 8px; }
-  #home-view { max-width: 820px; margin: 0 auto; }
+  .home-dashboard { max-width: 820px; margin: 0 auto; }
   .home-menu-grid .menu-card { min-height: 60px; }
   .home-menu-grid .menu-card-title { font-size: 16px; }
   .kana-setup-compact, .practice-compact-card { padding: 20px; }
@@ -4382,7 +4382,7 @@ button > .ui-icon { width:20px; height:20px; }
 .home-menu-grid .menu-card,
 .home-menu-grid .menu-card[data-nav="kanaPractice"],
 .home-menu-grid .menu-card[data-nav="kanaReadingPractice"] { grid-column:auto; min-height:64px; padding:10px; }
-.home-menu-grid .menu-card[data-nav="wordReadingPractice"] { grid-column:1 / -1; min-height:54px; }
+.home-menu-grid .menu-card[data-nav="wordReadingPractice"] { grid-column:auto; }
 .home-menu-grid .menu-card-sub { margin-top:2px; font-size:12px; line-height:1.4; }
 .home-menu-grid .menu-icon { display:grid; place-items:center; }
 .home-primary-action { margin-bottom:10px; }
@@ -4445,20 +4445,20 @@ button > .ui-icon { width:20px; height:20px; }
 .vault-form .modal-actions { margin-top:0; }
 .vault-form .modal-actions button { flex:1; min-height:46px; padding:10px; }
 @media (min-width:700px) {
-  .home-menu-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .home-menu-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
   .home-menu-grid .menu-card[data-nav="wordReadingPractice"] { grid-column:auto; }
   .db-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; align-items:start; }
   .db-list > .db-empty, .db-list > .list-pagination { grid-column:1 / -1; }
   .db-list .db-word-card { margin:0; }
 }
 @media (min-width:1100px) {
-  #home-view { max-width:1040px; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); gap:0 12px; align-items:start; }
-  #home-view > * { grid-column:1 / -1; }
-  #home-view > .study-streak-card { grid-column:1; grid-row:2; margin-right:0; }
-  #home-view > .home-hero { grid-column:2; grid-row:2; margin-left:0; margin-top:6px; }
-  #home-view > .home-primary-action { grid-column:1 / -1; grid-row:3; }
-  #home-view > .home-menu-grid { grid-column:1 / -1; grid-row:4; grid-template-columns:repeat(3,minmax(0,1fr)); }
-  #home-view > .home-menu-grid .menu-card { min-height:54px; }
+  .home-dashboard { max-width:1040px; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); gap:0 12px; align-items:start; }
+  .home-dashboard > * { grid-column:1 / -1; }
+  .home-dashboard > .study-streak-card { grid-column:1; grid-row:2; margin-right:0; }
+  .home-dashboard > .home-hero { grid-column:2; grid-row:2; margin-left:0; margin-top:6px; }
+  .home-dashboard > .home-primary-action { grid-column:1 / -1; grid-row:3; }
+  .home-dashboard > .home-menu-grid { grid-column:1 / -1; grid-row:4; grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .home-dashboard > .home-menu-grid .menu-card { min-height:54px; }
 }
 @media (max-width:370px) {
   .vault-actions { grid-template-columns:1fr; }
@@ -4497,3 +4497,43 @@ button > .ui-icon { width:20px; height:20px; }
 .similar-result-row.is-wrong { color:#b3261e; }
 .similar-result-row span,.similar-result-row strong { overflow-wrap:anywhere; }
 @media(max-width:360px){.similar-group-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+.kana-row-picker > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+  font-weight: 700;
+}
+.kana-row-picker > summary::-webkit-details-marker { display: none; }
+.kana-row-picker > summary::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  flex: none;
+  margin: 0 5px 4px 2px;
+  border-right: 2px solid var(--primary);
+  border-bottom: 2px solid var(--primary);
+  transform: rotate(45deg);
+}
+.kana-row-picker[open] > summary::after { transform: rotate(225deg); margin-bottom: -4px; }
+.kana-row-picker > summary > .kana-row-summary {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.kana-row-picker[open] > .kana-row-grid { margin-top: 6px; }
+.db-toolbar button:disabled { opacity: .45; cursor: default; }
+
+.similar-review-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.similar-review-header h2 { font-size: 17px; margin: 8px 0; }
+.similar-review-header label { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+.similar-review-header input { width: 18px; height: 18px; accent-color: var(--primary); }
+#similar-review-pages[hidden] { display: none; }

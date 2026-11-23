@@ -113,3 +113,17 @@ test('manager keeps duplicate event IDs idempotent and marks changes pending', (
   assert.equal(manager.getDays()[0].sessionCount, 1);
   assert.equal(manager.getSyncState().pending, true);
 });
+
+test('migration preserves real attempt times across Taipei midnight and drops duplicate IDs', () => {
+  const a = { id: 'first', ts: Date.parse('2026-11-22T15:59:59Z') };
+  const b = { id: 'second', ts: Date.parse('2026-11-22T16:00:00Z') };
+  const days = deriveStudyDays({ kanaReadingHistory: [a, b, b] }, { timeZone: 'Asia/Taipei' });
+  assert.deepEqual(days.map(day => [day.date, day.sessionCount, day.firstActivityAt]), [
+    ['2026-11-22', 1, '2026-11-22T15:59:59.000Z'], ['2026-11-23', 1, '2026-11-22T16:00:00.000Z']
+  ]);
+  const sameDate = { ...days[1], eventIds: ['x','x'], sessionCount: 5, lastActivityAt: '2026-11-23T04:00:00Z' };
+  const result = mergeStudyDays(days, [sameDate, null, sameDate]);
+  assert.equal(result[1].eventIds.length, 2);
+  assert.equal(result[1].sessionCount, 5);
+  assert.equal(result[1].lastActivityAt, '2026-11-23T04:00:00.000Z');
+});

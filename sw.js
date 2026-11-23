@@ -1,44 +1,55 @@
 const CACHE_PREFIX = 'Japanese-PWA-';
-const CACHE_NAME = 'Japanese-PWA-V1_5_13';
+const CACHE_NAME = 'Japanese-PWA-V1_5_14';
 const APP_SHELL = [
-  './similar-kana.js?v=V1_5_13',
-  './cloud-runtime.js?v=V1_5_13',
-  './collection-store.js?v=V1_5_13',
-  './settings-vault.js?v=V1_5_13',
-  './interaction-runtime.js?v=V1_5_13',
-  './gemini-client.js?v=V1_5_13',
-  './ui-runtime.js?v=V1_5_13',
-  './background-jobs.js?v=V1_5_13',
-  './data-worker.js?v=V1_5_13',
-  './learning-sync.js?v=V1_5_13',
-  './practice-lifecycle.js?v=V1_5_13',
-  './storage-status-ui.js?v=V1_5_13',
+  './similar-kana.js?v=V1_5_14',
+  './cloud-runtime.js?v=V1_5_14',
+  './collection-store.js?v=V1_5_14',
+  './settings-vault.js?v=V1_5_14',
+  './interaction-runtime.js?v=V1_5_14',
+  './gemini-client.js?v=V1_5_14',
+  './ui-runtime.js?v=V1_5_14',
+  './background-jobs.js?v=V1_5_14',
+  './data-worker.js?v=V1_5_14',
+  './learning-sync.js?v=V1_5_14',
+  './practice-lifecycle.js?v=V1_5_14',
+  './storage-status-ui.js?v=V1_5_14',
   './',
   './index.html',
-  './style.css?v=V1_5_13',
-  './app.js?v=V1_5_13',
-  './manifest.json?v=V1_5_13',
+  './style.css?v=V1_5_14',
+  './app.js?v=V1_5_14',
+  './manifest.json?v=V1_5_14',
   './version.json',
-  './storage.js?v=V1_5_13',
-  './backup-schema.js?v=V1_5_13',
-  './study-streak.js?v=V1_5_13',
-  './japanese-learning.js?v=V1_5_13',
-  './kana-data.js?v=V1_5_13',
-  './kana-strokes.js?v=V1_5_13',
-  './handwriting-engine.js?v=V1_5_13',
-  './version-manager.js?v=V1_5_13',
-  './chart-renderer.js?v=V1_5_13',
-  './push-config.js?v=V1_5_13',
-  './reminder-manager.js?v=V1_5_13',
-  './daily-learning.js?v=V1_5_13',
-  './kana-reading.js?v=V1_5_13',
-  './word-reading.js?v=V1_5_13',
+  './storage.js?v=V1_5_14',
+  './backup-schema.js?v=V1_5_14',
+  './study-streak.js?v=V1_5_14',
+  './japanese-learning.js?v=V1_5_14',
+  './kana-data.js?v=V1_5_14',
+  './kana-strokes.js?v=V1_5_14',
+  './handwriting-engine.js?v=V1_5_14',
+  './version-manager.js?v=V1_5_14',
+  './chart-renderer.js?v=V1_5_14',
+  './push-config.js?v=V1_5_14',
+  './reminder-manager.js?v=V1_5_14',
+  './daily-learning.js?v=V1_5_14',
+  './kana-reading.js?v=V1_5_14',
+  './word-reading.js?v=V1_5_14',
   './jszip.min.js?v=3_10_1',
   './icon-192.png',
   './icon-512.png',
-  './icon-192.png?v=V1_5_13',
-  './icon-512.png?v=V1_5_13'
+  './icon-192.png?v=V1_5_14',
+  './icon-512.png?v=V1_5_14'
 ];
+
+function inAppScope(url) {
+  const target = new URL(url, self.registration.scope);
+  const scope = new URL(self.registration.scope);
+  return target.origin === scope.origin && target.pathname.startsWith(scope.pathname);
+}
+
+async function appWindows() {
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  return clients.filter(client => inAppScope(client.url));
+}
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
@@ -51,7 +62,7 @@ self.addEventListener('install', event => {
 self.addEventListener('message', event => {
   if (event.data?.type !== 'SKIP_WAITING') return;
   event.waitUntil((async () => {
-    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const windows = await appWindows();
     const safe = await Promise.all(windows.map(client => new Promise(resolve => {
       const channel = new MessageChannel();
       const timeout = setTimeout(() => { channel.port1.close(); resolve(false); }, 2000);
@@ -73,7 +84,7 @@ self.addEventListener('activate', event => {
     const old = versions.slice(0, -1);
     await Promise.all(old.map(key => caches.delete(key)));
     await self.clients.claim();
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const clients = await appWindows();
     clients.forEach(client => client.postMessage({ type: 'SW_ACTIVATED', version: CACHE_NAME }));
   })());
 });
@@ -132,18 +143,16 @@ self.addEventListener('push', event => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  let targetUrl;
-  try { targetUrl = new URL(event.notification.data?.url || './', self.location.href).href; }
-  catch { targetUrl = new URL('./', self.location.href).href; }
-
+  let targetUrl = self.registration.scope;
+  try {
+    const destination = new URL(event.notification.data?.url || './', self.location.href);
+    if (inAppScope(destination.href)) targetUrl = destination.href;
+  } catch {}
   event.waitUntil((async () => {
-    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const client of windows) {
-      if (new URL(client.url).origin !== new URL(targetUrl).origin) continue;
-      try { await client.navigate(targetUrl); } catch {}
-      return client.focus();
-    }
-    return self.clients.openWindow ? self.clients.openWindow(targetUrl) : undefined;
+    const windows = await appWindows();
+    const client = windows.find(item => item.focused) || windows[0];
+    if (client) return client.focus();
+    return self.clients.openWindow?.(targetUrl);
   })());
 });
 
@@ -152,23 +161,22 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  if (!inAppScope(url.href)) return;
   if (url.pathname.endsWith('/version.json')) {
-    event.respondWith(fetch(event.request, { cache: 'no-store' }).then(async response => {
-      if (response.status < 500) return response;
-      const cache = await caches.open(CACHE_NAME);
-      return (await cache.match(new URL('./version.json', self.location.href).href)) || response;
-    }).catch(async () => {
-      const cache = await caches.open(CACHE_NAME);
-      return (await cache.match(new URL('./version.json', self.location.href).href)) || Response.error();
-    }));
+    // A cached manifest cannot establish what is deployed now.
+    event.respondWith(fetch(event.request, { cache: 'no-store' }).catch(() => Response.error()));
     return;
   }
 
-  // Deployment-specific Worker URL may be filled in after the first GitHub
-  // Pages release. Always prefer the network so that change does not require
-  // another app version bump, while keeping the cached copy for offline use.
   if (url.pathname.endsWith('/push-config.js')) {
-    event.respondWith(networkFirst(event.request));
+    // Serve the installed configuration immediately. Keep the next online
+    // launch up to date even if the server changes the Worker URL in place.
+    const cache = caches.open(CACHE_NAME);
+    const refresh = fetch(event.request, { cache: 'no-store' });
+    event.waitUntil(refresh.then(async response => {
+      if (response.ok) await (await cache).put(event.request, response.clone());
+    }).catch(() => {}));
+    event.respondWith(cache.then(async shell => (await shell.match(event.request)) || refresh));
     return;
   }
 

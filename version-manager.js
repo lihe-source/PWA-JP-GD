@@ -61,7 +61,7 @@ export class VersionManager {
   async reloadIfSafe() {
     if (!this.reloadPending || this.reloadTriggered || !this._isSafeToActivate()) return false;
     if (!(await this._flushStorage())) return false;
-    if (!this._isSafeToActivate()) return false;
+    if (!this.reloadPending || this.reloadTriggered || !this._isSafeToActivate()) return false;
     this.reloadPending = false;
     this.reloadTriggered = true;
     location.reload();
@@ -70,11 +70,15 @@ export class VersionManager {
 
   async register() {
     if (!('serviceWorker' in navigator)) return null;
+    let previousController = navigator.serviceWorker.controller;
     try {
       this.registration = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
       if (!this._controllerChangeHandler) {
         this._controllerChangeHandler = () => {
-          if (this.reloadTriggered) return;
+          const nextController = navigator.serviceWorker.controller;
+          const replacingController = previousController && previousController !== nextController;
+          previousController = nextController;
+          if (!nextController || !replacingController || this.reloadTriggered) return;
           this.reloadPending = true;
           void this.reloadIfSafe();
         };
@@ -112,6 +116,7 @@ export class VersionManager {
   }
 
   async check({ autoApply = false } = {}) {
+    if (globalThis.navigator?.onLine === false) throw new Error('VERSION_OFFLINE');
     let response;
     let data;
     let lastError;

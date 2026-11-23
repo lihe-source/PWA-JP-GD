@@ -53,6 +53,28 @@ export function normalizeJapaneseWord(word = {}) {
   };
 }
 
+// Old CSVs have no ID. Match each identical historical row only once, so a
+// reimport preserves both existing IDs and distinct attempts in the same millisecond.
+export function legacyAttemptIds(existing, fields) {
+  const signature = row => JSON.stringify(fields.map(field => row[field]));
+  const available = new Map();
+  const used = new Set();
+  for (const row of existing) {
+    const key = signature(row);
+    if (!available.has(key)) available.set(key, []);
+    available.get(key).push(row.id);
+    used.add(row.id);
+  }
+  return (row, base) => {
+    const match = available.get(signature(row))?.pop();
+    if (match) return match;
+    let id = base;
+    for (let suffix = 2; used.has(id); suffix++) id = `${base}:${suffix}`;
+    used.add(id);
+    return id;
+  };
+}
+
 export function mergeHandwritingHistory(...collections) {
   const byId = new Map();
   collections.flat().filter(Boolean).forEach(entry => {
@@ -74,7 +96,7 @@ export function mergeHandwritingHistory(...collections) {
     const existing = byId.get(id);
     if (!existing || normalized.ts >= existing.ts) byId.set(id, normalized);
   });
-  return [...byId.values()].sort((a, b) => b.ts - a.ts);
+  return [...byId.values()].sort((a, b) => b.ts - a.ts || a.id.localeCompare(b.id));
 }
 
 export function buildKanaProgress(history = []) {
@@ -207,7 +229,7 @@ export class KanaProgressManager {
   }
 
   exportCSV() {
-    const header = ['日期', '假名類型', '假名', '羅馬拼音', '練習模式', '分數', '實際筆畫數', '標準筆畫數', '時間戳'];
+    const header = ['日期', '假名類型', '假名', '羅馬拼音', '練習模式', '分數', '實際筆畫數', '標準筆畫數', '時間戳', '紀錄ID'];
     const rows = this.getHistory().map(item => [
       item.date,
       item.script === 'katakana' ? '片假名' : '平假名',
@@ -217,7 +239,7 @@ export class KanaProgressManager {
       item.score,
       item.strokeCount,
       item.expectedStrokeCount,
-      item.ts
+      item.ts, item.id
     ].map(csvEscape).join(','));
     return [header.join(','), ...rows].join('\n');
   }
@@ -238,18 +260,24 @@ export class KanaProgressManager {
       }
       values.push(value); return values;
     };
+    const header = lines[0].replace(/"/g, '').trim();
+    const legacyHeader = '日期,假名類型,假名,羅馬拼音,練習模式,分數,實際筆畫數,標準筆畫數,時間戳';
+    if (header !== legacyHeader && header !== legacyHeader + ',紀錄ID') throw new Error('FORMAT_MISMATCH_HANDWRITING');
     const existing = this.getHistory();
     const before = existing.length;
+    let matchLegacy;
     const imported = lines.slice(1).map((line, index) => {
       const columns = parseLine(line);
       const script = columns[1] === '片假名' || columns[1] === 'katakana' ? 'katakana' : 'hiragana';
       const ts = Number(columns[8]) || Date.now() + index;
-      return {
-        id: `import:${script}:${columns[2] || ''}:${ts}`,
+      const entry = {
         date: columns[0] || '', script, character: columns[2] || '', romaji: columns[3] || '',
         mode: columns[4] || 'trace', score: Number(columns[5]) || 0,
         strokeCount: Number(columns[6]) || 0, expectedStrokeCount: Number(columns[7]) || 0, ts
       };
+      if (header !== legacyHeader && columns[9]) return { ...entry, id: columns[9] };
+      matchLegacy ??= legacyAttemptIds(existing, Object.keys(entry));
+      return { ...entry, id: matchLegacy(entry, `import:${script}:${entry.character}:${ts}`) };
     }).filter(item => item.character);
     const merged = mergeHandwritingHistory(existing, imported);
     this.saveHistory(merged);

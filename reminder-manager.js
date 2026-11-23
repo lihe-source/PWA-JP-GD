@@ -511,12 +511,7 @@ export class ReminderManager {
     try {
       const subscription = await this._ensureSubscription();
       const result = await this._register({ time: settings.time, subscription });
-      if (result.managementToken) this.storage.setItem(TOKEN_KEY, result.managementToken);
-      this._saveSettings({
-        enabled: true,
-        timeZone: result.timeZone || currentTimeZone(),
-        nextFireAt: Number(result.nextFireAt) || settings.nextFireAt
-      });
+      this._storeRegistration(result, settings.time);
       return true;
     } catch (error) {
       console.info('[DailyReminder] Background reconciliation skipped:', error?.message || error);

@@ -363,17 +363,17 @@ test('blue ink home uses real history, recommendation and both kana shortcuts', 
   assert.doesNotMatch(html, /user-scalable=no/);
 });
 
-test('all public app surfaces use Japanese V1.5.13', async () => {
+test('all public app surfaces use Japanese V1.5.14', async () => {
   const [app, html, sw, version, manifest, pkg] = await Promise.all([
     text('app.js'), text('index.html'), text('sw.js'), text('version.json'), text('manifest.json'), text('package.json')
   ]);
-  assert.match(app, /APP_VERSION = 'V1_5_13'/);
-  assert.match(html, /app\.js\?v=V1_5_13/);
-  assert.match(sw, /Japanese-PWA-V1_5_13/);
+  assert.match(app, /APP_VERSION = 'V1_5_14'/);
+  assert.match(html, /app\.js\?v=V1_5_14/);
+  assert.match(sw, /Japanese-PWA-V1_5_14/);
   for (const module of ['japanese-learning', 'kana-data', 'kana-strokes', 'handwriting-engine']) assert.match(sw, new RegExp(module));
   assert.equal(JSON.parse(version).schemaVersion, 1);
-  assert.match(JSON.parse(manifest).name, /V1\.5\.13/);
-  assert.equal(JSON.parse(pkg).version, '1.5.13');
+  assert.match(JSON.parse(manifest).name, /V1\.5\.14/);
+  assert.equal(JSON.parse(pkg).version, '1.5.14');
 });
 
 test('kana reading keeps one input focused and uses audible iOS playback feedback', async () => {
@@ -411,7 +411,7 @@ test('all six practice modes share the compact setup layout', async () => {
   assert.match(style, /\.reading-practice-page \.reading-rule-grid \{ grid-template-columns: repeat\(4/);
 });
 
-test('V1.5.13 keeps Apple subscription repair and provider errors', async () => {
+test('V1.5.14 keeps Apple subscription repair and provider errors', async () => {
   const [manager, worker] = await Promise.all([text('reminder-manager.js'), text('worker.js')]);
   assert.match(manager, /forceRenew/);
   assert.match(manager, /SUBSCRIPTION_INVALID/);
@@ -457,7 +457,8 @@ test('all completed practice paths report reminder activity and Worker checks it
 
 test('Google Drive startup and backup operations are non-blocking and observable', async () => {
   const [app, html, style] = await Promise.all([text('app.js'), text('index.html'), text('style.css')]);
-  assert.match(html, /accounts\.google\.com\/gsi\/client/);
+  assert.doesNotMatch(html, /<script[^>]+accounts\.google\.com\/gsi\/client/);
+  assert.match(app, /script\.src = 'https:\/\/accounts\.google\.com\/gsi\/client'/);
   assert.match(app, /GDrive\.preload\(\)/);
   assert.match(app, /setTimeout\(\(\) => \{ void runCloudStartup\(\); \}, 350\)/);
   assert.match(app, /this\.scheduleStudyStreakSync\(250\)/);
@@ -568,7 +569,7 @@ test('all six completed practice paths qualify as study activity', async () => {
   }
 });
 
-test('V1.5.13 adds kana-to-romaji practice under handwriting with statistics', async () => {
+test('V1.5.14 adds kana-to-romaji practice under handwriting with statistics', async () => {
   const [app, style, module, backup] = await Promise.all([
     text('app.js'), text('style.css'), text('kana-reading.js'), text('backup-schema.js')
   ]);
@@ -584,11 +585,11 @@ test('V1.5.13 adds kana-to-romaji practice under handwriting with statistics', a
   assert.match(backup, /kanaReadingHistory/);
 });
 
-test('V1.5.13 recommends one daily word and stores its sentence practice', async () => {
+test('V1.5.14 recommends one daily word and stores its sentence practice', async () => {
   const [app, style, module, sw] = await Promise.all([
     text('app.js'), text('style.css'), text('daily-learning.js'), text('sw.js')
   ]);
-  assert.match(app, /daily-learning\.js\?v=V1_5_13/);
+  assert.match(app, /daily-learning\.js\?v=V1_5_14/);
   assert.match(app, /id="daily-learning-source-select"/);
   assert.match(app, /data-learning-row=/);
   assert.match(app, /generateDailyVocabulary/);
@@ -613,7 +614,7 @@ test('V1.5.13 recommends one daily word and stores its sentence practice', async
   assert.match(module, /TARGET_NOT_USED/);
   assert.doesNotMatch(app, /Fallback: accept either two lines/);
   assert.match(style, /\.daily-vocab-grid/);
-  assert.match(sw, /daily-learning\.js\?v=V1_5_13/);
+  assert.match(sw, /daily-learning\.js\?v=V1_5_14/);
 });
 
 test('same-day generated examples append and target spellings are highlighted precisely', async () => {
@@ -627,7 +628,7 @@ test('same-day generated examples append and target spellings are highlighted pr
   assert.match(style, /\.hl-ja-target\s*\{/);
 });
 
-test('V1.5.13 rejects thought-only output and quarantines invalid AI sentence caches', async () => {
+test('V1.5.14 rejects thought-only output and quarantines invalid AI sentence caches', async () => {
   const app = await text('app.js');
   const client = await text('gemini-client.js');
   const extractor = client.slice(client.indexOf('_extractResponse(data)'), client.indexOf('async _callModelDetailed'));
@@ -662,7 +663,7 @@ test('backup and Drive sync include study days, handwriting and practice choices
   assert.match(app, /applyPracticePreferenceBundle/);
 });
 
-test('V1.5.13 reserves inline scores and never changes geometry after grading', async () => {
+test('V1.5.14 reserves inline scores and never changes geometry after grading', async () => {
   const [app, style] = await Promise.all([text('app.js'), text('style.css')]);
   assert.match(app, /class="kana-inline-metrics"/);
   assert.doesNotMatch(app, /id="kana-review-toggle"/);
@@ -678,7 +679,7 @@ test('V1.5.13 reserves inline scores and never changes geometry after grading', 
   assert.match(style, /\.kana-session \.kana-session-actions[^}]*position: static/s);
 });
 
-test('V1.5.13 keeps the last score inline and restores the completed-session summary', async () => {
+test('V1.5.14 keeps the last score inline and restores the completed-session summary', async () => {
   const [app, style] = await Promise.all([text('app.js'), text('style.css')]);
   const handwritingStart = app.indexOf('Views.kanaPractice =');
   const handwriting = app.slice(handwritingStart, app.indexOf('Views.kanaReadingPractice =', handwritingStart));

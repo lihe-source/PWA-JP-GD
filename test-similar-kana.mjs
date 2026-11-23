@@ -76,3 +76,16 @@ test('small tsu history survives backup and cloud merge without duplicate record
  assert.equal(merged.kanaReadingHistory[0].romaji,'xtsu');
  assert.equal(manager.getSummary().correct,1);
 });
+
+test('large similar-kana reviews render twenty rows per page and retain the question number when filtering', () => {
+  const { view } = session();
+  const answers = Array.from({ length:230 }, (_,i) => ({ kana:getKana('シ'), answer:i===220?'tsu':'shi', correct:i!==220 }));
+  const wrong = answers.filter(item => !item.correct);
+  const html = view.renderAnswerReview(answers, wrong);
+  assert.equal((html.match(/class="similar-result-row /g) || []).length, 20);
+  assert.match(html, /第 1／12 頁/);
+  view.reviewPage = 11;
+  assert.equal((view.reviewRowsHTML(view.reviewRows).match(/class="similar-result-row /g) || []).length, 10);
+  view.reviewPage = 0;
+  assert.match(view.reviewRowsHTML(view.reviewRows.filter(row => !row.result.correct)), /221\. シ/);
+});

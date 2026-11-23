@@ -201,3 +201,25 @@ test('old-account upload receipt cannot mark the current account as backed up', 
   await assert.rejects(drive.upload(),/AUTH_CONTEXT_CHANGED/);
   assert.equal(writes.length,0);
 });
+
+test('a failed Google script load can be retried, concurrent attempts share one download', async () => {
+  const { drive, ctx } = makeDrive();
+  const scripts = [];
+  ctx.window = {};
+  ctx.document = {
+    head: { appendChild(node) { scripts.push(node); } },
+    createElement() { return { dataset: {}, remove() { this.removed = true; } }; }
+  };
+  const first = drive._loadGIS();
+  assert.equal(drive._loadGIS(), first);
+  scripts[0].onerror();
+  await assert.rejects(first, /GIS_LOAD_FAILED/);
+  assert.equal(scripts[0].removed, true);
+  const retry = drive._loadGIS();
+  assert.equal(scripts.length, 2);
+  ctx.window.google = { accounts: { oauth2: {} } };
+  scripts[1].onload();
+  await retry;
+  await drive._loadGIS();
+  assert.equal(scripts.length, 2);
+});

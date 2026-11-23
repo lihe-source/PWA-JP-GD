@@ -7,6 +7,7 @@ export function isPracticeActive(document, router = {}) {
 
 export function canUpdateApp({ document, router, storage, cloudBusy = false }) {
   const status = storage?.getStatus?.();
-  return !cloudBusy && !isPracticeActive(document, router) &&
+  return !cloudBusy && !document.querySelector('#modal-overlay[aria-hidden="false"]') &&
+    !isPracticeActive(document, router) &&
     status?.ready !== false && (!status?.saveState || status.saveState === 'saved');
 }

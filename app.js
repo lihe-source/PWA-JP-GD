@@ -1,38 +1,38 @@
-import { SIMILAR_KANA_GROUPS, SMALL_TSU, similarKanaPool, similarKanaQuestions } from './similar-kana.js?v=V1_5_13';
-import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_13';
-import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_13';
-import { createGeminiClient } from './gemini-client.js?v=V1_5_13';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_13';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_13';
-import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_13';
+import { SIMILAR_KANA_GROUPS, SMALL_TSU, similarKanaPool, similarKanaQuestions } from './similar-kana.js?v=V1_5_14';
+import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_14';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_14';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_14';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_14';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_14';
+import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_14';
 let settingsVaultBusy = false;
-import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_13';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_13';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_13';
+import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_14';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_14';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_14';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_13';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_13';
-import { VersionManager } from './version-manager.js?v=V1_5_13';
-import { TrendChart } from './chart-renderer.js?v=V1_5_13';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_13';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_13';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_13';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_13';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, kanaRowGroupHeading, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_13';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_13';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_13';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_13';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_13';
+import { AppStorage } from './storage.js?v=V1_5_14';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_14';
+import { VersionManager } from './version-manager.js?v=V1_5_14';
+import { TrendChart } from './chart-renderer.js?v=V1_5_14';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_14';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_14';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_14';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_14';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, kanaRowGroupHeading, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_14';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_14';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_14';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_14';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_14';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_13
-// V1.5.13：精簡版面、統一圖示與加密設定備份
+// 日本語練習 PWA - app.js V1_5_14
+// V1.5.14：練習設定、同步及提醒排程
 // ===========================
 
 const ViewWork = new ViewWorkManager();
-const APP_VERSION = 'V1_5_13';
-const APP_DISPLAY_VERSION = 'V1.5.13';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_13';
+const APP_VERSION = 'V1_5_14';
+const APP_DISPLAY_VERSION = 'V1.5.14';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_14';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: settingsVaultBusy || ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -43,7 +43,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026111601,
+  currentBuild: 2026112301,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -1240,8 +1240,8 @@ const DB = {
     if (clean === this.CSV_HEADERS.essay)      return 'essay';
     if (clean === this.CSV_HEADERS.aiask)      return 'aiask';
     if (clean === this.CSV_HEADERS.studyDays)  return 'studyDays';
-    if (clean === this.CSV_HEADERS.handwriting) return 'handwriting';
-    if (clean === this.CSV_HEADERS.kanaReading) return 'kanaReading';
+    if (clean === this.CSV_HEADERS.handwriting || clean === this.CSV_HEADERS.handwriting + ',紀錄ID') return 'handwriting';
+    if (clean === this.CSV_HEADERS.kanaReading || clean === this.CSV_HEADERS.kanaReading + ',紀錄ID') return 'kanaReading';
     if (clean === this.CSV_HEADERS.wordReading) return 'wordReading';
     return null;
   },
@@ -1487,32 +1487,20 @@ const GDrive = {
     if (window.google?.accounts?.oauth2) return Promise.resolve();
     if (this._gisPromise) return this._gisPromise;
     this._gisPromise = new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (error) => {
-        if (settled) return;
-        settled = true;
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.dataset.gis = '1';
+      const finish = error => {
         clearTimeout(timeout);
-        clearInterval(poll);
-        if (error) reject(error);
+        script.onload = script.onerror = null;
+        if (error) { script.remove(); reject(error); }
         else resolve();
       };
-      const detect = () => {
-        if (window.google?.accounts?.oauth2) finish();
-      };
       const timeout = setTimeout(() => finish(new Error('GIS_LOAD_TIMEOUT')), 12000);
-      const poll = setInterval(detect, 50);
-      let script = document.querySelector('script[data-gis="1"]');
-      if (!script) {
-        script = document.createElement('script');
-        script.src = 'https://accounts.google.com/gsi/client';
-        script.async = true;
-        script.defer = true;
-        script.dataset.gis = '1';
-        document.head.appendChild(script);
-      }
-      script.addEventListener('load', detect, { once: true });
-      script.addEventListener('error', () => finish(new Error('GIS_LOAD_FAILED')), { once: true });
-      detect();
+      script.onload = () => finish(window.google?.accounts?.oauth2 ? null : new Error('GIS_LOAD_FAILED'));
+      script.onerror = () => finish(new Error('GIS_LOAD_FAILED'));
+      document.head.appendChild(script);
     }).catch(error => {
       this._gisPromise = null;
       throw error;
@@ -2019,12 +2007,12 @@ const GDrive = {
       const result = await syncLearningState({
         ready,
         readLocal: () => ({ deletedRecords: this.getDeletedRecords(), studyDays: StudyStreak.getDays(), handwritingHistory: KanaProgress.getHistory(), kanaReadingHistory: KanaReadingProgress.getHistory(), wordReadingHistory: WordReadingProgress.getHistory() }),
-        writeLocal: state => {
-          StudyStreak.merge(state.studyDays, { markPending: true });
-          AppStorage.setItem('syncDeletedRecords', JSON.stringify(state.deletedRecords || []));
-          KanaProgress.saveHistory(state.handwritingHistory);
-          KanaReadingProgress.saveHistory(state.kanaReadingHistory);
-          WordReadingProgress.saveHistory(state.wordReadingHistory);
+        writeLocal: (state, changed) => {
+          if (changed.includes('studyDays')) StudyStreak.replace(state.studyDays, { markPending: true });
+          if (changed.includes('deletedRecords')) AppStorage.setItem('syncDeletedRecords', JSON.stringify(state.deletedRecords || []));
+          if (changed.includes('handwritingHistory')) KanaProgress.saveHistory(state.handwritingHistory);
+          if (changed.includes('kanaReadingHistory')) KanaReadingProgress.saveHistory(state.kanaReadingHistory);
+          if (changed.includes('wordReadingHistory')) WordReadingProgress.saveHistory(state.wordReadingHistory);
         },
         readRemote: async () => {
           this._progress(options, '讀取跨裝置學習資料…', 30);
@@ -2394,6 +2382,11 @@ async function showToast(msg, duration = 2200) {
   });
 }
 
+async function loadZipLibrary() {
+  await import('./jszip.min.js?v=3_10_1');
+  return window.JSZip;
+}
+
 function escapeHTML(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -2417,7 +2410,15 @@ const Modal = {
     ModalFocus.open(o, content, () => { if (!GDrive._restoreInProgress) { GDrive.cancelTransfer(); this.hide(); } });
     o.onclick = (e) => { if (e.target === o && !GDrive._restoreInProgress) { GDrive.cancelTransfer(); this.hide(); } };
   },
-  hide() { const o = document.getElementById('modal-overlay'); o.classList.add('hidden'); o.setAttribute('aria-hidden','true'); this.onClose?.(); this.onClose = null; ModalFocus.close(); }
+  hide() {
+    const overlay = document.getElementById('modal-overlay');
+    overlay.classList.add('hidden');
+    overlay.setAttribute('aria-hidden', 'true');
+    this.onClose?.();
+    this.onClose = null;
+    ModalFocus.close();
+    queueMicrotask(resumeAppUpdateWhenSafe);
+  }
 };
 function todayStr() {
   const d = new Date();
@@ -2644,9 +2645,9 @@ Views.home = {
     const dailyPreferences = DB.getDailyLearningPreferences();
     const levelLearning = dailyPreferences.source === DAILY_LEARNING_SOURCES.LEVEL;
     container.innerHTML = `
-      <div id="home-view">
+      <div class="home-dashboard">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_13" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_14" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -2699,6 +2700,10 @@ Views.home = {
           <div class="menu-card" data-nav="kanaReadingPractice">
             <div class="menu-icon kana-reading-shortcut" aria-hidden="true">${uiIcon('text')}</div>
             <div><div class="menu-card-title">五十音讀音</div><div class="menu-card-sub">看假名・輸入羅馬音</div></div>
+          </div>
+          <div class="menu-card" data-nav="similarKanaPractice">
+            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">${uiIcon('text')}</div>
+            <div><div class="menu-card-title">相似字形讀音</div><div class="menu-card-sub">辨認 シ・ッ・ン・ツ 等字形</div></div>
           </div>
           <div class="menu-card" data-nav="wordReadingPractice">
             <div class="menu-icon kana-reading-shortcut" aria-hidden="true">${uiIcon('book')}</div>
@@ -3085,6 +3090,12 @@ Views.home = {
 // ===========================
 // PRACTICE MODE SELECTOR — shared by quiz / essay / AI ask
 // ===========================
+function practiceRowSelection(rows, script) {
+  if (rows.includes('all')) return `全部 ${KANA_ROWS.length} 行`;
+  if (rows.length <= 3) return rows.map(row => kanaRowLabel(row, script)).join('、');
+  return `已選 ${rows.length} 行`;
+}
+
 function renderPracticeModeSelector(currentMode = 'quiz') {
   DB.saveLastPracticeMode(currentMode);
   const isQuiz = currentMode === 'quiz';
@@ -3916,14 +3927,13 @@ Views.kanaPractice = {
                 <button class="chip ${this.state.script==='both'?'selected':''}" data-kana-script="both">兩者混合</button>
               </div>
             </div>
-            <div class="option-group kana-compact-group kana-row-group">
-              <div class="option-label">假名行（清音／濁音／半濁音，可複選）</div>
+            <details class="option-group kana-compact-group kana-row-group kana-row-picker">
+              <summary><span>選擇假名行</span><span class="kana-row-summary" id="kana-row-summary"></span></summary>
               <div class="kana-row-grid" id="kana-row-grid" role="group" aria-label="選擇要練習的五十音行">
                 <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-kana-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
                 ${KANA_ROWS.map(row => `${kanaRowGroupHeading(row.id)}<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-kana-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
               </div>
-              <div class="kana-row-summary" id="kana-row-summary"></div>
-            </div>
+            </details>
             <div class="option-group kana-compact-group kana-mode-group">
               <div class="option-label">練習方式</div>
               <div class="kana-mode-grid">
@@ -3981,6 +3991,11 @@ Views.kanaPractice = {
       return pool;
     };
     const updateSetupUI = () => {
+      container.querySelectorAll('[data-kana-script]').forEach(button => {
+        const selected = button.dataset.kanaScript === this.state.script;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
       container.querySelectorAll('[data-kana-row]').forEach(button => {
         button.textContent = kanaRowLabel(button.dataset.kanaRow, this.state.script);
         const selected = this.state.rows.includes(button.dataset.kanaRow);
@@ -3997,7 +4012,7 @@ Views.kanaPractice = {
       const totalQuestions = practiceCount * this.state.repeat;
       const rowSummary = document.getElementById('kana-row-summary');
       if (rowSummary) {
-        const rowText = this.state.rows.includes('all') ? `全部 ${KANA_ROWS.length} 行` : `已選 ${this.state.rows.length} 行`;
+        const rowText = practiceRowSelection(this.state.rows, this.state.script);
         rowSummary.textContent = `${rowText}・${selectedCount} 個假名`;
       }
       const repeatSummary = document.getElementById('kana-repeat-summary');
@@ -4012,8 +4027,7 @@ Views.kanaPractice = {
       }
     };
     container.querySelectorAll('[data-kana-script]').forEach(button => button.addEventListener('click', () => {
-      container.querySelectorAll('[data-kana-script]').forEach(item => item.classList.remove('selected'));
-      button.classList.add('selected'); this.state.script = button.dataset.kanaScript;
+      this.state.script = button.dataset.kanaScript;
       persistPreferences({ script: this.state.script });
       updateSetupUI();
     }));
@@ -4345,7 +4359,7 @@ Views.kanaReadingPractice = {
   _focusAnswerInput(input) {
     if (!input?.isConnected || input.disabled) return false;
     const focus = () => {
-      if (!input?.isConnected || input.disabled) return;
+      if (!input?.isConnected || input.disabled || document.activeElement === input) return;
       try { input.focus({ preventScroll: true }); }
       catch { input.focus(); }
       try {
@@ -4405,14 +4419,13 @@ Views.kanaReadingPractice = {
                 <button class="chip ${this.state.script==='both'?'selected':''}" type="button" data-reading-script="both">兩者混合</button>
               </div>
             </div>
-            <div class="option-group kana-compact-group kana-row-group">
-              <div class="option-label">假名行（清音／濁音／半濁音，可複選）</div>
+            <details class="option-group kana-compact-group kana-row-group kana-row-picker">
+              <summary><span>選擇假名行</span><span class="kana-row-summary" id="kana-reading-row-summary"></span></summary>
               <div class="kana-row-grid kana-row-grid-compact" role="group" aria-label="選擇五十音行">
                 <button class="kana-row-chip ${this.state.rows.includes('all')?'selected':''}" type="button" data-reading-row="all" aria-pressed="${this.state.rows.includes('all')}">全部行</button>
                 ${KANA_ROWS.map(row => `${kanaRowGroupHeading(row.id)}<button class="kana-row-chip ${this.state.rows.includes(row.id)?'selected':''}" type="button" data-reading-row="${row.id}" aria-pressed="${this.state.rows.includes(row.id)}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
               </div>
-              <div class="kana-row-summary" id="kana-reading-row-summary"></div>
-            </div>
+            </details>
             <div class="option-group kana-compact-group kana-repeat-group">
               <div class="option-label">每個假名練習次數</div>
               <div class="kana-repeat-grid" role="group" aria-label="選擇每個假名的練習次數">
@@ -4428,6 +4441,11 @@ Views.kanaReadingPractice = {
 
     bindPracticeModeSelector(container, 'kanaReading');
     const updateSetupUI = () => {
+      container.querySelectorAll('[data-reading-script]').forEach(button => {
+        const selected = button.dataset.readingScript === this.state.script;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
       container.querySelectorAll('[data-reading-row]').forEach(button => {
         button.textContent = kanaRowLabel(button.dataset.readingRow, this.state.script);
         const selected = this.state.rows.includes(button.dataset.readingRow);
@@ -4441,7 +4459,7 @@ Views.kanaReadingPractice = {
       });
       const pool = getKanaSet({ script: this.state.script, rows: this.state.rows });
       const total = pool.length * this.state.repeat;
-      const rowLabel = this.state.rows.includes('all') ? `全部 ${KANA_ROWS.length} 行` : `已選 ${this.state.rows.length} 行`;
+      const rowLabel = practiceRowSelection(this.state.rows, this.state.script);
       const rowSummary = document.getElementById('kana-reading-row-summary');
       if (rowSummary) rowSummary.textContent = `${rowLabel}・${pool.length} 個假名`;
       const repeatSummary = document.getElementById('kana-reading-repeat-summary');
@@ -4453,8 +4471,6 @@ Views.kanaReadingPractice = {
       }
     };
     container.querySelectorAll('[data-reading-script]').forEach(button => button.addEventListener('click', () => {
-      container.querySelectorAll('[data-reading-script]').forEach(item => item.classList.remove('selected'));
-      button.classList.add('selected');
       this.state.script = button.dataset.readingScript;
       DB.saveKanaReadingPreferences({ script: this.state.script });
       updateSetupUI();
@@ -4483,7 +4499,7 @@ Views.kanaReadingPractice = {
       if (!this.state.items.length) { showToast('此條件沒有可練習的假名'); return; }
       this.state.index = 0;
       this.state.results = [];
-    this.state.lastFeedback = '';
+      this.state.lastFeedback = '';
       this.state.answered = false;
       this.state.transitioning = false;
       DB.saveKanaReadingPreferences({ script: this.state.script, rows: this.state.rows, repeat: this.state.repeat });
@@ -4635,11 +4651,11 @@ Views.kanaReadingPractice = {
         <h1>${this.title}完成</h1>
         <p>原定 ${this.state.initialTotal} 題 ＋ 錯題補練 ${results.length - this.state.initialTotal} 題 ＝ 完成 ${results.length} 題</p>
         <div class="kana-result-summary"><div><strong>${score}</strong><span>正確率</span></div><div><strong>${correct}/${results.length}</strong><span>答對題數</span></div></div><p class="first-attempt-summary">首次作答：${firstAttempt.correct}/${firstAttempt.total} 題答對（${firstAttempt.accuracy}%）</p>
-        ${wrong.length ? `<section class="kana-reading-wrong-list"><h2>需要加強</h2>${wrong.map(item => `<div><b>${item.kana.character}</b><span>你的答案：${escapeHTML(item.answer)}</span><strong>${escapeHTML(item.kana.romaji)}</strong></div>`).join('')}</section>` : '<div class="kana-reading-perfect">🎉 全部答對！</div>'}
-        ${this.title === '相似字形讀音' ? `<section class="similar-result-list"><h2>本次作答總表（含補練）</h2>${results.map((item,i) => `<div class="similar-result-row ${item.correct ? 'is-correct' : 'is-wrong'}"><b>${i+1}. ${item.kana.character}</b><span>${item.correct ? '答對' : '答錯'}・你的答案：${escapeHTML(item.answer)}</span><strong>正確：${escapeHTML(item.kana.romaji)}${item.kana.character === 'ッ' ? '（小促音輸入碼）' : ''}</strong></div>`).join('')}</section>` : ''}
+        ${this.renderAnswerReview ? this.renderAnswerReview(results, wrong) : wrong.length ? `<section class="kana-reading-wrong-list"><h2>需要加強</h2>${wrong.map(item => `<div><b>${escapeHTML(item.kana.character)}</b><span>你的答案：${escapeHTML(item.answer)}</span><strong>${escapeHTML(item.kana.romaji)}</strong></div>`).join('')}</section>` : '<div class="kana-reading-perfect">🎉 全部答對！</div>'}
         <button class="btn-primary" id="kana-reading-again">再練一次</button>
         <button class="btn-secondary" id="kana-reading-home">回到主頁</button>
       </div>`;
+    this.bindAnswerReview?.();
     document.getElementById('kana-reading-again')?.addEventListener('click', () => this.renderSetup(container));
     document.getElementById('kana-reading-home')?.addEventListener('click', () => Router.navigate('home'));
     refreshStudyStreakUI();
@@ -4652,6 +4668,54 @@ Views.similarKanaPractice = Object.assign(Object.create(Views.kanaReadingPractic
   state: { items: [], initialTotal: 0, index: 0, results: [], repeat: 1, transitioning: false },
   _advanceTimer: null,
   _viewportCleanup: null,
+  renderAnswerReview(results, wrong) {
+    this.reviewRows = results.map((result, index) => ({ result, number: index + 1 }));
+    this.reviewPage = 0;
+    return `<section class="similar-result-list" aria-labelledby="similar-review-title">
+      <header class="similar-review-header"><h2 id="similar-review-title" tabindex="-1">本次作答總表（含補練）</h2>
+        ${wrong.length ? `<label><input type="checkbox" id="similar-wrong-only">只看錯題（${wrong.length}）</label>` : ''}</header>
+      <div id="similar-review-rows">${this.reviewRowsHTML(this.reviewRows)}</div>
+      <nav class="list-pagination" id="similar-review-pages" aria-label="本次作答總表分頁" ${results.length <= 20 ? 'hidden' : ''}>
+        <button type="button" id="similar-review-prev" disabled>上一頁</button>
+        <span id="similar-review-count" role="status">第 1／${Math.ceil(results.length / 20)} 頁</span>
+        <button type="button" id="similar-review-next">下一頁</button>
+      </nav></section>`;
+  },
+  reviewRowsHTML(rows) {
+    const start = this.reviewPage * 20;
+    return rows.slice(start, start + 20).map(({ result, number }) => `
+      <div class="similar-result-row ${result.correct ? 'is-correct' : 'is-wrong'}">
+        <b lang="ja">${number}. ${escapeHTML(result.kana.character)}</b>
+        <span>${result.correct ? '答對' : '答錯'}・你的答案：${escapeHTML(result.answer)}</span>
+        <strong>正確：${escapeHTML(result.kana.romaji)}${result.kana.character === 'ッ' ? '（小促音輸入碼）' : ''}</strong>
+      </div>`).join('');
+  },
+  bindAnswerReview() {
+    const pages = document.getElementById('similar-review-pages');
+    if (!pages) return;
+    const filter = document.getElementById('similar-wrong-only');
+    const prev = document.getElementById('similar-review-prev');
+    const next = document.getElementById('similar-review-next');
+    const update = () => {
+      const rows = filter?.checked ? this.reviewRows.filter(row => !row.result.correct) : this.reviewRows;
+      const count = Math.ceil(rows.length / 20);
+      document.getElementById('similar-review-rows').innerHTML = this.reviewRowsHTML(rows);
+      document.getElementById('similar-review-count').textContent = `第 ${this.reviewPage + 1}／${count} 頁`;
+      pages.hidden = count <= 1;
+      prev.disabled = this.reviewPage === 0;
+      next.disabled = this.reviewPage + 1 >= count;
+    };
+    filter?.addEventListener('change', () => { this.reviewPage = 0; update(); });
+    const move = offset => {
+      this.reviewPage += offset;
+      update();
+      const heading = document.getElementById('similar-review-title');
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ block: 'start' });
+    };
+    prev.addEventListener('click', () => move(-1));
+    next.addEventListener('click', () => move(1));
+  },
   renderSetup(container) {
     this.cleanup();
     const repeat = DB.getKanaReadingPreferences().repeat;
@@ -4730,12 +4794,13 @@ Views.wordReadingPractice = {
             <button type="button" class="chip" data-word-script="katakana">片假名</button>
             <button type="button" class="chip" data-word-script="both">兩者混合</button>
           </div></div>
-          <div class="option-group kana-compact-group kana-row-group"><div class="option-label">假名行（清音／濁音／半濁音，可複選）</div>
-            <div class="kana-row-grid kana-row-grid-compact" role="group" aria-label="選擇單詞包含的五十音行">
+          <details class="option-group kana-compact-group kana-row-group kana-row-picker">
+              <summary><span>選擇假名行</span><span class="kana-row-summary" id="word-reading-row-summary"></span></summary>
+              <div class="kana-row-grid kana-row-grid-compact" role="group" aria-label="選擇單詞包含的五十音行">
               <button type="button" class="kana-row-chip" data-word-row="all">全部行</button>
               ${KANA_ROWS.map(row => `${kanaRowGroupHeading(row.id)}<button type="button" class="kana-row-chip" data-word-row="${row.id}">${kanaRowLabel(row.id, this.state.script)}</button>`).join('')}
-            </div><div class="kana-row-summary" id="word-reading-row-summary"></div>
-          </div>
+            </div>
+            </details>
           <div class="option-group kana-compact-group kana-repeat-group"><div class="option-label">練習題數</div><div class="kana-repeat-grid" role="group" aria-label="選擇練習題數">
             ${WORD_READING_COUNTS.map(count => `<button type="button" class="kana-repeat-chip" data-word-count="${count}">${count} 題</button>`).join('')}
           </div><div class="kana-repeat-summary">候選詞少於題數時會重複出題；答錯的詞會追加至尾端補練。</div></div>
@@ -4758,7 +4823,7 @@ Views.wordReadingPractice = {
       });
       const available = this._pool().length;
       const rowSummary = document.getElementById('word-reading-row-summary');
-      if (rowSummary) rowSummary.textContent = `已選 ${this.state.rows.includes('all') ? '全部行' : `${this.state.rows.length} 行`}・符合完整讀音的單詞 ${available} 個`;
+      if (rowSummary) rowSummary.textContent = `${practiceRowSelection(this.state.rows, this.state.script)}・符合 ${available} 詞`;
       const start = document.getElementById('word-reading-start');
       if (start) { start.disabled = !available; start.textContent = available ? `開始 ${this.state.count} 題單詞讀音練習` : '目前沒有符合條件的單詞，請增加單詞或選擇其他行'; }
     };
@@ -5234,14 +5299,23 @@ Views.readingQuiz = {
 Views.database = {
   deleteMode: false, selectedIds: new Set(),
   aiCorrectMode: false, aiCorrectIds: new Set(),
-  sortMode: AppStorage.getItem('dbSortMode') || 'createdAt',
-  render(container) { this.deleteMode = false; this.selectedIds = new Set(); this.aiCorrectMode = false; this.aiCorrectIds = new Set(); this.renderList(container); },
+  sortMode: 'createdAt',
+  collator: new Intl.Collator('ja'),
+  render(container) {
+    this.sortMode = AppStorage.getItem('dbSortMode') || 'createdAt';
+    this.deleteMode = false;
+    this.selectedIds = new Set();
+    this.aiCorrectMode = false;
+    this.aiCorrectIds = new Set();
+    this.renderList(container);
+  },
   _page: 0,
   _search: '',
   _sortWords(words) {
     const arr = [...words];
     if (this.sortMode === 'alpha') {
-      arr.sort((a, b) => a.english.localeCompare(b.english, 'ja'));
+      arr.sort((a, b) => this.collator.compare(a.reading || a.phonetic || a.english, b.reading || b.phonetic || b.english)
+        || this.collator.compare(a.english, b.english));
     } else if (this.sortMode === 'wrongCount') {
       arr.sort((a, b) => (b.wrongCount || 0) - (a.wrongCount || 0));
     } else {
@@ -5254,15 +5328,22 @@ Views.database = {
     }
     return arr;
   },
-  // Lightweight refresh: update only the word list + badge without destroying lookup card state
-  _refreshWordList(container) {
+  _sortedWords() {
     const raw = AppStorage.getItem('vocabWords');
     if (this._sortedCache?.raw !== raw || this._sortedCache?.mode !== this.sortMode) {
       this._sortedCache = { raw, mode: this.sortMode, words: this._sortWords(DB.getWords()) };
     }
-    const rawWords = this._sortedCache.words;
-    const needle = this._search.trim().toLocaleLowerCase();
-    const words = needle ? this._sortedCache.words.filter(word => [word.english, word.chinese, word.phonetic, word.romaji].some(value => String(value || '').toLocaleLowerCase().includes(needle))) : this._sortedCache.words;
+    return this._sortedCache.words;
+  },
+  _refreshWordList(container) {
+    const rawWords = this._sortedWords();
+    const needle = this._search.trim().normalize('NFKC').toLowerCase();
+    let words = rawWords;
+    if (needle) {
+      this._sortedCache.searchText ??= rawWords.map(word => [word.english, word.chinese, word.reading || word.phonetic, word.romaji]
+        .map(value => String(value || '').normalize('NFKC').toLowerCase()).join('\n'));
+      words = rawWords.filter((word, index) => this._sortedCache.searchText[index].includes(needle));
+    }
     const pages = Math.max(1, Math.ceil(words.length / 40));
     this._page = Math.max(0, Math.min(this._page, pages - 1));
     const pageWords = words.slice(this._page * 40, (this._page + 1) * 40);
@@ -5271,7 +5352,11 @@ Views.database = {
     const acm = this.aiCorrectMode; const acs = this.aiCorrectIds;
     // Update badge
     const badge = container.querySelector('.word-count-badge');
-    if (badge) badge.textContent = words.length + ' 個單字';
+    if (badge) badge.textContent = needle ? `符合 ${words.length}／${rawWords.length} 個單字` : rawWords.length + ' 個單字';
+    const deleteButton = container.querySelector('#delete-toggle-btn');
+    const correctButton = container.querySelector('#ai-correct-btn');
+    if (deleteButton) deleteButton.disabled = !rawWords.length;
+    if (correctButton) correctButton.disabled = !rawWords.length || !DB.getApiKey();
     // Update list
     const listEl = container.querySelector('#db-list');
     if (!listEl) return;
@@ -5293,8 +5378,8 @@ Views.database = {
           <div class="db-word-meta"><span>${escapeHTML(w.createdAt||'—')}</span><span>答錯 ${escapeHTML(w.wrongCount||0)}次</span>${(w.frequencyWeight||1)>1?`<span>加權${escapeHTML(w.frequencyWeight)}x</span>`:''}</div>
         </div>
         <div class="db-word-actions">
-          <button class="db-tts-btn" data-tts="${escapeHTML(w.english)}" title="播放發音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
-          ${(!dm&&!acm)?`<button class="db-word-edit-btn" data-edit="${escapeHTML(w.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`:''}
+          <button class="db-tts-btn" data-tts="${escapeHTML(w.english)}" aria-label="播放 ${escapeHTML(w.english)} 的發音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
+          ${(!dm&&!acm)?`<button class="db-word-edit-btn" data-edit="${escapeHTML(w.id)}" aria-label="編輯 ${escapeHTML(w.english)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`:''}
         </div>
       </div>`;
     }).join('');
@@ -5312,9 +5397,9 @@ Views.database = {
       const sound = event.target.closest('.db-tts-btn');
       if (sound) { TTS.speakWhenReady(sound.dataset.tts, .82); return; }
       const edit = event.target.closest('.db-word-edit-btn');
-      if (edit) { const word = DB.getWords().find(item => String(item.id) === edit.dataset.edit); if (word) this.showEditModal(word, container); return; }
+      if (edit) { const word = pageWords.find(item => String(item.id) === edit.dataset.edit); if (word) this.showEditModal(word, container); return; }
       const card = event.target.closest('.db-word-card'); if (!card) return;
-      const id = rawWords.find(word => String(word.id) === card.dataset.id)?.id;
+      const id = pageWords.find(word => String(word.id) === card.dataset.id)?.id;
       if (id === undefined) return;
       const selected = this.deleteMode ? this.selectedIds : this.aiCorrectMode ? this.aiCorrectIds : null;
       if (!selected) return;
@@ -5327,9 +5412,8 @@ Views.database = {
     };
   },
 
-  async renderList(container) {
-    const rawWords = DB.getWords();
-    const words = this._sortWords(rawWords);
+  renderList(container) {
+    const words = this._sortedWords();
     const dm = this.deleteMode; const sel = this.selectedIds;
     const acm = this.aiCorrectMode; const acs = this.aiCorrectIds;
     const ecdictMeta = null;
@@ -5404,23 +5488,23 @@ Views.database = {
         <button class="btn-icon btn-add" id="add-word-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
         <button class="btn-icon btn-export" id="export-btn">${uiIcon('download')}匯出</button>
         <button class="btn-icon btn-import" id="import-btn">${uiIcon('upload')}匯入</button>
-        <button class="btn-icon ${dm?'btn-delete-confirm':'btn-delete-toggle'}" id="delete-toggle-btn"${words.length===0?' disabled style="opacity:0.4;cursor:not-allowed"':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>${dm?(sel.size>0?`確認(${sel.size})`:'確認'):'刪除'}</button>
-        <button class="btn-icon ${acm?'btn-ai-correct-active':'btn-ai-correct'}" id="ai-correct-btn"${!DB.getApiKey()||words.length===0?' disabled style="opacity:0.4;cursor:not-allowed"':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 9.5-9.5z"/></svg>${acm?'取消更正':'AI 更正'}</button>
+        <button class="btn-icon ${dm?'btn-delete-confirm':'btn-delete-toggle'}" id="delete-toggle-btn"${words.length===0?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>${dm?(sel.size>0?`確認(${sel.size})`:'確認'):'刪除'}</button>
+        <button class="btn-icon ${acm?'btn-ai-correct-active':'btn-ai-correct'}" id="ai-correct-btn"${!DB.getApiKey()||words.length===0?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 9.5-9.5z"/></svg>${acm?'取消更正':'AI 更正'}</button>
         ${acm?`<button class="btn-icon btn-ai-correct-run" id="ai-correct-run-btn" style="background:var(--primary);color:#fff">${acs.size>0?`執行 AI 更正 (${acs.size})`:'執行 AI 更正'}</button>`:''}
       </div>
       <input type="file" id="csv-file-input" accept=".csv" style="display:none">
       <!-- 排序列 -->
       <div class="db-sort-bar">
         <span class="db-sort-label">排序：</span>
-        <button class="db-sort-chip ${this.sortMode==='createdAt'?'active':''}" data-sort="createdAt">
+        <button class="db-sort-chip ${this.sortMode==='createdAt'?'active':''}" data-sort="createdAt" aria-pressed="${this.sortMode === 'createdAt'}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           建立時間
         </button>
-        <button class="db-sort-chip ${this.sortMode==='alpha'?'active':''}" data-sort="alpha">
+        <button class="db-sort-chip ${this.sortMode==='alpha'?'active':''}" data-sort="alpha" aria-pressed="${this.sortMode === 'alpha'}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l8-3 8 3"/><path d="M4 10h16"/><path d="M4 14h16"/><path d="M4 18h16"/></svg>
           五十音順
         </button>
-        <button class="db-sort-chip ${this.sortMode==='wrongCount'?'active':''}" data-sort="wrongCount">
+        <button class="db-sort-chip ${this.sortMode==='wrongCount'?'active':''}" data-sort="wrongCount" aria-pressed="${this.sortMode === 'wrongCount'}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           錯誤次數
         </button>
@@ -5674,12 +5758,17 @@ Views.database = {
       this.sortMode = btn.dataset.sort;
       this._page = 0;
       AppStorage.setItem('dbSortMode', this.sortMode);
-      this.renderList(container);
+      container.querySelectorAll('.db-sort-chip').forEach(chip => {
+        const selected = chip === btn;
+        chip.classList.toggle('active', selected);
+        chip.setAttribute('aria-pressed', String(selected));
+      });
+      this._refreshWordList(container);
     }));
     // Toolbar events
     document.getElementById('add-word-btn')?.addEventListener('click', () => this.showAddModal(container));
     document.getElementById('export-btn')?.addEventListener('click', () => {
-      if (!words.length) { showToast('資料庫是空的'); return; }
+      if (!this._sortedWords().length) { showToast('資料庫是空的'); return; }
       const blob = new Blob(['\uFEFF'+DB.exportCSV()], {type:'text/csv;charset=utf-8;'});
       const url = URL.createObjectURL(blob); const a = document.createElement('a');
       a.href=url; a.download=`japanese_vocab_${todayStr().replace(/\//g,'-')}.csv`; a.click(); URL.revokeObjectURL(url);
@@ -5839,11 +5928,11 @@ Views.database = {
     const posOptions = ['名詞','五段動詞','一段動詞','不規則動詞','い形容詞','な形容詞','副詞','助詞','接續詞','慣用語'];
     Modal.show(`<div class="modal-handle"></div><div class="modal-title">新增日文語彙</div>
       <div class="form-group"><label class="form-label">日文語彙 *</label><input class="form-input" id="new-en" placeholder="例：食べる" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="text"></div>
-      <div class="form-group"><label class="form-label">詞性 *</label><select class="form-select" id="new-pos">${posOptions.map(p=>`<option>p}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">詞性 *</label><select class="form-select" id="new-pos">${posOptions.map(p=>`<option>${escapeHTML(p)}</option>`).join('')}</select></div>
       <div class="form-group"><label class="form-label">繁體中文意思 *</label><input class="form-input" id="new-zh" placeholder="例：吃；食用"></div>
       <div class="form-group"><label class="form-label">假名讀音（可選）</label><input class="form-input" id="new-phonetic" placeholder="例：たべる" lang="ja" autocorrect="off" autocapitalize="off"></div>
       <div class="form-group"><label class="form-label">羅馬拼音（可選）</label><input class="form-input" id="new-romaji" placeholder="例：taberu" autocorrect="off" autocapitalize="off"></div>
-      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="new-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option>level}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="new-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option>${escapeHTML(level)}</option>`).join('')}</select></div>
       <div class="modal-actions"><button class="modal-btn-cancel" id="cancel-add">取消</button><button class="modal-btn-confirm" id="confirm-add">新增</button></div>`);
     document.getElementById('cancel-add').addEventListener('click', () => Modal.hide());
     document.getElementById('confirm-add').addEventListener('click', () => {
@@ -5857,15 +5946,19 @@ Views.database = {
   },
   showEditModal(word, container) {
     const posOptions = ['名詞','五段動詞','一段動詞','不規則動詞','い形容詞','な形容詞','副詞','助詞','接續詞','慣用語'];
-    if (word.partOfSpeech && !posOptions.includes(word.partOfSpeech)) posOptions.unshift(word.partOfSpeech);
+    const selectedPos = word.partOfSpeech === 'p}' ? '未分類' : word.partOfSpeech;
+    const selectedLevel = !word.jlpt || /^level}$/i.test(word.jlpt) ? '未分級' : word.jlpt;
+    const levels = ['N5', 'N4', 'N3', 'N2', 'N1', '未分級'];
+    if (selectedPos && !posOptions.includes(selectedPos)) posOptions.unshift(selectedPos);
+    if (!levels.includes(selectedLevel)) levels.push(selectedLevel);
     Modal.show(`<div class="modal-handle"></div><div class="modal-title">編輯日文語彙</div>
       <div class="form-group"><label class="form-label">日文語彙</label><input class="form-input" id="edit-en" value="${escapeAttr(word.english)}" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false"></div>
-      <div class="form-group"><label class="form-label">詞性</label><select class="form-select" id="edit-pos">${posOptions.map(p=>`<option ${p===word.partOfSpeech?'selected':''}>p}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">詞性</label><select class="form-select" id="edit-pos">${posOptions.map(p=>`<option ${p===selectedPos?'selected':''}>${escapeHTML(p)}</option>`).join('')}</select></div>
       <div class="form-group"><label class="form-label">中文意思</label><input class="form-input" id="edit-zh" value="${escapeAttr(word.chinese)}"></div>
       <div class="form-group"><label class="form-label">假名讀音（可選）</label><input class="form-input" id="edit-phonetic" value="${escapeAttr(word.phonetic||'')}" lang="ja" autocorrect="off" autocapitalize="off"></div>
       <div class="form-group"><label class="form-label">羅馬拼音（可選）</label><input class="form-input" id="edit-romaji" value="${escapeAttr(word.romaji||'')}" autocorrect="off" autocapitalize="off"></div>
-      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="edit-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option ${level===(word.jlpt||'未分級')?'selected':''}>level}</option>`).join('')}</select></div>
-      <div class="form-group"><label class="form-label">頻率加權</label><select class="form-select" id="edit-weight">${[1,2,3,5].map(n=>`<option value="${n}" ${n===(word.frequencyWeight||1)?'selected':''}>n}x${n===1?' (預設)':''}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="edit-jlpt">${levels.map(level=>`<option ${level===selectedLevel?'selected':''}>${escapeHTML(level)}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">頻率加權</label><select class="form-select" id="edit-weight">${[1,2,3,5].map(n=>`<option value="${n}" ${n===(word.frequencyWeight||1)?'selected':''}>${n} 倍${n===1?' (預設)':''}</option>`).join('')}</select></div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">答錯次數：${word.wrongCount||0} 次</div>
       <div class="modal-actions"><button class="modal-btn-cancel" id="cancel-edit">取消</button><button class="modal-btn-confirm" id="confirm-edit">儲存</button></div>`);
     document.getElementById('cancel-edit').addEventListener('click', () => Modal.hide());
@@ -7773,7 +7866,7 @@ Views.settings = {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:6px"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             檢查更新
           </button>
-          <div id="update-status" style="font-size:12px;color:var(--text-muted);min-height:16px"></div>
+          <div id="update-status" role="status" aria-live="polite" style="font-size:12px;color:var(--text-muted);min-height:16px"></div>
         </div>
 
         <!-- 8. 音效測試 -->
@@ -8176,7 +8269,8 @@ Views.settings = {
         [`word_reading_${dateTag}.csv`, () => WordReadingProgress.exportCSV()]
       ];
       try {
-        const zip = new window.JSZip(); let count = 0;
+        const Zip = await loadZipLibrary();
+        const zip = new Zip(); let count = 0;
         for (const [filename, generate] of jobs) {
           await new Promise(resolve => setTimeout(resolve, 0));
           if (job.options.signal.aborted || !job.current()) throw new Error('OPERATION_CANCELLED');
@@ -8248,20 +8342,6 @@ Views.settings = {
         }
       };
 
-      // Helper: read file as text
-      const readAsText = (file) => new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => resolve(ev.target.result);
-        reader.readAsText(file, 'UTF-8');
-      });
-
-      // Helper: read file as ArrayBuffer (for ZIP)
-      const readAsBuffer = (file) => new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => resolve(ev.target.result);
-        reader.readAsArrayBuffer(file);
-      });
-
       showToast('⏳ 正在匯入...', 2000);
 
       for (const file of files) {
@@ -8269,8 +8349,9 @@ Views.settings = {
         if (isZip) {
           // ── ZIP: extract all CSV files inside ──
           try {
-            const buffer = await readAsBuffer(file);
-            const zip = await window.JSZip.loadAsync(buffer);
+            const buffer = await file.arrayBuffer();
+            const Zip = await loadZipLibrary();
+            const zip = await Zip.loadAsync(buffer);
             const csvFiles = Object.values(zip.files).filter(f => !f.dir && f.name.toLowerCase().endsWith('.csv'));
             if (csvFiles.length === 0) { unknown.push(file.name + '（ZIP 內無 CSV）'); continue; }
             for (const csvFile of csvFiles) {
@@ -8284,8 +8365,12 @@ Views.settings = {
           }
         } else {
           // ── Single CSV file ──
-          const text = await readAsText(file);
-          processCSV(file.name, text.replace(/^\uFEFF/, ''));
+          try {
+            const text = await file.text();
+            processCSV(file.name, text.replace(/^\uFEFF/, ''));
+          } catch {
+            errors.push(`${file.name}（讀取檔案失敗）`);
+          }
         }
       }
 
@@ -8298,9 +8383,9 @@ Views.settings = {
 
       // Show result modal
       const lines = [
-        ...results.map(r => `<div class="batch-result-ok">✓ ${r}</div>`),
-        ...unknown.map(n => `<div class="batch-result-warn">⚠ 無法識別：${n}</div>`),
-        ...errors.map(n => `<div class="batch-result-err">✗ 匯入失敗：${n}</div>`)
+        ...results.map(r => `<div class="batch-result-ok">✓ ${escapeHTML(r)}</div>`),
+        ...unknown.map(n => `<div class="batch-result-warn">⚠ 無法識別：${escapeHTML(n)}</div>`),
+        ...errors.map(n => `<div class="batch-result-err">✗ 匯入失敗：${escapeHTML(n)}</div>`)
       ].join('');
 
       if (results.length === 0 && errors.length === 0 && unknown.length > 0) {
@@ -8638,7 +8723,7 @@ Views.settings = {
           });
         }
       } catch (error) {
-        status.textContent = error?.message === 'VERSION_INVALID' ? '版本資訊格式不正確，請檢查部署的 version.json；目前版本保持不變。' : '暫時無法取得版本資訊；可能是請求逾時或部署尚未完成，目前版本保持不變。';
+        status.textContent = !navigator.onLine ? '目前離線，可連線後再檢查更新。' : error?.message === 'VERSION_INVALID' ? '版本資訊格式不正確，請檢查部署的 version.json；目前版本保持不變。' : '暫時無法取得版本資訊；可能是請求逾時或部署尚未完成，目前版本保持不變。';
       } finally {
         btn.disabled = false;
       }
@@ -8691,6 +8776,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
   window.addEventListener('online', () => {
     updateNetworkState();
+    GDrive.preload();
     void DailyReminder.syncPracticeCompletion();
     GDrive.scheduleStudyStreakSync(150);
   });
@@ -8782,15 +8868,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Check during idle time and never install/reload while an exercise is active.
   const checkForStartupUpdate = async () => {
-    if (Router.quizActive || Router.essayActive) return;
     try {
       const result = await AppUpdater.check({ autoApply: false });
       if (result.hasUpdate) {
-        if (Router.quizActive || Router.essayActive) {
-          showToast('已發現新版本，將於下次開啟時更新', 2800);
-          return;
-        }
-        showToast('發現新版本 ' + result.remoteDisplay + '，正在自動更新…', 3200);
+        showToast(canActivateAppUpdate() ? `發現新版本 ${result.remoteDisplay}，正在更新…` : `已發現 ${result.remoteDisplay}，會在操作結束後更新。`, 3200);
         await AppUpdater.applyUpdate();
       }
     } catch (error) {

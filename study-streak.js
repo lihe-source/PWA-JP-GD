@@ -47,6 +47,10 @@ export function getCurrentTimeZone() {
   catch { return 'UTC'; }
 }
 
+// Cache the most recently used formatter. Explicit zones still switch immediately.
+let dateFormatter;
+let formatterZone;
+
 export function dateKeyFor(value = new Date(), timeZone = getCurrentTimeZone()) {
   if (typeof value === 'string') {
     const normalized = normalizeDateString(value);
@@ -55,9 +59,14 @@ export function dateKeyFor(value = new Date(), timeZone = getCurrentTimeZone()) 
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timeZone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit'
-    }).formatToParts(date);
+    const zone = timeZone || 'UTC';
+    if (!dateFormatter || formatterZone !== zone) {
+      dateFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit'
+      });
+      formatterZone = zone;
+    }
+    const parts = dateFormatter.formatToParts(date);
     const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
     return `${map.year}-${map.month}-${map.day}`;
   } catch {
@@ -66,6 +75,7 @@ export function dateKeyFor(value = new Date(), timeZone = getCurrentTimeZone()) 
 }
 
 function normalizeDay(day = {}) {
+  if (!day || typeof day !== 'object') return null;
   const date = normalizeDateString(day.date);
   if (!date) return null;
   const eventIds = uniqueStrings(day.eventIds);
@@ -87,29 +97,25 @@ function normalizeDay(day = {}) {
 
 export function mergeStudyDays(...collections) {
   const byDate = new Map();
-  collections.flatMap(safeArray).forEach(raw => {
-    const incoming = normalizeDay(raw);
-    if (!incoming) return;
-    const existing = byDate.get(incoming.date);
-    if (!existing) {
-      byDate.set(incoming.date, incoming);
-      return;
+  for (const collection of collections) {
+    for (const raw of safeArray(collection)) {
+      const incoming = normalizeDay(raw);
+      if (!incoming) continue;
+      const day = byDate.get(incoming.date);
+      if (!day) {
+        byDate.set(incoming.date, { ...incoming, eventIds: new Set(incoming.eventIds), activities: new Set(incoming.activities) });
+        continue;
+      }
+      for (const id of incoming.eventIds) day.eventIds.add(id);
+      for (const type of incoming.activities) day.activities.add(type);
+      day.sessionCount = Math.max(day.sessionCount, incoming.sessionCount, day.eventIds.size);
+      if (incoming.firstActivityAt < day.firstActivityAt) day.firstActivityAt = incoming.firstActivityAt;
+      if (incoming.lastActivityAt > day.lastActivityAt) day.lastActivityAt = incoming.lastActivityAt;
     }
-    const eventIds = uniqueStrings([...existing.eventIds, ...incoming.eventIds]);
-    const activities = uniqueStrings([...existing.activities, ...incoming.activities]);
-    const firstActivityAt = [existing.firstActivityAt, incoming.firstActivityAt].filter(Boolean).sort()[0];
-    const lastActivityAt = [existing.lastActivityAt, incoming.lastActivityAt].filter(Boolean).sort().at(-1);
-    byDate.set(incoming.date, {
-      date: incoming.date,
-      timezone: existing.timezone || incoming.timezone || 'UTC',
-      activities,
-      eventIds,
-      sessionCount: Math.max(existing.sessionCount || 0, incoming.sessionCount || 0, eventIds.length),
-      firstActivityAt,
-      lastActivityAt
-    });
-  });
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }
+  return [...byDate.values()].map(day => ({
+    ...day, activities: [...day.activities].sort(), eventIds: [...day.eventIds].sort()
+  })).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export function normalizeStudyDays(days) {
@@ -163,7 +169,8 @@ function computeStudyStreakFromNormalized(normalized, { now = new Date(), timeZo
 function migrationEvent(type, date, suffix = '', timeZone = getCurrentTimeZone()) {
   const normalizedDate = dateKeyFor(date, timeZone);
   if (!normalizedDate) return null;
-  const stamp = `${normalizedDate}T12:00:00.000Z`;
+  const actualTime = normalizeDateString(date) ? '' : validIso(date);
+  const stamp = actualTime || `${normalizedDate}T12:00:00.000Z`;
   return {
     date: normalizedDate,
     timezone: timeZone,

@@ -1,3 +1,26 @@
+# V1.5.14 — 2026-11-23
+
+| 區域 | V1.5.13 的行為 | V1.5.14 的改動 |
+| --- | --- | --- |
+| 練習設定 | 三種模式都先列出所有假名行，手機開始鍵容易落在首屏之外 | 行別收合及即時摘要，展開可多選，開始鍵直接顯示題數 |
+| 相似字形 | 從模式選單進入，結果一次產生所有列 | 首頁捷徑、每頁 20 筆、只看錯題及原題號 |
+| 單字與設定 | 詞性／等級選單顯示模板字樣，排序重建查詢區，重新整理設定時子區塊可能錯位 | 更正詞性、JLPT 與加權選單，依假名讀音排序，重用搜尋索引及設定欄位 |
+| 歷史與備份 | 彙整時反覆複製、排序同日事件，舊讀音與手寫 CSV 未保存原紀錄 ID | 按天一次累積、排序，匯出保留 ID，匯入可辨識相符舊格式紀錄 |
+| Google／Drive | 登入元件載入失敗後可能重用失敗的標籤，相同的同步會重寫本機集合 | 載入失敗後可重試，同一輪共用載入請求，只提交有變動的集合 |
+| 離線與更新 | 初次安裝可額外重新整理，離線版本檢查可能把舊快取標為最新 | 初次安裝持續顯示原頁，離線顯示無法確認更新，練習或對話窗結束後套用更新 |
+| Worker／D1 | 重新登記可能重設今天的待送時間，重試結果可能覆寫使用者的新設定 | 訂閱、時間及完成回報採用交易；重新開啟保留待送與重試，修改或停用後拒絕舊結果 |
+
+**驗證**　原版 208 項、新版 221 項自動測試全部通過。手機尺寸 430 × 932 下，預設五十音讀音開始鍵的頂端由約 y=851 移到 y=467，底部導覽列從 y=868 開始。另以 820 × 1180 及 1280 × 800 驗證五個主要頁面。完整範圍及效能測量見 README 及 ARCHITECTURE。
+
+**發佈**　PWA V1.5.14、提醒 Worker V1.4.2。現有 IndexedDB、D1 資料表及 VAPID 金鑰可沿用。
+
+### 更新檔案
+
+- **功能及介面**　`app.js`、`index.html`、`interaction-runtime.js`、`japanese-learning.js`、`kana-reading.js`、`learning-sync.js`、`practice-lifecycle.js`、`reminder-manager.js`、`study-streak.js`、`style.css`、`sw.js`、`ui-runtime.js`、`version-manager.js`、`worker.js`。
+- **版本、快取及模組引用**　`background-jobs.js`、`daily-learning.js`、`data-worker.js`、`gemini-client.js`、`kana-data.js`、`manifest.json`、`package-lock.json`、`package.json`、`settings-vault.js`、`similar-kana.js`、`storage-status-ui.js`、`storage.js`、`version.json`、`word-reading.js`。
+- **測試**　`test-drive-regression.mjs`、`test-release-integration.mjs`、`test-reminder-worker.mjs`、`test-settings-preservation.mjs`、`test-similar-kana.mjs`、`test-stability.mjs`、`test-study-streak.mjs`。
+- **文件**　`README.md`、`ARCHITECTURE.md`、`CHANGELOG.md`。
+
 # V1.5.13 — 2026-11-16
 
 - 新增相似字形讀音模式：使用者指定的 11 組、23 個不重複字形混合隨機出題。

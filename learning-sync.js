@@ -1,7 +1,7 @@
-import { mergeStudyDays } from './study-streak.js?v=V1_5_13';
-import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_5_13';
-import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_5_13';
-import { mergeWordReadingHistory } from './word-reading.js?v=V1_5_13';
+import { mergeStudyDays } from './study-streak.js?v=V1_5_14';
+import { mergeHandwritingHistory } from './japanese-learning.js?v=V1_5_14';
+import { mergeKanaReadingHistory } from './kana-reading.js?v=V1_5_14';
+import { mergeWordReadingHistory } from './word-reading.js?v=V1_5_14';
 
 export function mergeDeletedRecords(...lists) {
   const ids = new Set();
@@ -40,18 +40,25 @@ export async function syncLearningState({ readLocal, writeLocal, readRemote, wri
     published = mergeLearningStates(remote, readLocal());
     // If every local record is already represented by the remote union, avoid
     // uploading an identical state again. This removes most no-op Drive writes.
-    if (learningStateSignature(remote) !== learningStateSignature(published)) {
+    const publishedSignature = JSON.stringify(published);
+    if (learningStateSignature(remote) !== publishedSignature) {
       await writeRemote(published, learningDelta(remote, published));
     }
     await ready();
-    writeLocal(mergeLearningStates(published, readLocal()));
+    const local = readLocal();
+    const merged = mergeLearningStates(published, local);
+    // Compare with the records actually on disk, including any still present
+    // under a deletion marker. Normalizing the local state first would hide them.
+    const changed = ['studyDays', 'handwritingHistory', 'kanaReadingHistory', 'wordReadingHistory', 'deletedRecords']
+      .filter(key => JSON.stringify(local[key] || []) !== JSON.stringify(merged[key] || []));
+    if (changed.length) writeLocal(merged, changed);
     await flush();
-    if (learningStateSignature(readLocal()) === learningStateSignature(published)) {
+    if (learningStateSignature(readLocal()) === publishedSignature) {
       const syncedAt = new Date().toISOString();
       markSynced(syncedAt);
       await flush();
       const latest = readLocal();
-      const pending = learningStateSignature(latest) !== learningStateSignature(published);
+      const pending = learningStateSignature(latest) !== publishedSignature;
       if (pending) markPending();
       return { ...latest, syncedAt, pending };
     }

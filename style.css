@@ -4537,3 +4537,18 @@ button > .ui-icon { width:20px; height:20px; }
 .similar-review-header label { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
 .similar-review-header input { width: 18px; height: 18px; accent-color: var(--primary); }
 #similar-review-pages[hidden] { display: none; }
+
+#stats-view .stats-below-target {
+  --stats-result-ink: #962836;
+  color: var(--stats-result-ink);
+  background-color: #ffedef;
+}
+#stats-view .stats-below-target > strong,
+#stats-view .reading-result-score.stats-below-target > span {
+  color: var(--stats-result-ink);
+}
+#stats-view .kana-stat-item.stats-below-target { border-color: #f1b9c1; }
+#stats-view :is(.rec-score, .essay-detail-score, .reading-result-score, .stats-export-num).stats-below-target {
+  border-radius: 6px;
+  padding-inline: 4px;
+}

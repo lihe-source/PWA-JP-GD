@@ -1,4 +1,4 @@
-import { KANA_ROWS } from './kana-data.js?v=V1_5_14';
+import { KANA_ROWS } from './kana-data.js?v=V1_5_15';
 // Portable settings only. Never include OAuth tokens, device identities or learning records.
 const FORMAT = 'japanese-pwa-settings';
 const ITERATIONS = 600000;

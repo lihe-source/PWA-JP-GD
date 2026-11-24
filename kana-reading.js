@@ -1,4 +1,4 @@
-import { legacyAttemptIds } from './japanese-learning.js?v=V1_5_14';
+import { legacyAttemptIds } from './japanese-learning.js?v=V1_5_15';
 
 const ROMAJI_ALIASES = Object.freeze({
   shi: ['si'],

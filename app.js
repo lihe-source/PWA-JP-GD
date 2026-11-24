@@ -1,38 +1,38 @@
-import { SIMILAR_KANA_GROUPS, SMALL_TSU, similarKanaPool, similarKanaQuestions } from './similar-kana.js?v=V1_5_14';
-import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_14';
-import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_14';
-import { createGeminiClient } from './gemini-client.js?v=V1_5_14';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_14';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_14';
-import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_14';
+import { SIMILAR_KANA_GROUPS, SMALL_TSU, similarKanaPool, similarKanaQuestions } from './similar-kana.js?v=V1_5_15';
+import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_15';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_15';
+import { createGeminiClient } from './gemini-client.js?v=V1_5_15';
+import { BackgroundJobs } from './background-jobs.js?v=V1_5_15';
+import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_15';
+import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_15';
 let settingsVaultBusy = false;
-import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_14';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_14';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_14';
+import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_15';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_15';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_15';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_14';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_14';
-import { VersionManager } from './version-manager.js?v=V1_5_14';
-import { TrendChart } from './chart-renderer.js?v=V1_5_14';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_14';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_14';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_14';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_14';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, kanaRowGroupHeading, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_14';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_14';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_14';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_14';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_14';
+import { AppStorage } from './storage.js?v=V1_5_15';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_15';
+import { VersionManager } from './version-manager.js?v=V1_5_15';
+import { TrendChart } from './chart-renderer.js?v=V1_5_15';
+import { PUSH_CONFIG } from './push-config.js?v=V1_5_15';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_15';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_15';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_15';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, kanaRowGroupHeading, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_15';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_15';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_15';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_15';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_15';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_14
-// V1.5.14：練習設定、同步及提醒排程
+// 日本語練習 PWA - app.js V1_5_15
+// V1.5.15：統計頁低於九成的結果以淡紅底標示
 // ===========================
 
 const ViewWork = new ViewWorkManager();
-const APP_VERSION = 'V1_5_14';
-const APP_DISPLAY_VERSION = 'V1.5.14';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_14';
+const APP_VERSION = 'V1_5_15';
+const APP_DISPLAY_VERSION = 'V1.5.15';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_15';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: settingsVaultBusy || ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -43,7 +43,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026112301,
+  currentBuild: 2026112401,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -2647,7 +2647,7 @@ Views.home = {
     container.innerHTML = `
       <div class="home-dashboard">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_14" width="38" height="38" alt=""><h1>日文練習</h1></div>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_15" width="38" height="38" alt=""><h1>日文練習</h1></div>
           <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
@@ -6556,6 +6556,12 @@ Views.aiAsk = {
   }
 };
 
+function statsResultClass(score, maximum = 100) {
+  const numeric = typeof score === 'number' || (typeof score === 'string' && score.trim() !== '');
+  return numeric && Number.isFinite(Number(score)) && Number(score) < maximum * 0.9
+    ? ' stats-below-target' : '';
+}
+
 Views.stats = {
   period: 7, chartInstance: null, mode: 'quiz',
   render(container) { this.period = 7; this.mode = 'quiz'; this.renderStats(container); },
@@ -6596,7 +6602,7 @@ Views.stats = {
           <div class="stats-export-sep"></div>
           <div class="stats-export-item"><div class="stats-export-num">${totalAnswered}</div><div class="stats-export-label">總答題數</div></div>
           <div class="stats-export-sep"></div>
-          <div class="stats-export-item"><div class="stats-export-num" style="color:var(--primary)">${overallPct}%</div><div class="stats-export-label">整體正確率</div></div>
+          <div class="stats-export-item"><div class="stats-export-num${statsResultClass(totalAnswered > 0 ? overallPct : null)}" style="color:var(--stats-result-ink, var(--primary))">${overallPct}%</div><div class="stats-export-label">整體正確率</div></div>
         </div>
         <div class="stats-export-note">CSV 匯出請至「設定 → 匯出統計資料」。${legacyDays ? '另有 ' + legacyDays + ' 天舊版彙總資料，仍包含於答題數，但無法回推場次。' : ''}</div>
       </div>
@@ -6632,8 +6638,17 @@ Views.stats = {
     const tbody=document.getElementById('stats-tbody');
     if(tbody){
       // Reverse for display: newest date on top; chart keeps chronological order
-      const revLabels=[...labels].reverse(); const revShort=revLabels.map(d=>d.slice(5));
-      tbody.innerHTML=revLabels.map((d,i)=>{ const tot=dataMap[d]?.total||0; const cor=dataMap[d]?.correct||0; const wrg=dataMap[d]?.wrong||0; const pct=tot>0?Math.round((cor/tot)*100):'—'; const rec=dataMap[d]; const hasDetails=rec?.wrongWordDetails?.length>0; return `<tr><td class="date-cell">${revShort[i]}</td><td>${tot||'—'}</td><td class="correct-cell">${tot?cor:'—'}</td><td class="wrong-cell">${tot?(hasDetails?`<span class="wrong-clickable" data-date="${d}">${wrg} ▸</span>`:wrg):'—'}</td><td>${pct==='—'?'—':pct+'%'}</td></tr>`; }).join('');
+      tbody.innerHTML = [...labels].reverse().map((date, index) => {
+        const record = dataMap[date];
+        const total = record?.total || 0;
+        const correct = record?.correct || 0;
+        const wrong = record?.wrong || 0;
+        const accuracy = accuracyData[labels.length - 1 - index];
+        const wrongDetails = record?.wrongWordDetails?.length > 0;
+        return `<tr><td class="date-cell">${date.slice(5)}</td><td>${total || '—'}</td><td class="correct-cell">${total ? correct : '—'}</td>
+          <td class="wrong-cell">${total ? (wrongDetails ? `<span class="wrong-clickable" data-date="${date}">${wrong} ▸</span>` : wrong) : '—'}</td>
+          <td class="stats-percentage${statsResultClass(accuracy)}">${accuracy === null ? '—' : accuracy + '%'}</td></tr>`;
+      }).join('');
       tbody.querySelectorAll('.wrong-clickable').forEach(el=>el.addEventListener('click',()=>{const rec=dataMap[el.dataset.date]; if(rec?.wrongWordDetails) this.showWrongModal(el.dataset.date,rec.wrongWordDetails);}));
     }
     if(this.chartInstance) this.chartInstance.destroy();
@@ -6715,7 +6730,7 @@ Views.stats = {
                 <div class="rec-date">${dateShort}<br>${timeStr||'—'}</div>
                 <div class="rec-ord">${ord(si)}${isAiMode?'<br><span class="essay-mode-tag">AI</span>':''}</div>
                 <div class="rec-content" style="${promptStyle}">${promptStr}</div>
-                <div class="rec-score" style="color:${scoreColor}">${score !== null ? score+'/10' : '—'}</div>
+                <div class="rec-score${statsResultClass(score, 10)}" style="color:var(--stats-result-ink, ${scoreColor})">${score !== null ? score+'/10' : '—'}</div>
                 <div class="rec-arrow">▸</div>
               </div>`;
             }).join('')}
@@ -6797,7 +6812,7 @@ Views.stats = {
         ${fb ? `
           <div class="essay-fb-score-row">
             <span>AI 評分</span>
-            <span class="essay-detail-score" style="color:${scoreColor}">${fb.score}/10</span>
+            <span class="essay-detail-score${statsResultClass(fb.score, 10)}" style="color:var(--stats-result-ink, ${scoreColor})">${fb.score}/10</span>
           </div>
           <div class="essay-fb-comment">${nl2br(fb.comment||'')}</div>
           ${grammar.length > 0 ? `
@@ -6977,7 +6992,7 @@ Views.stats = {
       </div>
       <div class="reading-stats-summary">
         <div><strong>${total}</strong><span>測驗次數</span></div>
-        <div><strong>${avg}</strong><span>平均分數</span></div>
+        <div class="stats-score-summary${statsResultClass(total ? avg : null)}"><strong>${avg}</strong><span>平均分數</span></div>
       </div>
       ${flatSessions.length > 0 ? `<div class="rec-header-styled">
         <div style="text-align:center">日期 / 時間</div>
@@ -6999,7 +7014,7 @@ Views.stats = {
                 <div class="rec-date">${escapeHTML(item.date)}<br>${escapeHTML(timeStr || '—')}</div>
                 <div class="rec-ord">${Number(s.correct)||0}/${Number(s.total)||5}</div>
                 <div class="rec-content">${escapeHTML(words)}</div>
-                <div class="rec-score" style="color:${scoreColor}">${score}/100</div>
+                <div class="rec-score${statsResultClass(s.score)}" style="color:var(--stats-result-ink, ${scoreColor})">${score}/100</div>
                 <div class="rec-arrow">▸</div>
               </div>`;
             }).join('')}
@@ -7050,7 +7065,7 @@ Views.stats = {
         <h1 class="section-title" style="font-size:16px">${escapeHTML(item.date)} ${escapeHTML(timeStr ? ' · ' + timeStr : '')}</h1>
       </div>
       <div class="reading-detail-card">
-        <div class="reading-result-score" style="color:${scoreColor}">${score}<span>/100</span></div>
+        <div class="reading-result-score${statsResultClass(s.score)}" style="color:var(--stats-result-ink, ${scoreColor})">${score}<span>/100</span></div>
         <div class="reading-result-text">答對 ${Number(s.correct)||0} / ${Number(s.total)||5} 題</div>
         ${wordSummary ? `<div class="essay-detail-section-title">📖 使用單字</div><div class="essay-fb-badges">${wordSummary.split('、').map(w => `<span class="fb-badge fb-ok">${escapeHTML(w)}</span>`).join('')}</div>` : ''}
         <div class="reading-section-title-row reading-history-article-title-row">
@@ -7160,7 +7175,7 @@ Views.stats = {
     const renderGrid = script => BASIC_KANA.filter(item => item.script === script).map(kana => {
       const item = progressMap.get(kana.id);
       const best = item?.bestScore || 0;
-      return `<div class="kana-stat-item ${best >= 80 ? 'is-mastered' : item ? 'is-practiced' : ''}" title="${kana.romaji}・${item?.attempts || 0} 次">
+      return `<div class="kana-stat-item ${best >= 80 ? 'is-mastered' : item ? 'is-practiced' : ''}${statsResultClass(item?.bestScore)}" title="${kana.romaji}・${item?.attempts || 0} 次">
         <b>${kana.character}</b><span>${escapeHTML(kana.romaji)}</span><strong>${item ? best : '—'}</strong>
       </div>`;
     }).join('');
@@ -7178,7 +7193,7 @@ Views.stats = {
       <div class="reading-stats-summary kana-stats-summary">
         <div><strong>${summary.practiced}/${BASIC_KANA.length}</strong><span>已練假名</span></div>
         <div><strong>${summary.mastered}/${BASIC_KANA.length}</strong><span>已熟練（80 分）</span></div>
-        <div><strong>${summary.averageScore}</strong><span>平均分數</span></div>
+        <div class="stats-score-summary${statsResultClass(summary.attempts > 0 ? summary.averageScore : null)}"><strong>${summary.averageScore}</strong><span>平均分數</span></div>
         <div><strong>${summary.attempts}</strong><span>總練習次數</span></div>
       </div>
       <section class="kana-stat-card"><header><h2>平假名</h2><span>熟練 ${summary.hiraganaMastered} / ${BASIC_KANA.filter(item => item.script === 'hiragana').length}</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
@@ -7202,7 +7217,7 @@ Views.stats = {
     const renderGrid = script => [...BASIC_KANA, SMALL_TSU].filter(item => item.script === script).map(kana => {
       const item = progressMap.get(kana.id);
       const accuracy = item?.accuracy || 0;
-      return `<div class="kana-stat-item ${accuracy >= 80 ? 'is-mastered' : item ? 'is-practiced' : ''}" title="${escapeAttr(kana.romaji)}・${item?.correct || 0}/${item?.attempts || 0}">
+      return `<div class="kana-stat-item ${accuracy >= 80 ? 'is-mastered' : item ? 'is-practiced' : ''}${statsResultClass(item?.accuracy)}" title="${escapeAttr(kana.romaji)}・${item?.correct || 0}/${item?.attempts || 0}">
         <b>${kana.character}</b><span>${escapeHTML(kana.romaji)}</span><strong>${item ? accuracy + '%' : '—'}</strong>
       </div>`;
     }).join('');
@@ -7220,10 +7235,10 @@ Views.stats = {
       <div class="reading-stats-summary kana-stats-summary">
         <div><strong>${summary.practiced}/${BASIC_KANA.length + 1}</strong><span>已練假名</span></div>
         <div><strong>${summary.correct}</strong><span>答對題數</span></div>
-        <div><strong>${summary.accuracy}%</strong><span>整體正確率</span></div>
+        <div class="stats-score-summary${statsResultClass(summary.attempts > 0 ? summary.accuracy : null)}"><strong>${summary.accuracy}%</strong><span>整體正確率</span></div>
         <div><strong>${summary.attempts}</strong><span>總答題數</span></div>
       </div>
-      <div class="kana-reading-stat-note">每格顯示該假名的累積正確率；綠色代表正確率達 80%。</div>
+      <div class="kana-reading-stat-note">每格顯示該假名的累積正確率，低於 90% 以淡紅底標示。</div>
       <section class="kana-stat-card"><header><h2>平假名</h2><span>已練 ${summary.hiraganaPracticed} / ${[...BASIC_KANA, SMALL_TSU].filter(item => item.script === 'hiragana').length}</span></header><div class="kana-stat-grid">${renderGrid('hiragana')}</div></section>
       <section class="kana-stat-card"><header><h2>片假名</h2><span>已練 ${summary.katakanaPracticed} / ${[...BASIC_KANA, SMALL_TSU].filter(item => item.script === 'katakana').length}</span></header><div class="kana-stat-grid">${renderGrid('katakana')}</div></section>
       <button class="btn-primary" id="kana-reading-stats-practice-btn">開始五十音讀音練習</button><div style="height:20px"></div>`;
@@ -7256,7 +7271,7 @@ Views.stats = {
       <div class="reading-stats-summary kana-stats-summary">
         <div><strong>${summary.practiced}</strong><span>已練單詞</span></div>
         <div><strong>${summary.correct}</strong><span>答對題數</span></div>
-        <div><strong>${summary.accuracy}%</strong><span>整體正確率</span></div>
+        <div class="stats-score-summary${statsResultClass(summary.attempts > 0 ? summary.accuracy : null)}"><strong>${summary.accuracy}%</strong><span>整體正確率</span></div>
         <div><strong>${summary.attempts}</strong><span>總答題數</span></div>
       </div>
       <section class="word-reading-result-list kana-stat-card"><h2>最近 40 題</h2>

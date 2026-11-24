@@ -1,6 +1,10 @@
-# 日文練習 PWA V1.5.14
+# 日文練習 PWA V1.5.15
 
 日本語詞彙、五十音手寫與讀音練習，可安裝為離線 PWA。學習資料存在裝置上的 IndexedDB。Google Drive 負責備份及跨裝置學習紀錄，Cloudflare Worker 搭配 D1 處理每日提醒。
+
+## V1.5.15 使用變更
+
+練習統計中低於 90% 的正確率與等值分數以淡紅底標示。單字練習、文章撰寫、文章閱讀測驗、五十音手寫與讀音、單詞讀音依畫面顯示的百分比或分數判斷。90% 整及無紀錄不著色。
 
 ## V1.5.14 使用變更
 
@@ -59,15 +63,15 @@
 
 ## 更新部署
 
-1. 將 `PWA-Japanese-GD-V1_5_14-FLAT.zip` 解壓縮。將同名資料夾裡的專案檔案放到原 GitHub Pages 位置，使 `index.html` 保持在原網址。
-2. 在有現有 Cloudflare 專案權限的環境，於解壓後的資料夾執行以下命令，將提醒 Worker 更新至 V1.4.2。現有 D1 資料表、訂閱與 VAPID 金鑰可繼續使用。
+1. 將 `PWA-Japanese-GD-V1_5_15-FLAT.zip` 解壓縮。將同名資料夾裡的專案檔案放到原 GitHub Pages 位置，使 `index.html` 保持在原網址。
+2. 目前已使用提醒 Worker V1.4.2 的部署，更新前端即可。從更早的 Worker 版本更新時，可在有 Cloudflare 專案權限的環境執行以下命令。現有 D1 資料表、訂閱與 VAPID 金鑰可繼續使用。
 
    ```sh
    npm ci
    npm run worker:deploy
    ```
 
-3. Pages 發佈後開啟 App。設定頁的「當前版本」和「最新版本」應顯示 V1.5.14。提醒服務根網址的版本應顯示 V1.4.2。本次發佈沿用 IndexedDB schema 3 及原有 Cloudflare D1 schema。
+3. Pages 發佈後開啟 App。設定頁的「當前版本」和「最新版本」應顯示 V1.5.15。提醒服務根網址的版本應顯示 V1.4.2。本次發佈沿用 IndexedDB schema 3 及原有 Cloudflare D1 schema。
 
 ## 設定檔與資料備份
 

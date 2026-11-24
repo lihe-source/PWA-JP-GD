@@ -1,3 +1,10 @@
+# V1.5.15 — 2026-11-24
+
+- 統計頁低於 90% 的結果顯示淡紅底與深紅文字。判斷依畫面的正確率或等值分數，恰好 90% 與無資料維持一般樣式。
+- 221 項自動測試通過。以 430 × 932、820 × 1180、1280 × 800 驗證 0%、89%、90%、100%、無紀錄、統計摘要及明細顯示。
+- 功能修改涉及 `app.js`、`style.css`。文件更新包括 `README.md`、`ARCHITECTURE.md`、`CHANGELOG.md`。
+- 同步更新版本、快取與測試引用 `background-jobs.js`、`daily-learning.js`、`data-worker.js`、`gemini-client.js`、`index.html`、`kana-data.js`、`kana-reading.js`、`learning-sync.js`、`manifest.json`、`package-lock.json`、`package.json`、`settings-vault.js`、`similar-kana.js`、`storage-status-ui.js`、`storage.js`、`sw.js`、`test-release-integration.mjs`、`test-settings-preservation.mjs`、`test-stability.mjs`、`version.json`、`word-reading.js`。
+
 # V1.5.14 — 2026-11-23
 
 | 區域 | V1.5.13 的行為 | V1.5.14 的改動 |

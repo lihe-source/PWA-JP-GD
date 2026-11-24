@@ -362,7 +362,7 @@ test('kana CSVs retain distinct same-millisecond IDs across exports, old CSV imp
 test('offline version checks do not mark a cached version as freshly verified', async t => {
   const writes = [];
   t.mock.getter(globalThis, 'navigator', () => ({ onLine: false }));
-  const checker = new VersionManager({ currentVersion:'V1_5_14', storage:{ setItem: (...args) => writes.push(args) } });
+  const checker = new VersionManager({ currentVersion:'V1_5_15', storage:{ setItem: (...args) => writes.push(args) } });
   await assert.rejects(checker.check(), /VERSION_OFFLINE/);
   assert.deepEqual(writes, []);
 });

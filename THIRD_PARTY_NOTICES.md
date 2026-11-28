@@ -6,14 +6,10 @@
 - License: Creative Commons Attribution-ShareAlike 3.0
 - 本專案只擷取基本五十音所需的向量路徑，並轉換為離線 JavaScript 資料格式。
 - 完整授權文字請見 `KANJIVG-LICENSE.txt`。
-# V1.3.0 App Icon
 
-The white あ glyph in icon-192.png and icon-512.png is adapted from KanjiVG 5.0.0
-(Ulrich Apel and contributors), using the same paths as kana-strokes.js.
-The icons add a blue background and a book-line motif. These adapted icon assets
-are licensed under CC BY-SA 3.0; see KANJIVG-LICENSE.txt and
-https://kanjivg.tagaini.net/ . Other application code retains its existing terms.
+## V1.6.0 App Icon
 
+新版使用為本專案生成的摺紙鶴與朱紅日輪圖示，另輸出 Apple 主畫面與 maskable 尺寸。
 
 ## V1.5.13 voiced and semi-voiced kana
 

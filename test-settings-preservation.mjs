@@ -29,7 +29,7 @@ test('the GitHub release directory is completely flat', async () => {
   const releaseEntries = entries.filter(entry => !['node_modules', '.git'].includes(entry.name));
   assert.deepEqual(releaseEntries.filter(entry => entry.isDirectory()).map(entry => entry.name), []);
   if (repository) assert.ok(releaseEntries.length >= 46, 'repository may retain historical documents');
-  else assert.ok(releaseEntries.length >= 53 && releaseEntries.length <= 65, 'flat release keeps runtime, documentation and regression tests bounded');
+  else assert.ok(releaseEntries.length >= 53 && releaseEntries.length <= 68, 'flat release keeps runtime, documentation and regression tests bounded');
   for (const doc of ['README.md', 'ARCHITECTURE.md', 'CHANGELOG.md']) assert.ok(releaseEntries.some(entry => entry.name === doc));
   if (!repository) assert.ok(!releaseEntries.some(entry => /^(ARCHITECTURE_V|CHANGELOG_V|QA_V|UPDATE_V|icon-source|indexl\.html)/.test(entry.name)));
 });
@@ -41,9 +41,17 @@ test('new install icons are opaque square PNGs and versioned in the manifest', a
     assert.equal(png.subarray(1,4).toString(), 'PNG');
     assert.equal(png.readUInt32BE(16), size);
     assert.equal(png.readUInt32BE(20), size);
-    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_5_15`));
+    assert.ok(manifest.icons.some(icon => icon.src === `icon-${size}.png?v=V1_6_3`));
   }
-  assert.match(await text('THIRD_PARTY_NOTICES.md'), /icons.*add a blue|icons add a blue/);
+  for (const [name, size] of [['icon-maskable-512', 512], ['apple-touch-icon', 180], ['favicon-32', 32]]) {
+    const png = await readFile(new URL(`./${name}.png`, import.meta.url));
+    assert.equal(png.readUInt32BE(16), size);
+    assert.equal(png.readUInt32BE(20), size);
+    assert.equal(png[25], 2, 'opaque RGB PNG');
+  }
+  const mask = manifest.icons.find(icon => icon.purpose === 'maskable');
+  assert.ok(mask.src.startsWith('icon-maskable-512.png?'));
+  assert.match(await text('index.html'), /rel="apple-touch-icon" sizes="180x180"/);
 });
 
 test('Japanese data uses an isolated IndexedDB and storage prefix', async () => {

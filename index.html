@@ -6,25 +6,28 @@
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="日文練習">
-  <meta name="theme-color" content="#f3f7fc">
-  <title>日本語練習 V1.5.15</title>
-  <link rel="manifest" href="manifest.json?v=V1_5_15">
-  <link rel="apple-touch-icon" href="icon-192.png?v=V1_5_15">
-  <link rel="icon" type="image/png" href="icon-192.png?v=V1_5_15">
+  <meta name="theme-color" content="#f8f6ef">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="練習假名手寫與讀音、整理日文單字，查看每天的學習紀錄。">
+  <title>日本語練習 V1.6.3</title>
+  <link rel="manifest" href="manifest.json?v=V1_6_3">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=V1_6_3">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=V1_6_3">
   <link rel="preconnect" href="https://accounts.google.com" crossorigin>
   <link rel="preconnect" href="https://www.googleapis.com" crossorigin>
-  <link rel="stylesheet" href="style.css?v=V1_5_15">
+  <link rel="stylesheet" href="style.css?v=V1_6_3">
 </head>
 <body>
+  <a class="skip-link" href="#view-container">跳至主要內容</a>
   <div id="offline-banner" class="offline-banner" role="status" aria-live="polite" hidden>目前為離線模式，雲端與 AI 功能暫時不可用</div>
   <div id="app">
     <section id="storage-warning" class="storage-warning" role="alert" hidden>
       <p>資料尚未儲存，請勿關閉程式。請重試或先匯出救援備份。</p>
       <div><button type="button" data-storage-action="retry">重試儲存</button><button type="button" data-storage-action="export">匯出救援備份</button></div>
     </section>
-    <div id="view-container"></div>
+    <main id="view-container" tabindex="-1"></main>
     <nav id="bottom-nav" aria-label="主要導覽">
       <button class="nav-btn active" data-view="home">
         <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-8H9v8H4a1 1 0 0 1-1-1Z"/></svg>
@@ -35,8 +38,8 @@
         <span>練習</span>
       </button>
       <button class="nav-btn" data-view="database">
-        <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0"/></svg>
-        <span>資料庫</span>
+        <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 6c-3-2-7-2-10-1v14c3-1 7-1 10 1 3-2 7-2 10-1V5c-3-1-7-1-10 1Zm0 0v14"/></svg>
+        <span>單字庫</span>
       </button>
       <button class="nav-btn" data-view="stats">
         <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 21V11M12 21V3M20 21V7"/></svg>
@@ -60,6 +63,6 @@
       <div id="modal-content"></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=V1_5_15"></script>
+  <script type="module" src="app.js?v=V1_6_3"></script>
 </body>
 </html>

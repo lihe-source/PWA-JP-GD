@@ -23,49 +23,76 @@ export function readingFeedback(result, character, expected, extra = 0) {
     : `<div class="is-wrong"><strong>✗ 上一題訂正：${escapeHTML(character)}</strong><span>你的答案：${escapeHTML(result.answer)}　正確拼音：<b>${escapeHTML(expected)}</b>；已追加補練${extra ? `（${extra} 題）` : ''}</span></div>`;
 }
 
-// Keep the same DOM input across questions. Scroll only if the keyboard really covers it.
-export function bindReadingViewport(input) {
-  if (!input || typeof window === 'undefined') return () => {};
+const colorThemes = new Map([
+  ['indigo', '和紙靛藍'], ['blue', '經典晴藍'], ['green', '抹茶綠'],
+  ['violet', '藤花紫'], ['rose', '櫻花粉']
+]);
+
+export function applyColorTheme(value) {
+  const theme = colorThemes.has(value) ? value : 'indigo';
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]').content = getComputedStyle(root).getPropertyValue('--bg').trim();
+}
+
+export function themePickerMarkup() {
+  const options = Array.from(colorThemes, ([id, name]) => `
+    <label class="theme-choice">
+      <span class="theme-sample" data-theme="${id}" aria-hidden="true"></span>
+      <span>${name}</span>
+      <input type="radio" name="journal-theme" value="${id}" ${id === document.documentElement.dataset.theme ? 'checked' : ''}>
+    </label>`);
+  return `<fieldset class="theme-panel"><legend>介面配色</legend>
+    <div class="theme-options">${options.join('')}</div>
+  </fieldset>`;
+}
+
+// iOS can pan the visual viewport as well as reduce its height when focusing a field.
+// Bound the actual scrollport to that rectangle. Scrolling the contents stays native.
+export function setupPracticeViewport() {
+  // Some installed iOS versions expose standalone only through Navigator.
+  if (navigator.standalone === true) document.documentElement.classList.add('ios-home-screen');
+  const app = document.getElementById('app');
+  const scroller = document.getElementById('view-container');
   const viewport = window.visualViewport;
+  const fields = '#kana-reading-answer, #word-reading-answer, #quiz-ghost-input, #essay-textarea, #aiask-textarea';
+  let referenceWidth = window.innerWidth;
+  let referenceHeight = document.documentElement.clientHeight;
   let frame = 0;
-  let disposed = false;
-  const update = () => {
-    if (disposed || frame) return;
-    frame = requestAnimationFrame(() => {
-      frame = 0;
-      if (!input.isConnected) return;
-      const session = input.closest('.kana-reading-session');
-      const keyboard = !!viewport && viewport.height < window.innerHeight * .8 && document.activeElement === input;
-      session?.classList.toggle('has-keyboard', keyboard);
-      session?.style.setProperty('--reading-visible-height', `${Math.round(viewport?.height || window.innerHeight)}px`);
-      if (document.activeElement !== input) return;
-      const top = viewport?.offsetTop || 0;
-      const bottom = top + (viewport?.height || window.innerHeight);
-      const card = input.closest('.kana-reading-question-card');
-      const cardRect = card?.getBoundingClientRect();
-      const rect = input.getBoundingClientRect();
-      if (keyboard && cardRect && cardRect.height <= bottom - top - 16) {
-        if (cardRect.top < top + 8 || cardRect.bottom > bottom - 8) card.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
-      } else if (rect.top < top + 8 || rect.bottom > bottom - 8) {
-        input.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
-      }
-    });
-  };
-  viewport?.addEventListener('resize', update, { passive: true });
-  viewport?.addEventListener('scroll', update, { passive: true });
-  input.addEventListener('focus', update);
-  input.addEventListener('blur', update);
-  window.addEventListener('orientationchange', update, { passive: true });
-  update();
-  return () => {
-    disposed = true;
-    cancelAnimationFrame(frame);
-    viewport?.removeEventListener('resize', update);
-    viewport?.removeEventListener('scroll', update);
-    input.removeEventListener('focus', update);
-    input.removeEventListener('blur', update);
-    window.removeEventListener('orientationchange', update);
-  };
+
+  function sync() {
+    frame = 0;
+    const field = document.activeElement;
+    const editing = field?.matches(fields) && app.contains(field);
+    const layoutHeight = document.documentElement.clientHeight;
+    const visibleHeight = viewport?.height ?? window.innerHeight;
+    if (referenceWidth !== window.innerWidth || !editing) {
+      referenceWidth = window.innerWidth;
+      referenceHeight = layoutHeight;
+    }
+    const occluded = Math.max(referenceHeight, layoutHeight) - visibleHeight;
+    const keyboard = editing && (!viewport || Math.abs(viewport.scale - 1) < .03) && occluded > 80;
+    const wasOpen = app.classList.contains('practice-keyboard');
+    if (keyboard) {
+      app.style.setProperty('--practice-height', visibleHeight + 'px');
+      app.style.setProperty('--practice-top', (viewport?.pageTop ?? window.scrollY) + 'px');
+      app.classList.add('practice-keyboard');
+      if (!wasOpen && field.closest('.kana-reading-session, .quiz-area')) scroller.scrollTop = 0;
+    } else if (wasOpen) {
+      app.classList.remove('practice-keyboard');
+      app.style.removeProperty('--practice-height');
+      app.style.removeProperty('--practice-top');
+    }
+  }
+  function schedule() {
+    if (!frame) frame = requestAnimationFrame(sync);
+  }
+  viewport?.addEventListener('resize', schedule, { passive: true });
+  viewport?.addEventListener('scroll', schedule, { passive: true });
+  window.addEventListener('resize', schedule, { passive: true });
+  window.addEventListener('pageshow', schedule);
+  app.addEventListener('focusin', schedule);
+  app.addEventListener('focusout', schedule);
 }
 
 export function createModalFocusManager() {
@@ -142,7 +169,7 @@ export function mountSettingsGroups(container, storage) {
     ['cloud', '帳戶與雲端', 'Google Drive、備份與復原', true],
     ['learning', '學習設定', '等級、行別與練習偏好', false],
     ['ai', 'AI 與通知', '模型、API Key、每日提醒', false],
-    ['advanced', '進階與資料管理', '版本更新、音效測試與匯入匯出', false]
+    ['advanced', '進階與資料管理', '音效測試、匯入與匯出', false]
   ];
   const original = [...wrap.children];
   const groups = new Map();

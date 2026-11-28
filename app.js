@@ -1,38 +1,38 @@
-import { SIMILAR_KANA_GROUPS, SMALL_TSU, similarKanaPool, similarKanaQuestions } from './similar-kana.js?v=V1_5_15';
-import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_5_15';
-import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_5_15';
-import { createGeminiClient } from './gemini-client.js?v=V1_5_15';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_15';
-import { readingProgress, readingFeedback, firstAttemptSummary, bindReadingViewport, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_5_15';
-import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_5_15';
+import { SIMILAR_KANA_GROUPS, SMALL_TSU, similarKanaPool, similarKanaQuestions } from './similar-kana.js?v=V1_6_3';
+import { cloudError, driveReadFetch, sessionValue, setSessionValue, verifyDriveReceipt } from './cloud-runtime.js?v=V1_6_3';
+import { ViewWorkManager, preserveSettingsView, readArray, createToastController } from './interaction-runtime.js?v=V1_6_3';
+import { createGeminiClient } from './gemini-client.js?v=V1_6_3';
+import { BackgroundJobs } from './background-jobs.js?v=V1_6_3';
+import { readingProgress, readingFeedback, firstAttemptSummary, setupPracticeViewport, applyColorTheme, themePickerMarkup, createModalFocusManager, mountSettingsGroups, enhanceKeyboardOptions, uiIcon } from './ui-runtime.js?v=V1_6_3';
+import { mountSettingsVault, applySettings } from './settings-vault.js?v=V1_6_3';
 let settingsVaultBusy = false;
-import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_5_15';
-import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_5_15';
-import { mountStorageStatus } from './storage-status-ui.js?v=V1_5_15';
+import { syncLearningState, mergeLearningStates, mergeDeletedRecords, escapeDriveQuery } from './learning-sync.js?v=V1_6_3';
+import { canUpdateApp, isPracticeActive } from './practice-lifecycle.js?v=V1_6_3';
+import { mountStorageStatus } from './storage-status-ui.js?v=V1_6_3';
 let StorageUI = null;
-import { AppStorage } from './storage.js?v=V1_5_15';
-import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_5_15';
-import { VersionManager } from './version-manager.js?v=V1_5_15';
-import { TrendChart } from './chart-renderer.js?v=V1_5_15';
-import { PUSH_CONFIG } from './push-config.js?v=V1_5_15';
-import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_5_15';
-import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_5_15';
-import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_5_15';
-import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, kanaRowGroupHeading, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_5_15';
-import { HandwritingEngine } from './handwriting-engine.js?v=V1_5_15';
-import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_5_15';
-import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_5_15';
-import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_5_15';
+import { AppStorage } from './storage.js?v=V1_6_3';
+import { BackupSchema, mergePracticeHistory } from './backup-schema.js?v=V1_6_3';
+import { VersionManager } from './version-manager.js?v=V1_6_3';
+import { TrendChart } from './chart-renderer.js?v=V1_6_3';
+import { PUSH_CONFIG } from './push-config.js?v=V1_6_3';
+import { ReminderManager, reminderErrorMessage } from './reminder-manager.js?v=V1_6_3';
+import { StudyStreakManager, STUDY_ACTIVITY_TYPES, STUDY_DAYS_CSV_HEADER, mergeStudyDays, dateKeyFor } from './study-streak.js?v=V1_6_3';
+import { JAPANESE_DEFAULTS, KanaProgressManager, buildKanaProgress, mergeHandwritingHistory, normalizeJapaneseAnswer, normalizeJapaneseWord, resolveWritingLayout } from './japanese-learning.js?v=V1_6_3';
+import { BASIC_KANA, KANA_REPEAT_OPTIONS, KANA_ROWS, kanaRowLabel, kanaRowGroupHeading, buildRepeatedKanaPractice, getKanaSet } from './kana-data.js?v=V1_6_3';
+import { HandwritingEngine } from './handwriting-engine.js?v=V1_6_3';
+import { DAILY_LEARNING_SOURCES, LEARNING_KANA_ROWS, dailyLearningSignature, normalizeDailyLearningPreferences, normalizeDailyVocabulary, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRowLabel, selectedLearningRows, selectedLearningPreferenceLabel, hiraganaToKatakana, splitTargetMatches, validateGeneratedSentence, validateStoredGeneratedSentence } from './daily-learning.js?v=V1_6_3';
+import { KanaReadingProgressManager, checkKanaReadingAnswer } from './kana-reading.js?v=V1_6_3';
+import { WordReadingProgressManager, WORD_READING_COUNTS, normalizeWordReadingPreferences, makeWordReadingPool, buildWordReadingQuestions, checkWordReadingAnswer } from './word-reading.js?v=V1_6_3';
 
 // ===========================
-// 日本語練習 PWA - app.js V1_5_15
-// V1.5.15：統計頁低於九成的結果以淡紅底標示
+// 日本語練習 PWA - app.js V1_6_3
+// V1.6.3：日文學習手帳介面
 // ===========================
 
 const ViewWork = new ViewWorkManager();
-const APP_VERSION = 'V1_5_15';
-const APP_DISPLAY_VERSION = 'V1.5.15';
-const APP_CACHE_VERSION = 'Japanese-PWA-V1_5_15';
+const APP_VERSION = 'V1_6_3';
+const APP_DISPLAY_VERSION = 'V1.6.3';
+const APP_CACHE_VERSION = 'Japanese-PWA-V1_6_3';
 const canActivateAppUpdate = () => canUpdateApp({
   document, router: Router, storage: AppStorage,
   cloudBusy: settingsVaultBusy || ViewWork.busy || BackgroundJobs.busy || !!GDrive._streakSyncPromise || !!GDrive._restoreInProgress || !!GDrive._uploadInProgress ||
@@ -43,7 +43,7 @@ const canActivateAppUpdate = () => canUpdateApp({
 const AppUpdater = new VersionManager({
   currentVersion: APP_VERSION,
   displayVersion: APP_DISPLAY_VERSION,
-  currentBuild: 2026112401,
+  currentBuild: 2026112804,
   cachePrefix: 'Japanese-PWA-',
   versionUrl: './version.json',
   storage: AppStorage,
@@ -1412,7 +1412,7 @@ function refreshStudyStreakUI() {
       const day = new Date(monday); day.setDate(monday.getDate() + index);
       const key = dateKeyFor(day);
       const done = practiced.has(key);
-      return `<div class="study-week-day ${done ? 'is-done' : ''}" ${key === dateKeyFor(today) ? 'aria-current="date"' : ''} aria-label="${key} ${done ? '已練習' : '未練習'}"><span>${label}</span><b aria-hidden="true">${done ? '✓' : ''}</b></div>`;
+      return `<div class="study-week-day ${done ? 'is-done' : ''}" ${key === dateKeyFor(today) ? 'aria-current="date"' : ''} aria-label="${key} ${done ? '已練習' : '未練習'}"><span>${label}</span><b aria-hidden="true">${done ? '✓' : day.getDate()}</b></div>`;
     }).join('');
   }
   const syncState = document.getElementById('study-streak-sync-status');
@@ -2647,32 +2647,29 @@ Views.home = {
     container.innerHTML = `
       <div class="home-dashboard">
         <header class="home-brand">
-          <div class="home-brand-name"><img src="icon-192.png?v=V1_5_15" width="38" height="38" alt=""><h1>日文練習</h1></div>
-          <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定"><span aria-hidden="true">${escapeHTML((GDrive.getUserEmail() || 'あ').slice(0, 1).toUpperCase())}</span><small>${APP_DISPLAY_VERSION}</small></button>
+          <div class="home-brand-name"><img src="icon-192.png?v=V1_6_3" width="40" height="40" alt=""><h1>日文練習</h1></div>
+          <button type="button" class="home-account" data-nav="settings" aria-label="開啟帳號與設定">${uiIcon('settings')}<small>${APP_DISPLAY_VERSION}</small></button>
         </header>
         <section class="study-streak-card" aria-labelledby="study-streak-title">
-          <div class="study-streak-heading">
-            <div class="study-streak-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2s1 4-2 6c-2 1-3-1-3-1s-4 4-2 9a6 6 0 0 0 12 0c1-4-2-7-5-8 1-2 0-4 0-6z"/><path d="M10 17c0 1.1.9 2 2 2s2-.9 2-2c0-1-.7-1.7-1.5-2.3-.1.8-.6 1.3-1.2 1.5-.5.1-.9-.2-1.1-.6-.1.4-.2.9-.2 1.4z"/></svg>
-            </div>
-            <div>
-              <div class="study-streak-title" id="study-streak-title">每天一點，持續進步</div>
-              <div class="study-streak-today ${streak.practicedToday ? 'is-complete' : ''}" id="streak-today-state">${streak.practicedToday ? '今天已完成練習' : '今天尚未完成練習'}</div>
-            </div>
-            <div class="study-streak-total"><strong id="streak-total-days">${streak.totalDays}</strong><span>累積天數</span></div>
-          </div>
-          <div class="study-streak-metrics">
-            <div class="study-streak-metric is-current">
-              <span>連續練習天數</span>
-              <strong><b id="streak-current-days">${streak.current}</b> 天</strong>
-            </div>
-            <div class="study-streak-divider" aria-hidden="true"></div>
-            <div class="study-streak-metric">
-              <span>歷史最長紀錄</span>
-              <strong><b id="streak-longest-days">${streak.longest}</b> 天</strong>
-            </div>
+          <div class="week-dateline">${new Intl.DateTimeFormat('zh-TW', {month:'long',day:'numeric',weekday:'long'}).format(new Date())}</div>
+          <h2 id="study-streak-title">本週學習手帳</h2>
+          <div class="study-streak-today ${streak.practicedToday ? 'is-complete' : ''}" id="streak-today-state">${streak.practicedToday ? '今天已完成練習' : '今天尚未完成練習'}</div>
+          <div class="journal-metrics">
+            <div><span>連續練習</span><strong id="streak-current-days">${streak.current}</strong><small>天</small></div>
+            <div><span>歷史最長</span><strong id="streak-longest-days">${streak.longest}</strong><small>天</small></div>
+            <div><span>累積練習</span><strong id="streak-total-days">${streak.totalDays}</strong><small>天</small></div>
           </div>
           <div class="study-week" id="study-week" role="group" aria-label="本週練習紀錄"></div>
+          <button type="button" class="journal-start" data-nav="${DB.getLastPracticeMode() === 'quiz' && !DB.getWords().length ? 'kanaReadingPractice' : 'practice'}">開始今日練習 <span aria-hidden="true">→</span></button>
+        </section>
+        <section class="home-practice-links" aria-labelledby="quick-title">
+          <h2 id="quick-title">練習捷徑</h2>
+          <div class="home-menu-grid">
+            <button type="button" class="menu-card" data-nav="kanaPractice"><span class="menu-glyph" lang="ja" aria-hidden="true">あ</span><span><strong>五十音手寫</strong><small>看字形，練筆順</small></span></button>
+            <button type="button" class="menu-card" data-nav="kanaReadingPractice"><span class="menu-glyph" lang="ja" aria-hidden="true">カ</span><span><strong>五十音讀音</strong><small>看假名，輸入拼音</small></span></button>
+            <button type="button" class="menu-card" data-nav="similarKanaPractice"><span class="menu-glyph" lang="ja" aria-hidden="true">ツ</span><span><strong>相似字形</strong><small>辨認易混淆的假名</small></span></button>
+            <button type="button" class="menu-card" data-nav="wordReadingPractice"><span class="menu-glyph" lang="ja" aria-hidden="true">語</span><span><strong>單詞讀音</strong><small>看單詞，輸入拼音</small></span></button>
+          </div>
         </section>
         <div class="home-hero" id="hero-card">
           <div class="hero-label">
@@ -2683,32 +2680,9 @@ Views.home = {
           <div id="hero-content">
             <div class="hero-idle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:28px;height:28px;opacity:0.35;display:block;margin:0 auto 8px"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><div style="font-size:12px;opacity:0.5">${levelLearning ? '正在準備今日推薦單字…' : '點右上角 ↻ 生成今日例句'}</div></div>
           </div>
-          <button class="hero-refresh-btn" id="hero-refresh" title="強制重新生成">
+          <button class="hero-refresh-btn" id="hero-refresh" aria-label="重新產生今天的學習內容" title="重新產生">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
-        </div>
-        <div class="home-primary-action"><button type="button" class="btn-primary" data-nav="practice">開始今日練習 <span aria-hidden="true">›</span></button></div>
-        <div class="home-menu-grid">
-          <div class="menu-card" data-nav="practice">
-            <div class="menu-icon" style="background:#e3f2fd"><svg viewBox="0 0 24 24" fill="none" stroke="#1565c0" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
-            <div><div class="menu-card-title">日文練習</div><div class="menu-card-sub">語彙拼寫與閱讀測驗</div></div>
-          </div>
-          <div class="menu-card" data-nav="kanaPractice">
-            <div class="menu-icon" aria-hidden="true">${uiIcon('pen')}</div>
-            <div><div class="menu-card-title">五十音手寫</div><div class="menu-card-sub">平假名・片假名・Apple Pencil</div></div>
-          </div>
-          <div class="menu-card" data-nav="kanaReadingPractice">
-            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">${uiIcon('text')}</div>
-            <div><div class="menu-card-title">五十音讀音</div><div class="menu-card-sub">看假名・輸入羅馬音</div></div>
-          </div>
-          <div class="menu-card" data-nav="similarKanaPractice">
-            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">${uiIcon('text')}</div>
-            <div><div class="menu-card-title">相似字形讀音</div><div class="menu-card-sub">辨認 シ・ッ・ン・ツ 等字形</div></div>
-          </div>
-          <div class="menu-card" data-nav="wordReadingPractice">
-            <div class="menu-icon kana-reading-shortcut" aria-hidden="true">${uiIcon('book')}</div>
-            <div><div class="menu-card-title">單詞讀音</div><div class="menu-card-sub">看單詞・輸入羅馬音</div></div>
-          </div>
         </div>
         <div class="sentence-log-section">
           <div class="sentence-log-header">
@@ -3107,6 +3081,7 @@ function renderPracticeModeSelector(currentMode = 'quiz') {
   const isAiAsk = currentMode === 'aiask';
   return `
     <div class="practice-mode-bar">
+      <label for="practice-mode-select">練習模式</label>
       <select class="practice-mode-select" id="practice-mode-select" aria-label="選擇練習模式">
         <option value="quiz" ${isQuiz ? 'selected' : ''}>單字拼寫</option>
         <option value="kana" ${isKana ? 'selected' : ''}>五十音手寫</option>
@@ -3370,7 +3345,7 @@ Views.practice = {
       // Keep a real input focused for the iOS keyboard, but make it visually inert.
       // type="text" avoids native search-field decoration work while typing.
       ghost.type = 'text';
-      ghost.style.cssText = `position:fixed;left:50%;bottom:1px;width:1px;height:1px;opacity:0.01;border:0;padding:0;margin:0;outline:none;background:transparent;color:transparent;caret-color:transparent;font-size:16px;line-height:1;z-index:1;pointer-events:none;clip-path:inset(50%);transform:translateZ(0);-webkit-appearance:none;appearance:none;`;
+      ghost.style.cssText = `position:absolute;left:50%;top:50%;width:1px;height:1px;opacity:0.01;border:0;padding:0;margin:0;outline:none;background:transparent;color:transparent;caret-color:transparent;font-size:16px;line-height:1;z-index:1;pointer-events:none;clip-path:inset(50%);transform:translateZ(0);-webkit-appearance:none;appearance:none;`;
       ghost.setAttribute('autocapitalize','none');
       ghost.setAttribute('autocorrect','off');
       ghost.setAttribute('autocomplete','off');
@@ -3379,7 +3354,7 @@ Views.practice = {
       ghost.setAttribute('lang','ja');
       ghost.setAttribute('enterkeyhint','done');
       ghost.setAttribute('name', 'quiz-' + Date.now()); // unique name prevents browser autocomplete
-      document.getElementById('app').appendChild(ghost);
+      document.querySelector('.quiz-area').appendChild(ghost);
     }
     ghost.readOnly = false;
     this._ghost = ghost; return ghost;
@@ -4125,7 +4100,7 @@ Views.kanaPractice = {
               ${hideCharacter ? '<button class="btn-secondary kana-small-btn" id="kana-reveal-btn" type="button">顯示字形</button>' : ''}
             </div>
           </aside>
-          <main class="kana-canvas-card">
+          <section class="kana-canvas-card">
             <div class="kana-canvas-caption"><span id="kana-stroke-live">請開始書寫</span><span>分數為本機輔助判定</span>${this.state.diagnostics ? '<small id="kana-diagnostic-status" aria-live="off">書寫診斷已開啟</small>' : ''}</div>
             <div class="kana-canvas-stage"><canvas class="kana-writing-canvas" id="kana-writing-canvas" aria-label="${kana.character} 手寫區"></canvas></div>
             <div class="kana-canvas-tools">
@@ -4133,7 +4108,7 @@ Views.kanaPractice = {
               <button type="button" id="kana-clear-btn">清除</button>
               <button type="button" id="kana-guide-btn">顯示筆畫</button>
             </div>
-          </main>
+          </section>
         </div>
         <section class="kana-score-panel" id="kana-score-panel" aria-live="polite">
           <div class="kana-inline-metrics">
@@ -4343,10 +4318,8 @@ Views.kanaReadingPractice = {
     items: [], initialTotal: 0, index: 0, results: [], answered: false, transitioning: false
   },
   _advanceTimer: null,
-  _viewportCleanup: null,
 
   cleanup() {
-    this._viewportCleanup?.(); this._viewportCleanup = null;
     if (this._advanceTimer !== null) {
       clearTimeout(this._advanceTimer);
       this._advanceTimer = null;
@@ -4516,21 +4489,19 @@ Views.kanaReadingPractice = {
           <button class="kana-back-btn" id="kana-reading-exit-btn" type="button" aria-label="離開讀音練習">‹</button>
           <div class="kana-session-progress"><span id="kana-reading-progress-text"></span><div><i id="kana-reading-progress-fill"></i></div></div>
         </header>
-        <main class="kana-reading-question-card">
+        <section class="kana-reading-question-card">
           <div class="kana-reading-character" id="kana-reading-character"></div>
           <p>輸入羅馬拼音，按鍵盤「下一個／換行」送出並自動換題</p>
           <form class="kana-reading-answer-form" id="kana-reading-answer-form">
-            <input id="kana-reading-answer" type="text" inputmode="text" lang="en" enterkeyhint="next" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="8" autofocus aria-label="輸入假名的羅馬拼音" placeholder="例如：a">
+            <input id="kana-reading-answer" type="text" inputmode="text" lang="en" enterkeyhint="next" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="8" aria-label="輸入假名的羅馬拼音" placeholder="例如：a">
             <button class="btn-primary" id="kana-reading-submit" type="submit">送出並下一題</button>
           </form>
           <div class="kana-reading-feedback" id="kana-reading-feedback" role="status" aria-live="polite"></div>
           <button class="btn-secondary kana-reading-listen" id="kana-reading-listen" type="button">${uiIcon('sound')} 播放假名發音</button>
-        </main>
+        </section>
       </div>`;
     const input = document.getElementById('kana-reading-answer');
     const form = document.getElementById('kana-reading-answer-form');
-    this._viewportCleanup?.();
-    this._viewportCleanup = bindReadingViewport(input);
     input?.addEventListener('beforeinput', event => {
       if (this.state.transitioning) event.preventDefault();
     });
@@ -4574,6 +4545,7 @@ Views.kanaReadingPractice = {
     const feedback = document.getElementById('kana-reading-feedback');
     if (progressText) progressText.textContent = readingProgress(this.title, this.state);
     if (progressFill) progressFill.style.width = `${progress}%`;
+    if (document.getElementById('app')?.classList.contains('practice-keyboard')) document.getElementById('view-container').scrollTop = 0;
     if (character) {
       character.textContent = kana.character;
       character.classList.toggle('is-small-tsu', kana.character === 'ッ');
@@ -4635,7 +4607,6 @@ Views.kanaReadingPractice = {
   },
 
   renderResult(container) {
-    this._viewportCleanup?.(); this._viewportCleanup = null;
     Router.quizActive = false;
     const results = this.state.results;
     const firstAttempt = firstAttemptSummary(results, this.state.initialTotal);
@@ -4667,7 +4638,6 @@ Views.similarKanaPractice = Object.assign(Object.create(Views.kanaReadingPractic
   title: '相似字形讀音',
   state: { items: [], initialTotal: 0, index: 0, results: [], repeat: 1, transitioning: false },
   _advanceTimer: null,
-  _viewportCleanup: null,
   renderAnswerReview(results, wrong) {
     this.reviewRows = results.map((result, index) => ({ result, number: index + 1 }));
     this.reviewPage = 0;
@@ -4761,10 +4731,8 @@ Views.similarKanaPractice = Object.assign(Object.create(Views.kanaReadingPractic
 Views.wordReadingPractice = {
   state: { script: 'hiragana', rows: ['all'], count: 10, items: [], initialTotal: 0, index: 0, results: [], lastFeedback: '', transitioning: false },
   _advanceTimer: null,
-  _viewportCleanup: null,
 
   cleanup() {
-    this._viewportCleanup?.(); this._viewportCleanup = null;
     if (this._advanceTimer !== null) clearTimeout(this._advanceTimer);
     this._advanceTimer = null;
     TTS.stop();
@@ -4851,16 +4819,14 @@ Views.wordReadingPractice = {
   renderQuestion(container) {
     container.innerHTML = `<div class="kana-reading-session word-reading-session">
       <header class="kana-session-header"><button class="kana-back-btn" id="word-reading-exit" type="button" aria-label="離開單詞讀音練習">‹</button><div class="kana-session-progress"><span id="word-reading-progress-text"></span><div><i id="word-reading-progress-fill"></i></div></div></header>
-      <main class="kana-reading-question-card"><div class="kana-reading-character word-reading-character" id="word-reading-character" lang="ja"></div>
+      <section class="kana-reading-question-card"><div class="kana-reading-character word-reading-character" id="word-reading-character" lang="ja"></div>
         <div class="word-reading-meaning" id="word-reading-meaning" aria-label="單詞中文翻譯"></div>
         <p>輸入完整羅馬拼音，按鍵盤「下一個／換行」送出並自動換題</p>
-        <form class="kana-reading-answer-form" id="word-reading-form"><input id="word-reading-answer" type="text" inputmode="text" lang="en" enterkeyhint="next" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="80" autofocus aria-label="輸入單詞羅馬拼音" placeholder="例如：kasa"><button class="btn-primary" id="word-reading-submit" type="submit">送出並下一題</button></form>
+        <form class="kana-reading-answer-form" id="word-reading-form"><input id="word-reading-answer" type="text" inputmode="text" lang="en" enterkeyhint="next" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="80" aria-label="輸入單詞羅馬拼音" placeholder="例如：kasa"><button class="btn-primary" id="word-reading-submit" type="submit">送出並下一題</button></form>
         <div class="kana-reading-feedback" id="word-reading-feedback" role="status" aria-live="polite"></div>
-      </main></div>`;
+      </section></div>`;
     const input = document.getElementById('word-reading-answer');
     const form = document.getElementById('word-reading-form');
-    this._viewportCleanup?.();
-    this._viewportCleanup = bindReadingViewport(input);
     input?.addEventListener('beforeinput', event => { if (this.state.transitioning) event.preventDefault(); });
     input?.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); form?.requestSubmit(); } });
     form?.addEventListener('submit', event => { event.preventDefault(); this.submitAnswer(container); this._focus(input); });
@@ -4883,6 +4849,7 @@ Views.wordReadingPractice = {
     const submit = document.getElementById('word-reading-submit');
     if (progress) progress.textContent = readingProgress('單詞讀音', this.state);
     if (fill) fill.style.width = `${Math.round(this.state.index / this.state.items.length * 100)}%`;
+    if (document.getElementById('app')?.classList.contains('practice-keyboard')) document.getElementById('view-container').scrollTop = 0;
     if (character) character.textContent = item.display;
     if (meaning) meaning.textContent = item.meaning || '尚無中文翻譯';
     if (input) { input.value = ''; input.setAttribute('aria-label', `輸入 ${item.display} 的完整羅馬拼音`); }
@@ -4918,7 +4885,6 @@ Views.wordReadingPractice = {
     }
   },
   renderResult(container) {
-    this._viewportCleanup?.(); this._viewportCleanup = null;
     Router.quizActive = false;
     const results = this.state.results;
     const firstAttempt = firstAttemptSummary(results, this.state.initialTotal);
@@ -5361,7 +5327,7 @@ Views.database = {
     const listEl = container.querySelector('#db-list');
     if (!listEl) return;
     if (words.length === 0) {
-      listEl.innerHTML = `<div class="db-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:auto"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><div class="db-empty-title">資料庫是空的</div><div class="db-empty-sub">點選「新增」或使用上方 AI 日語辭典加入語彙</div></div>`;
+      listEl.innerHTML = `<div class="db-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:auto"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><div class="db-empty-title">尚無單字</div><div class="db-empty-sub">點選「新增」或使用「日語辭典」加入語彙</div></div>`;
       if (needle) listEl.innerHTML = '<div class="db-empty"><div class="db-empty-title">查無符合的單字</div><div class="db-empty-sub">請更換關鍵字或清空搜尋條件</div></div>';
       const pager = container.querySelector('#db-pagination');
       if (pager) { pager.innerHTML = ''; pager.onclick = null; }
@@ -5420,15 +5386,42 @@ Views.database = {
     const ecdictLoaded = false;
     container.innerHTML = `
       <div class="section-header">
-        <h1 class="section-title">資料庫</h1>
+        <h1 class="section-title">我的單字庫</h1>
         <span class="word-count-badge">${words.length} 個單字</span>
       </div>
-      <div class="lookup-card">
+      <div class="db-toolbar">
+        <button class="btn-icon btn-add" id="add-word-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
+        <button class="btn-icon btn-export" id="export-btn">${uiIcon('download')}匯出</button>
+        <button class="btn-icon btn-import" id="import-btn">${uiIcon('upload')}匯入</button>
+        <button class="btn-icon ${dm?'btn-delete-confirm':'btn-delete-toggle'}" id="delete-toggle-btn"${words.length===0?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>${dm?(sel.size>0?`確認(${sel.size})`:'確認'):'刪除'}</button>
+        <button class="btn-icon ${acm?'btn-ai-correct-active':'btn-ai-correct'}" id="ai-correct-btn"${!DB.getApiKey()||words.length===0?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 9.5-9.5z"/></svg>${acm?'取消更正':'AI 更正'}</button>
+        ${acm?`<button class="btn-icon btn-ai-correct-run" id="ai-correct-run-btn" style="background:var(--primary);color:#fff">${acs.size>0?`執行 AI 更正 (${acs.size})`:'執行 AI 更正'}</button>`:''}
+      </div>
+      <input type="file" id="csv-file-input" accept=".csv" style="display:none">
+      <!-- 排序列 -->
+      <div class="db-sort-bar">
+        <span class="db-sort-label">排序：</span>
+        <button class="db-sort-chip ${this.sortMode==='createdAt'?'active':''}" data-sort="createdAt" aria-pressed="${this.sortMode === 'createdAt'}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          建立時間
+        </button>
+        <button class="db-sort-chip ${this.sortMode==='alpha'?'active':''}" data-sort="alpha" aria-pressed="${this.sortMode === 'alpha'}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l8-3 8 3"/><path d="M4 10h16"/><path d="M4 14h16"/><path d="M4 18h16"/></svg>
+          五十音順
+        </button>
+        <button class="db-sort-chip ${this.sortMode==='wrongCount'?'active':''}" data-sort="wrongCount" aria-pressed="${this.sortMode === 'wrongCount'}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          錯誤次數
+        </button>
+      </div>
+      ${dm ? `<button id="db-back-to-top" class="db-back-to-top" title="回到頂部"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg></button>` : ''}
+      <label class="db-local-search">搜尋本機單字<input id="db-local-search" type="search" autocomplete="off" aria-label="搜尋本機單字" placeholder="日文、中文或拼音" value="${escapeHTML(this._search)}"></label>
+      <details class="lookup-card">
         <!-- Card header -->
-        <div class="lookup-card-header">
+        <summary class="lookup-card-header">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          <span>AI 日語辭典</span>
-        </div>
+          <span>日語辭典</span>
+        </summary>
         <!-- Segmented tab control -->
         <div class="lookup-seg-wrap">
           <div class="lookup-seg">
@@ -5482,35 +5475,7 @@ Views.database = {
             : `<div class="ecdict-intro"><p>使用 Gemini AI 查詢日文語彙、假名讀音、羅馬拼音、詞性與繁體中文釋義。<br>請先在設定頁填入 Gemini API Key。</p><button class="btn-ecdict-load" id="ai-goto-settings-btn">前往設定</button></div>`}
         </div>
         <input type="file" id="ecdict-file-input" accept=".csv" style="display:none">
-      </div>
-
-      <div class="db-toolbar">
-        <button class="btn-icon btn-add" id="add-word-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增</button>
-        <button class="btn-icon btn-export" id="export-btn">${uiIcon('download')}匯出</button>
-        <button class="btn-icon btn-import" id="import-btn">${uiIcon('upload')}匯入</button>
-        <button class="btn-icon ${dm?'btn-delete-confirm':'btn-delete-toggle'}" id="delete-toggle-btn"${words.length===0?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>${dm?(sel.size>0?`確認(${sel.size})`:'確認'):'刪除'}</button>
-        <button class="btn-icon ${acm?'btn-ai-correct-active':'btn-ai-correct'}" id="ai-correct-btn"${!DB.getApiKey()||words.length===0?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 9.5-9.5z"/></svg>${acm?'取消更正':'AI 更正'}</button>
-        ${acm?`<button class="btn-icon btn-ai-correct-run" id="ai-correct-run-btn" style="background:var(--primary);color:#fff">${acs.size>0?`執行 AI 更正 (${acs.size})`:'執行 AI 更正'}</button>`:''}
-      </div>
-      <input type="file" id="csv-file-input" accept=".csv" style="display:none">
-      <!-- 排序列 -->
-      <div class="db-sort-bar">
-        <span class="db-sort-label">排序：</span>
-        <button class="db-sort-chip ${this.sortMode==='createdAt'?'active':''}" data-sort="createdAt" aria-pressed="${this.sortMode === 'createdAt'}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          建立時間
-        </button>
-        <button class="db-sort-chip ${this.sortMode==='alpha'?'active':''}" data-sort="alpha" aria-pressed="${this.sortMode === 'alpha'}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l8-3 8 3"/><path d="M4 10h16"/><path d="M4 14h16"/><path d="M4 18h16"/></svg>
-          五十音順
-        </button>
-        <button class="db-sort-chip ${this.sortMode==='wrongCount'?'active':''}" data-sort="wrongCount" aria-pressed="${this.sortMode === 'wrongCount'}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          錯誤次數
-        </button>
-      </div>
-      ${dm ? `<button id="db-back-to-top" class="db-back-to-top" title="回到頂部"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg></button>` : ''}
-      <label class="db-local-search">搜尋本機單字<input id="db-local-search" type="search" autocomplete="off" aria-label="搜尋本機單字" placeholder="日文、中文或拼音" value="${escapeHTML(this._search)}"></label>
+      </details>
       <div class="db-list-scroll"><div class="db-list" id="db-list"></div></div>
       <nav id="db-pagination" class="list-pagination" aria-label="單字庫分頁"></nav>
     `;
@@ -5927,12 +5892,12 @@ Views.database = {
   showAddModal(container) {
     const posOptions = ['名詞','五段動詞','一段動詞','不規則動詞','い形容詞','な形容詞','副詞','助詞','接續詞','慣用語'];
     Modal.show(`<div class="modal-handle"></div><div class="modal-title">新增日文語彙</div>
-      <div class="form-group"><label class="form-label">日文語彙 *</label><input class="form-input" id="new-en" placeholder="例：食べる" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="text"></div>
-      <div class="form-group"><label class="form-label">詞性 *</label><select class="form-select" id="new-pos">${posOptions.map(p=>`<option>${escapeHTML(p)}</option>`).join('')}</select></div>
-      <div class="form-group"><label class="form-label">繁體中文意思 *</label><input class="form-input" id="new-zh" placeholder="例：吃；食用"></div>
-      <div class="form-group"><label class="form-label">假名讀音（可選）</label><input class="form-input" id="new-phonetic" placeholder="例：たべる" lang="ja" autocorrect="off" autocapitalize="off"></div>
-      <div class="form-group"><label class="form-label">羅馬拼音（可選）</label><input class="form-input" id="new-romaji" placeholder="例：taberu" autocorrect="off" autocapitalize="off"></div>
-      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="new-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option>${escapeHTML(level)}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label" for="new-en">日文語彙 *</label><input class="form-input" id="new-en" placeholder="例：食べる" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="text"></div>
+      <div class="form-group"><label class="form-label" for="new-pos">詞性 *</label><select class="form-select" id="new-pos">${posOptions.map(p=>`<option>${escapeHTML(p)}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label" for="new-zh">繁體中文意思 *</label><input class="form-input" id="new-zh" placeholder="例：吃；食用"></div>
+      <div class="form-group"><label class="form-label" for="new-phonetic">假名讀音（可選）</label><input class="form-input" id="new-phonetic" placeholder="例：たべる" lang="ja" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label" for="new-romaji">羅馬拼音（可選）</label><input class="form-input" id="new-romaji" placeholder="例：taberu" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label" for="new-jlpt">JLPT 等級</label><select class="form-select" id="new-jlpt">${['N5','N4','N3','N2','N1','未分級'].map(level=>`<option>${escapeHTML(level)}</option>`).join('')}</select></div>
       <div class="modal-actions"><button class="modal-btn-cancel" id="cancel-add">取消</button><button class="modal-btn-confirm" id="confirm-add">新增</button></div>`);
     document.getElementById('cancel-add').addEventListener('click', () => Modal.hide());
     document.getElementById('confirm-add').addEventListener('click', () => {
@@ -5952,13 +5917,13 @@ Views.database = {
     if (selectedPos && !posOptions.includes(selectedPos)) posOptions.unshift(selectedPos);
     if (!levels.includes(selectedLevel)) levels.push(selectedLevel);
     Modal.show(`<div class="modal-handle"></div><div class="modal-title">編輯日文語彙</div>
-      <div class="form-group"><label class="form-label">日文語彙</label><input class="form-input" id="edit-en" value="${escapeAttr(word.english)}" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false"></div>
-      <div class="form-group"><label class="form-label">詞性</label><select class="form-select" id="edit-pos">${posOptions.map(p=>`<option ${p===selectedPos?'selected':''}>${escapeHTML(p)}</option>`).join('')}</select></div>
-      <div class="form-group"><label class="form-label">中文意思</label><input class="form-input" id="edit-zh" value="${escapeAttr(word.chinese)}"></div>
-      <div class="form-group"><label class="form-label">假名讀音（可選）</label><input class="form-input" id="edit-phonetic" value="${escapeAttr(word.phonetic||'')}" lang="ja" autocorrect="off" autocapitalize="off"></div>
-      <div class="form-group"><label class="form-label">羅馬拼音（可選）</label><input class="form-input" id="edit-romaji" value="${escapeAttr(word.romaji||'')}" autocorrect="off" autocapitalize="off"></div>
-      <div class="form-group"><label class="form-label">JLPT 等級</label><select class="form-select" id="edit-jlpt">${levels.map(level=>`<option ${level===selectedLevel?'selected':''}>${escapeHTML(level)}</option>`).join('')}</select></div>
-      <div class="form-group"><label class="form-label">頻率加權</label><select class="form-select" id="edit-weight">${[1,2,3,5].map(n=>`<option value="${n}" ${n===(word.frequencyWeight||1)?'selected':''}>${n} 倍${n===1?' (預設)':''}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label" for="edit-en">日文語彙</label><input class="form-input" id="edit-en" value="${escapeAttr(word.english)}" lang="ja" autocorrect="off" autocapitalize="off" spellcheck="false"></div>
+      <div class="form-group"><label class="form-label" for="edit-pos">詞性</label><select class="form-select" id="edit-pos">${posOptions.map(p=>`<option ${p===selectedPos?'selected':''}>${escapeHTML(p)}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label" for="edit-zh">中文意思</label><input class="form-input" id="edit-zh" value="${escapeAttr(word.chinese)}"></div>
+      <div class="form-group"><label class="form-label" for="edit-phonetic">假名讀音（可選）</label><input class="form-input" id="edit-phonetic" value="${escapeAttr(word.phonetic||'')}" lang="ja" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label" for="edit-romaji">羅馬拼音（可選）</label><input class="form-input" id="edit-romaji" value="${escapeAttr(word.romaji||'')}" autocorrect="off" autocapitalize="off"></div>
+      <div class="form-group"><label class="form-label" for="edit-jlpt">JLPT 等級</label><select class="form-select" id="edit-jlpt">${levels.map(level=>`<option ${level===selectedLevel?'selected':''}>${escapeHTML(level)}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label" for="edit-weight">頻率加權</label><select class="form-select" id="edit-weight">${[1,2,3,5].map(n=>`<option value="${n}" ${n===(word.frequencyWeight||1)?'selected':''}>${n} 倍${n===1?' (預設)':''}</option>`).join('')}</select></div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">答錯次數：${word.wrongCount||0} 次</div>
       <div class="modal-actions"><button class="modal-btn-cancel" id="cancel-edit">取消</button><button class="modal-btn-confirm" id="confirm-edit">儲存</button></div>`);
     document.getElementById('cancel-edit').addEventListener('click', () => Modal.hide());
@@ -6576,7 +6541,7 @@ Views.stats = {
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
       <div class="stats-mode-bar">
-        <select class="stats-mode-select" id="stats-mode-select">
+        <select class="stats-mode-select" id="stats-mode-select" aria-label="統計項目">
           <option value="quiz" ${this.mode==="quiz"?"selected":""}>單字練習</option>
           <option value="essay" ${this.mode==="essay"?"selected":""}>文章撰寫</option>
           <option value="reading" ${this.mode==="reading"?"selected":""}>文章閱讀測驗</option>
@@ -6586,15 +6551,6 @@ Views.stats = {
           <option value="aiask" ${this.mode==="aiask"?"selected":""}>AI 詢問</option>
         </select>
       </div>
-      <div class="stats-period-chips">${[7,14,21,30].map(d=>`<button class="chip ${d===this.period?'selected':''}" data-period="${d}">${d===30?'近 30 天':d+'天'}</button>`).join('')}</div>
-      <div class="chart-card"><div class="card-header">答題趨勢</div><div class="chart-wrapper"><canvas id="stats-chart"></canvas></div></div>
-      <div class="stats-table-card">
-        <div class="stats-table-hint">點擊錯誤數字可查看答錯單字</div>
-        <div class="stats-table-scroll">
-          <table class="stats-table"><thead><tr><th>日期</th><th>總題數</th><th>正確</th><th>錯誤</th><th>正確率</th></tr></thead><tbody id="stats-tbody"></tbody></table>
-        </div>
-      </div>
-
       <!-- ★ 統計摘要：CSV 匯出功能已移至設定頁 -->
       <div class="stats-summary-card">
         <div class="stats-export-summary">
@@ -6602,9 +6558,18 @@ Views.stats = {
           <div class="stats-export-sep"></div>
           <div class="stats-export-item"><div class="stats-export-num">${totalAnswered}</div><div class="stats-export-label">總答題數</div></div>
           <div class="stats-export-sep"></div>
-          <div class="stats-export-item"><div class="stats-export-num${statsResultClass(totalAnswered > 0 ? overallPct : null)}" style="color:var(--stats-result-ink, var(--primary))">${overallPct}%</div><div class="stats-export-label">整體正確率</div></div>
+          <div class="stats-export-item"><div class="stats-export-num${statsResultClass(totalAnswered > 0 ? overallPct : null)}" style="color:var(--stats-result-ink, var(--primary))">${totalAnswered ? overallPct+'%' : '—'}</div><div class="stats-export-label">整體正確率</div></div>
         </div>
         <div class="stats-export-note">CSV 匯出請至「設定 → 匯出統計資料」。${legacyDays ? '另有 ' + legacyDays + ' 天舊版彙總資料，仍包含於答題數，但無法回推場次。' : ''}</div>
+      </div>
+
+      <div class="stats-period-chips">${[7,14,21,30].map(d=>`<button class="chip ${d===this.period?'selected':''}" data-period="${d}">${d===30?'近 30 天':d+'天'}</button>`).join('')}</div>
+      <div class="chart-card"><div class="card-header">答題趨勢</div><div class="chart-wrapper"><canvas id="stats-chart"></canvas></div></div>
+      <div class="stats-table-card">
+        <div class="stats-table-hint">點擊錯誤數字可查看答錯單字</div>
+        <div class="stats-table-scroll">
+          <table class="stats-table"><thead><tr><th>日期</th><th>總題數</th><th>正確</th><th>錯誤</th><th>正確率</th></tr></thead><tbody id="stats-tbody"></tbody></table>
+        </div>
       </div>
 
       <div style="height:20px"></div>
@@ -6686,7 +6651,7 @@ Views.stats = {
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
       <div class="stats-mode-bar">
-        <select class="stats-mode-select" id="stats-mode-select">
+        <select class="stats-mode-select" id="stats-mode-select" aria-label="統計項目">
           <option value="quiz">單字練習</option>
           <option value="essay" selected>文章撰寫</option>
           <option value="reading">文章閱讀測驗</option>
@@ -6839,7 +6804,7 @@ Views.stats = {
     const history = DB.getAiAskHistory();
     const statsModeSel = `
       <div class="stats-mode-bar">
-        <select class="stats-mode-select" id="stats-mode-select">
+        <select class="stats-mode-select" id="stats-mode-select" aria-label="統計項目">
           <option value="quiz">單字練習</option>
           <option value="essay">文章撰寫</option>
           <option value="reading">文章閱讀測驗</option>
@@ -6980,7 +6945,7 @@ Views.stats = {
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
       <div class="stats-mode-bar">
-        <select class="stats-mode-select" id="stats-mode-select">
+        <select class="stats-mode-select" id="stats-mode-select" aria-label="統計項目">
           <option value="quiz">單字練習</option>
           <option value="essay">文章撰寫</option>
           <option value="reading" selected>文章閱讀測驗</option>
@@ -7181,7 +7146,7 @@ Views.stats = {
     }).join('');
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
-      <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select">
+      <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select" aria-label="統計項目">
         <option value="quiz">單字練習</option>
         <option value="essay">文章撰寫</option>
         <option value="reading">文章閱讀測驗</option>
@@ -7223,7 +7188,7 @@ Views.stats = {
     }).join('');
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
-      <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select">
+      <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select" aria-label="統計項目">
         <option value="quiz">單字練習</option>
         <option value="essay">文章撰寫</option>
         <option value="reading">文章閱讀測驗</option>
@@ -7262,7 +7227,7 @@ Views.stats = {
     const history = WordReadingProgress.getHistory();
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">練習統計</h1></div>
-      <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select">
+      <div class="stats-mode-bar"><select class="stats-mode-select" id="stats-mode-select" aria-label="統計項目">
         <option value="quiz">單字練習</option><option value="essay">文章撰寫</option>
         <option value="reading">文章閱讀測驗</option><option value="kana">五十音手寫</option>
         <option value="kanaReading">五十音讀音</option><option value="wordReading" selected>單詞讀音</option>
@@ -7364,6 +7329,20 @@ Views.settings = {
 
     container.innerHTML = `
       <div class="section-header"><h1 class="section-title">設定</h1></div>
+      <section class="release-panel" aria-label="程式版本與更新">
+          <div class="version-info-grid">
+            <div><span>當前版本</span><strong>${APP_DISPLAY_VERSION}</strong></div>
+            <div><span>最新版本</span><strong id="latest-version-value">${escapeHTML(versionState.latestVersion)}</strong></div>
+            <div><span>資料儲存</span><strong>${storageState.mode === 'indexeddb' ? 'IndexedDB · schema ' + storageState.schemaVersion : '相容模式'}</strong></div>
+          </div>
+          <div id="version-last-check" class="version-last-check">${versionState.lastCheckedAt ? '最後檢查：' + new Date(versionState.lastCheckedAt).toLocaleString('zh-TW') : '尚未檢查更新'}</div>
+          <button class="btn-secondary" id="check-update-btn" style="width:100%;margin-bottom:8px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:6px"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            檢查更新
+          </button>
+          <div id="update-status" role="status" aria-live="polite" style="font-size:12px;color:var(--text-muted);min-height:16px"></div>
+      </section>
+      ${themePickerMarkup()}
       <div class="settings-wrap">
 
         <!-- ★ 1. Google Drive 同步狀態（最上方） -->
@@ -7863,25 +7842,6 @@ Views.settings = {
           ${!reminderCapabilities.backendConfigured ? '<div class="reminder-warning">部署完成後，請先在 <code>push-config.js</code> 填入 Worker 網址。</div>' : ''}
           ${reminderCapabilities.needsInstall ? '<div class="reminder-warning">iPhone 必須先從瀏覽器分享選單選擇「加入主畫面」，再由主畫面圖示開啟。</div>' : ''}
           <div class="settings-tip reminder-tip">在提醒時間前完成任一練習，這台裝置當天會自動略過通知；隔天重新判斷。通知訂閱與完成判斷均綁定裝置，不會跟著 Google Drive 備份移轉。PWA 關閉後仍可通知；實際顯示時間可能受網路、專注模式或通知摘要影響。</div>
-        </div>
-
-        <!-- 版本號 + 檢查更新 -->
-        <div class="settings-section-label" style="margin-top:16px">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          版本資訊
-        </div>
-        <div class="settings-card" style="text-align:center">
-          <div class="version-info-grid">
-            <div><span>當前版本</span><strong>${APP_DISPLAY_VERSION}</strong></div>
-            <div><span>最新版本</span><strong id="latest-version-value">${escapeHTML(versionState.latestVersion)}</strong></div>
-            <div><span>資料儲存</span><strong>${storageState.mode === 'indexeddb' ? 'IndexedDB · schema ' + storageState.schemaVersion : '相容模式'}</strong></div>
-          </div>
-          <div id="version-last-check" class="version-last-check">${versionState.lastCheckedAt ? '最後檢查：' + new Date(versionState.lastCheckedAt).toLocaleString('zh-TW') : '尚未檢查更新'}</div>
-          <button class="btn-secondary" id="check-update-btn" style="width:100%;margin-bottom:8px">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:6px"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            檢查更新
-          </button>
-          <div id="update-status" role="status" aria-live="polite" style="font-size:12px;color:var(--text-muted);min-height:16px"></div>
         </div>
 
         <!-- 8. 音效測試 -->
@@ -8440,6 +8400,19 @@ Views.settings = {
     container.querySelector('#gd-transfer-cancel')?.addEventListener('click', () => { GDrive.cancelTransfer(); setDriveOperation('正在取消…', 0, 'cancelling'); });
 
     mountSettingsGroups(container, AppStorage);
+    container.querySelector('.theme-panel').addEventListener('change', event => {
+      const input = event.target;
+      if (!input.matches('input[name="journal-theme"]:checked')) return;
+      try {
+        // This tiny, device-local preference must survive an immediate app close.
+        localStorage.setItem(colorThemeKey, input.value);
+        applyColorTheme(input.value);
+      } catch {
+        const current = document.documentElement.dataset.theme;
+        container.querySelector(`input[name="journal-theme"][value="${current}"]`).checked = true;
+        showToast('無法儲存配色，請確認本機儲存狀態。');
+      }
+    });
     StorageUI?.render();
     const vaultAvailable = () => !ViewWork.busy && !BackgroundJobs.busy && !GDrive._uploadInProgress && !GDrive._restoreInProgress && !GDrive._streakSyncPromise && !GDrive._transferController && !Views.home._dailyVocabularyRequest && !Views.home._databaseSentenceRequest && !Views.home._dailySentenceRequests.size;
     mountSettingsVault({
@@ -8748,7 +8721,12 @@ Views.settings = {
 // ===========================
 // INIT
 // ===========================
+const colorThemeKey = 'japanese-journal:theme:' + new URL('.', document.baseURI).pathname;
+
 document.addEventListener('DOMContentLoaded', async () => {
+  setupPracticeViewport();
+  try { applyColorTheme(localStorage.getItem(colorThemeKey)); }
+  catch { applyColorTheme('indigo'); }
   const shell = document.getElementById('view-container');
   if (shell) shell.innerHTML = '<div class="startup-status" role="status" aria-live="polite"><strong>日文練習</strong><p>正在載入本機學習資料…</p></div>';
   document.querySelectorAll('.nav-btn').forEach(button => { button.disabled = true; });

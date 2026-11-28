@@ -1,5 +1,5 @@
-import { DAILY_LEARNING_SOURCES, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRows, hiraganaToKatakana, validateGeneratedSentence } from './daily-learning.js?v=V1_5_15';
-import { normalizeJapaneseAnswer } from './japanese-learning.js?v=V1_5_15';
+import { DAILY_LEARNING_SOURCES, normalizeDailyLearningPreferences, parseDailyVocabularyResponse, parseGeneratedSentenceResponse, selectedLearningRows, hiraganaToKatakana, validateGeneratedSentence } from './daily-learning.js?v=V1_6_3';
+import { normalizeJapaneseAnswer } from './japanese-learning.js?v=V1_6_3';
 export function createGeminiClient(DB) {
 return {
   _modelCatalog: null,

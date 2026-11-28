@@ -1,5 +1,5 @@
-import { BackupSchema } from './backup-schema.js?v=V1_5_15';
-import { BackgroundJobs } from './background-jobs.js?v=V1_5_15';
+import { BackupSchema } from './backup-schema.js?v=V1_6_3';
+import { BackgroundJobs } from './background-jobs.js?v=V1_6_3';
 export function mountStorageStatus({ storage, cloudState, exportPayload, restorePayload, onSafe }) {
   const banner = document.getElementById('storage-warning');
   const render = () => {
